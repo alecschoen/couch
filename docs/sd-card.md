@@ -92,4 +92,4 @@ the old entry: `ssh-keygen -R couch.local`.
 
 ## 3. Next
 
-The Pi is ready for `install.sh` (#3).
+The Pi is ready for `install.sh`; see [Install on the Pi](../README.md#install-on-the-pi).

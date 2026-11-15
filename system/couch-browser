@@ -1,0 +1,17 @@
+#!/bin/sh
+# Chromium for the Couch session; cage (couch-session.service) runs this as the couch user.
+# YouTube's decode flags and user agent come with #21, the DevTools hookup with #13.
+exec /usr/bin/chromium \
+    --ozone-platform=wayland \
+    --kiosk \
+    --user-data-dir=/var/lib/couch/chromium \
+    --no-first-run \
+    --no-default-browser-check \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --disable-features=Translate,MediaRouter \
+    --password-store=basic \
+    --autoplay-policy=no-user-gesture-required \
+    --hide-scrollbars \
+    "http://127.0.0.1:${COUCH_PORT:-8765}/"

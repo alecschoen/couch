@@ -1,0 +1,31 @@
+[Unit]
+Description=Couch TV session (cage + Chromium on tty1)
+Documentation=https://github.com/alecschoen/couch
+# Takes tty1 from the login prompt, the way a display manager would.
+Conflicts=getty@tty1.service
+After=getty@tty1.service systemd-user-sessions.service plymouth-quit-wait.service
+After=dbus.socket systemd-logind.service couchd.service
+Wants=dbus.socket systemd-logind.service couchd.service
+ConditionPathExists=/dev/tty1
+
+[Service]
+Type=simple
+User=couch
+# A real logind session on tty1 (an autologin, without a password), so cage gets the DRM
+# device and input through logind and the couch user gets its PipeWire.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-browser
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
