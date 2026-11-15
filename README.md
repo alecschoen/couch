@@ -21,7 +21,7 @@ A remote-first TV launcher for the Raspberry Pi 4. It runs YouTube's TV interfac
 | `docs/` | SD card guide, TV notes, user guide |
 | `tests/` | pytest suite |
 | `scripts/` | `dev.sh`, `flash-sd.sh` |
-| `install.sh` | One-command install on a fresh Pi OS Lite (coming in #3) |
+| `install.sh` | Install or update Couch on a fresh Pi OS Lite |
 
 ## Development
 
@@ -54,6 +54,29 @@ Your keyboard is the remote:
 | F1–F4 | Red, green, yellow, blue |
 
 The fakes take a moment like real hardware does, and "Old Speaker" always refuses to pair, so error screens can be built too. The API is described in [docs/protocol.md](docs/protocol.md).
+
+## Install on the Pi
+
+Start from a fresh Pi OS Lite card ([docs/sd-card.md](docs/sd-card.md)), then on the Pi:
+
+```bash
+git clone https://github.com/alecschoen/couch.git && cd couch
+sudo ./install.sh
+```
+
+The script installs:
+- the apt packages Couch needs
+- a `couch` system user
+- couchd in `/opt/couch`
+- two services: `couchd` and `couch-session`, which runs cage and Chromium on tty1
+
+The launcher comes up on the TV straight away, and again after every boot.
+
+To update, pull and run it again. It only changes what's different, and restarts only what it changed. A run with nothing to do says so.
+
+`sudo ./install.sh --uninstall` removes Couch but keeps `/etc/couch` and `/var/lib/couch`. `--purge` removes those and the user too. Once the repo is public, `curl -fsSL https://raw.githubusercontent.com/alecschoen/couch/main/install.sh | sudo bash` works too; it keeps its checkout in `/opt/couch/src`.
+
+Logs: `journalctl -u couchd -u couch-session`.
 
 ## Configuration
 
