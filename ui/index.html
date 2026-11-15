@@ -3,52 +3,167 @@
 <head>
   <meta charset="utf-8">
   <title>Couch</title>
-  <!-- Placeholder until the launcher screens land (M2). Shows the live connection to couchd. -->
+  <!--
+    Dev console: a stand-in until the real screens land (M2). It shows the live state
+    and makes every fake device clickable with the remote: arrows move, Enter selects.
+  -->
   <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0; min-height: 100vh; padding: 64px; box-sizing: border-box;
-      background: #14121a; color: #ece8f2; font: 24px/1.4 system-ui, sans-serif;
-    }
-    h1 { margin: 0 0 8px; font-size: 56px; font-weight: 600; }
-    #status::before { content: "●"; margin-right: 10px; color: #c0564b; }
-    #status.on::before { color: #6fbf73; }
-    pre { margin-top: 40px; font-size: 18px; color: #b9b2c6; }
-    #toast {
-      position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%);
-      padding: 16px 28px; border-radius: 14px; background: #2a2633; opacity: 0;
-      transition: opacity 200ms;
-    }
+    :root { color-scheme: dark; --bg: #14121a; --panel: #1f1c27; --text: #ece8f2;
+            --dim: #9d96ab; --accent: #e3a35b; --ok: #6fbf73; --bad: #c0564b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 56px 72px; background: var(--bg);
+           color: var(--text); font: 24px/1.4 system-ui, sans-serif; }
+    header { display: flex; align-items: baseline; gap: 28px; margin-bottom: 40px; }
+    h1 { margin: 0; font-size: 56px; font-weight: 600; }
+    h2 { margin: 0 0 18px; font-size: 22px; font-weight: 600; color: var(--dim);
+         text-transform: uppercase; letter-spacing: 0.08em; }
+    .dim { color: var(--dim); }
+    #status::before { content: "●"; margin-right: 10px; color: var(--bad); }
+    #status.on::before { color: var(--ok); }
+    #lastkey { margin-left: auto; font-variant-numeric: tabular-nums; }
+    main { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 32px; }
+    section { background: var(--panel); border-radius: 20px; padding: 28px; }
+    button { display: flex; width: 100%; align-items: center; gap: 14px; margin: 0 0 10px;
+             padding: 14px 18px; border: 2px solid transparent; border-radius: 12px;
+             background: #2a2633; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+    button:focus { outline: none; border-color: var(--accent); background: #353041; }
+    button[disabled] { opacity: 0.45; }
+    button .right { margin-left: auto; font-size: 20px; color: var(--dim); }
+    .current { color: var(--accent); }
+    .row { display: flex; gap: 10px; }
+    .row button { justify-content: center; }
+    #toast { position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%);
+             padding: 16px 28px; border-radius: 14px; background: #2a2633; opacity: 0;
+             transition: opacity 200ms; }
     #toast.show { opacity: 1; }
+    #toast.error { background: #4a2420; }
+    footer { margin-top: 36px; font-size: 18px; }
   </style>
 </head>
 <body>
-  <h1>Couch</h1>
-  <div id="status">Connecting to couchd…</div>
-  <pre id="state"></pre>
+  <header>
+    <h1>Couch</h1>
+    <span id="status">Connecting to couchd…</span>
+    <span id="mode" class="dim"></span>
+    <span id="lastkey" class="dim"></span>
+  </header>
+  <main>
+    <section><h2>TV</h2><div id="tv"></div></section>
+    <section><h2>Sound</h2><div id="audio"></div></section>
+    <section><h2>Bluetooth</h2><div id="bluetooth"></div></section>
+  </main>
+  <footer class="dim">
+    Remote: arrows · Enter = OK · Backspace = Back · H = Home · Space = play/pause ·
+    F1–F4 = red, green, yellow, blue
+  </footer>
   <div id="toast"></div>
+
   <script type="module">
     import { Couch } from "./js/couch.js";
+    import { useKeyboardAsRemote } from "./js/keys.js";
 
     const couch = new Couch();
-    const status = document.getElementById("status");
-    const stateEl = document.getElementById("state");
-    const toast = document.getElementById("toast");
+    const $ = (id) => document.getElementById(id);
     let toastTimer;
 
-    couch.addEventListener("connection", (e) => {
-      status.classList.toggle("on", e.detail.connected);
-      status.textContent = e.detail.connected ? "Connected" : "Reconnecting…";
-    });
-    couch.addEventListener("state", (e) => {
-      stateEl.textContent = JSON.stringify(e.detail.state, null, 2);
-    });
-    couch.addEventListener("toast", (e) => {
-      toast.textContent = e.detail.text;
-      toast.classList.add("show");
+    function toast(text, level = "info") {
+      $("toast").textContent = text;
+      $("toast").className = `show ${level}`;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove("show"), 3000);
+      toastTimer = setTimeout(() => ($("toast").className = ""), 3000);
+    }
+
+    async function run(name, args) {
+      try {
+        await couch.command(name, args);
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    // `key` identifies the button across re-renders so focus stays put when its text changes.
+    function button(key, label, onClick, { right = "", disabled = false, cls = "" } = {}) {
+      const b = document.createElement("button");
+      b.innerHTML = `<span class="${cls}"></span><span class="right"></span>`;
+      b.firstChild.textContent = label;
+      b.lastChild.textContent = right;
+      b.disabled = disabled;
+      b.dataset.key = key;
+      b.addEventListener("click", onClick);
+      return b;
+    }
+
+    function fill(id, ...children) {
+      $(id).replaceChildren(...children.flat());
+    }
+
+    function render({ tv = {}, audio = {}, bluetooth = {}, system = {} }) {
+      const all = () => [...document.querySelectorAll("button:not([disabled])")];
+      const focusedKey = document.activeElement?.dataset.key;
+      const focusedIndex = all().indexOf(document.activeElement);
+      $("mode").textContent = system.mode ? `${system.mode} mode` : "";
+
+      fill("tv",
+        button("power", "Power", () => run(tv.power === "on" ? "tv.standby" : "tv.power_on"),
+               { right: tv.power ?? "unknown" }));
+
+      const outputs = (audio.outputs ?? []).map((o) =>
+        button(`out:${o.id}`, o.name, () => run("audio.set_output", { output: o.id }), {
+          right: o.id === audio.current ? "playing" : o.kind,
+          cls: o.id === audio.current ? "current" : "",
+          disabled: !o.available,
+        }));
+      const volume = document.createElement("div");
+      volume.className = "row";
+      volume.append(
+        button("vol-", "−", () => run("audio.set_volume", { volume: Math.max(0, audio.volume - 5) })),
+        button("mute", audio.muted ? "Muted" : `${audio.volume ?? "–"}%`,
+               () => run("audio.set_muted", { muted: !audio.muted })),
+        button("vol+", "+", () => run("audio.set_volume", { volume: Math.min(100, audio.volume + 5) })),
+      );
+      fill("audio", outputs, volume);
+
+      const scan = button("scan", bluetooth.scanning ? "Stop searching" : "Search for devices",
+                          () => run("bluetooth.scan", { on: !bluetooth.scanning }),
+                          { right: bluetooth.scanning ? "searching…" : "" });
+      const devices = (bluetooth.devices ?? []).flatMap((d) => {
+        const address = { address: d.address };
+        if (!d.paired) {
+          return [button(`bt:${d.address}`, d.name, () => run("bluetooth.pair", address),
+                         { right: d.audio ? "pair" : "pair (not audio)" })];
+        }
+        return [
+          button(`bt:${d.address}`, d.name, () => run(d.connected ? "bluetooth.disconnect" : "bluetooth.connect", address),
+                 { right: d.connected ? "connected" : "connect", cls: d.connected ? "current" : "" }),
+          button(`forget:${d.address}`, `Forget ${d.name}`, () => run("bluetooth.forget", address), { right: "forget" }),
+        ];
+      });
+      fill("bluetooth", scan, devices);
+
+      // Same button if it still exists, else whatever now sits where it was.
+      const buttons = all();
+      const again = buttons.find((b) => b.dataset.key === focusedKey);
+      (again ?? buttons[Math.min(Math.max(focusedIndex, 0), buttons.length - 1)])?.focus();
+    }
+
+    // Stand-in for the focus engine (#14): move through buttons in page order.
+    function onKey(key) {
+      $("lastkey").textContent = `last key: ${key}`;
+      const buttons = [...document.querySelectorAll("button:not([disabled])")];
+      const i = buttons.indexOf(document.activeElement);
+      if (key === "down" || key === "right") buttons[Math.min(i + 1, buttons.length - 1)]?.focus();
+      if (key === "up" || key === "left") buttons[Math.max(i - 1, 0)]?.focus();
+      if (key === "select") document.activeElement?.click();
+    }
+
+    couch.addEventListener("connection", (e) => {
+      $("status").classList.toggle("on", e.detail.connected);
+      $("status").textContent = e.detail.connected ? "Connected" : "Reconnecting…";
     });
+    couch.addEventListener("state", (e) => render(e.detail.state));
+    couch.addEventListener("toast", (e) => toast(e.detail.text, e.detail.level));
+    couch.addEventListener("key", (e) => onKey(e.detail.key));
+    useKeyboardAsRemote(couch);
     couch.connect();
   </script>
 </body>

@@ -20,6 +20,7 @@ A remote-first TV launcher for the Raspberry Pi 4. It runs YouTube's TV interfac
 | `system/` | systemd units, Chromium/Kodi config, boot files |
 | `docs/` | SD card guide, TV notes, user guide |
 | `tests/` | pytest suite |
+| `scripts/` | `dev.sh` |
 | `install.sh` | One-command install on a fresh Pi OS Lite (coming in #3) |
 
 ## Development
@@ -33,7 +34,26 @@ uv run pytest
 uv run ruff check && uv run ruff format --check
 ```
 
-`uv run couchd --dev` starts the service on a normal PC. Open <http://127.0.0.1:8765>: the page connects over WebSocket and shows the live state. Try `curl -XPOST localhost:8765/api/toast -d '{"text": "hi"}'`. The fake CEC, audio and Bluetooth backends come in #5. The API is described in [docs/protocol.md](docs/protocol.md).
+### On your PC
+
+```bash
+./scripts/dev.sh
+```
+
+This runs couchd with fake hardware (a TV, the TV / headphone jack outputs, and Bluetooth devices that appear when you search) and opens the launcher in a 1920×1080 Chromium window. Without Chromium, it prints the URL instead: <http://127.0.0.1:8765>. Set `COUCH_BROWSER` to pick a browser, or pass `--no-browser`.
+
+Your keyboard is the remote:
+
+| Key | Remote |
+| --- | --- |
+| Arrows | Arrows |
+| Enter | OK |
+| Backspace / Esc | Back |
+| H / Home | Home |
+| Space | Play/pause |
+| F1–F4 | Red, green, yellow, blue |
+
+The fakes take a moment like real hardware does, and "Old Speaker" always refuses to pair, so error screens can be built too. The API is described in [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 

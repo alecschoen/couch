@@ -26,14 +26,17 @@ class Fine(Service):
         self.stopped = True
 
 
-def make_daemon(tmp_path, *services):
+def make_config(tmp_path):
     config = defaults(dev=True)
-    config = replace(
+    return replace(
         config,
         server=replace(config.server, port=0),
         paths=replace(config.paths, state=tmp_path / "state.json"),
     )
-    return Daemon(config, dev=True, services=services)
+
+
+def make_daemon(tmp_path, *services):
+    return Daemon(make_config(tmp_path), dev=True, services=services)
 
 
 async def test_daemon_end_to_end(tmp_path):
@@ -61,3 +64,20 @@ async def test_daemon_end_to_end(tmp_path):
 
     assert fine.stopped
     assert json.loads((tmp_path / "state.json").read_text()) == {"volume": 40}
+
+
+async def test_dev_mode_runs_the_fakes(tmp_path):
+    daemon = Daemon(make_config(tmp_path), dev=True)
+    await daemon.start()
+    try:
+        snap = daemon.state.snapshot()
+        assert set(snap["services"].values()) == {"running"}
+        assert {"tv", "audio", "bluetooth"} <= snap.keys()
+        assert "remote.press" in daemon.commands.names()
+    finally:
+        await daemon.stop()
+
+
+async def test_device_mode_still_has_the_remote(tmp_path):
+    daemon = Daemon(make_config(tmp_path), dev=False)
+    assert [s.name for s in daemon.services] == ["remote"]
