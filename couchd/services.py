@@ -9,13 +9,26 @@ Status per service is published in the `services` section of live state.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import ClassVar
 
-from couchd.state import LiveState
+from couchd.bus import EventBus
+from couchd.commands import Commands
+from couchd.state import LiveState, SavedState
 
 log = logging.getLogger(__name__)
 
 STOP_TIMEOUT = 5.0
+
+
+@dataclass(frozen=True)
+class Context:
+    """What every service gets: the bus, both kinds of state, and the command table."""
+
+    bus: EventBus
+    state: LiveState
+    saved: SavedState
+    commands: Commands
 
 
 class Service:

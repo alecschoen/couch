@@ -11,10 +11,13 @@ from aiohttp import web
 from couchd import __version__
 from couchd.api import create_app
 from couchd.bus import EventBus
+from couchd.commands import Commands
 from couchd.config import Config
-from couchd.services import Service, ServiceRegistry
+from couchd.devbrowser import DevBrowser
+from couchd.services import Context, Service, ServiceRegistry
 from couchd.state import LiveState, SavedState
 from couchd.systemd import notify, watchdog_interval, watchdog_loop
+from couchd.wiring import build_services
 
 log = logging.getLogger(__name__)
 
@@ -22,18 +25,35 @@ HOST = "127.0.0.1"
 
 
 class Daemon:
-    def __init__(self, config: Config, *, dev: bool = False, services: Iterable[Service] = ()):
+    def __init__(
+        self,
+        config: Config,
+        *,
+        dev: bool = False,
+        services: Iterable[Service] | None = None,
+        open_browser: bool = False,
+    ):
+        """`services=None` picks the standard set for the mode (fakes with `dev`)."""
         self.config = config
         self.dev = dev
         self.bus = EventBus()
         self.state = LiveState(self.bus)
         self.saved = SavedState(config.paths.state)
+        self.commands = Commands()
+        self.ctx = Context(self.bus, self.state, self.saved, self.commands)
         self.services = ServiceRegistry(self.state)
+        if services is None:
+            services = build_services(self.ctx, dev=dev)
         for service in services:
             self.services.add(service)
+        self.browser = DevBrowser(config.paths.state.parent / "chromium") if open_browser else None
         self.stopping = asyncio.Event()
         self.port: int | None = None
         self._runner: web.AppRunner | None = None
+
+    @property
+    def url(self) -> str:
+        return f"http://{HOST}:{self.port}"
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
@@ -61,10 +81,14 @@ class Daemon:
         await self._start_api()
         notify("READY=1")
         await self.services.start_all()
-        log.info("couchd ready", extra={"url": f"http://{HOST}:{self.port}"})
+        log.info("couchd ready", extra={"url": self.url})
+        if self.browser is not None:
+            await self.browser.open(self.url)
 
     async def stop(self) -> None:
         notify("STOPPING=1")
+        if self.browser is not None:
+            await self.browser.close()
         await self.services.stop_all()
         if self._runner is not None:
             await self._runner.cleanup()
@@ -73,7 +97,9 @@ class Daemon:
         log.info("couchd stopped")
 
     async def _start_api(self) -> None:
-        app = create_app(bus=self.bus, state=self.state, ui_dir=self.config.paths.ui)
+        app = create_app(
+            bus=self.bus, state=self.state, commands=self.commands, ui_dir=self.config.paths.ui
+        )
         self._runner = web.AppRunner(app, handle_signals=False, shutdown_timeout=2.0)
         await self._runner.setup()
         site = web.TCPSite(self._runner, HOST, self.config.server.port)

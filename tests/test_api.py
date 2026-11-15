@@ -5,6 +5,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from couchd.api import create_app
 from couchd.bus import EventBus
+from couchd.commands import Commands
 from couchd.state import LiveState
 
 
@@ -29,8 +30,13 @@ def state(bus):
 
 
 @pytest.fixture
-async def client(bus, state, ui_dir):
-    app = create_app(bus=bus, state=state, ui_dir=ui_dir)
+def commands():
+    return Commands()
+
+
+@pytest.fixture
+async def client(bus, state, commands, ui_dir):
+    app = create_app(bus=bus, state=state, commands=commands, ui_dir=ui_dir)
     async with TestClient(TestServer(app, host="127.0.0.1")) as client:
         yield client
 
@@ -137,3 +143,53 @@ async def test_foreign_host_refused(client):
     # DNS rebinding: an attacker domain resolving to 127.0.0.1.
     resp = await client.get("/api/state", headers={"Host": "attacker.example:8765"})
     assert resp.status == 403
+
+
+async def echo(args):
+    if args.get("fail"):
+        from couchd.backends import BackendError
+
+        raise BackendError("speaker said no")
+    await asyncio.sleep(args.get("delay", 0))
+    return {"echo": args}
+
+
+async def test_command_over_rest(client, commands):
+    commands.add("test.echo", echo)
+    resp = await client.post("/api/command/test.echo", json={"x": 1})
+    assert resp.status == 200
+    assert await resp.json() == {"ok": True, "data": {"echo": {"x": 1}}}
+
+    resp = await client.post("/api/command/test.echo")  # no body = no args
+    assert (await resp.json())["data"] == {"echo": {}}
+
+    resp = await client.post("/api/command/test.echo", json={"fail": True})
+    assert resp.status == 400
+    assert await resp.json() == {"ok": False, "error": "speaker said no"}
+
+    resp = await client.post("/api/command/nope")
+    assert resp.status == 400
+
+    assert await (await client.get("/api/commands")).json() == ["test.echo"]
+
+
+async def test_commands_over_ws_run_concurrently(client, commands):
+    commands.add("test.echo", echo)
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive_json(timeout=2)
+        slow = {"type": "command", "id": 1, "name": "test.echo", "args": {"delay": 0.2}}
+        fast = {"type": "command", "id": 2, "name": "test.echo", "args": {}}
+        await ws.send_json(slow)
+        await ws.send_json(fast)
+        first = await ws.receive_json(timeout=2)
+        second = await ws.receive_json(timeout=2)
+    assert (first["id"], second["id"]) == (2, 1)
+    assert second == {"type": "result", "id": 1, "ok": True, "data": {"echo": {"delay": 0.2}}}
+
+
+async def test_ws_command_errors(client):
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive_json(timeout=2)
+        await ws.send_json({"type": "command", "id": "a", "name": "nope"})
+        reply = await ws.receive_json(timeout=2)
+    assert reply == {"type": "result", "id": "a", "ok": False, "error": "unknown command 'nope'"}
