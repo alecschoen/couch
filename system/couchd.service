@@ -1,0 +1,24 @@
+[Unit]
+Description=Couch background service (CEC, audio, Bluetooth, launcher API)
+Documentation=https://github.com/alecschoen/couch
+After=network.target bluetooth.service
+Wants=bluetooth.service
+# The kiosk session (cage + Chromium) waits for couchd to be ready.
+Before=couch-session.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=couch
+ExecStart=/opt/couch/.venv/bin/couchd
+Restart=always
+RestartSec=2
+WatchdogSec=30
+TimeoutStopSec=15
+# Creates /var/lib/couch (state.json) and /etc/couch (config.toml) owned by the right user.
+StateDirectory=couch
+ConfigurationDirectory=couch
+ConfigurationDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
