@@ -20,7 +20,7 @@ A remote-first TV launcher for the Raspberry Pi 4. It runs YouTube's TV interfac
 | `system/` | systemd units, Chromium/Kodi config, boot files |
 | `docs/` | SD card guide, TV notes, user guide |
 | `tests/` | pytest suite |
-| `scripts/` | `dev.sh` |
+| `scripts/` | `dev.sh`, `flash-sd.sh` |
 | `install.sh` | One-command install on a fresh Pi OS Lite (coming in #3) |
 
 ## Development
