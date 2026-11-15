@@ -33,7 +33,11 @@ uv run pytest
 uv run ruff check && uv run ruff format --check
 ```
 
-`--dev` runs on a normal PC with fake CEC, audio and Bluetooth backends. It is still a stub; see #5.
+`uv run couchd --dev` starts the service on a normal PC. Open <http://127.0.0.1:8765>: the page connects over WebSocket and shows the live state. Try `curl -XPOST localhost:8765/api/toast -d '{"text": "hi"}'`. The fake CEC, audio and Bluetooth backends come in #5. The API is described in [docs/protocol.md](docs/protocol.md).
+
+## Configuration
+
+On the Pi, couchd reads `/etc/couch/config.toml`. The file is optional, and every key has a default; see [system/config.example.toml](system/config.example.toml). Saved state, such as the preferred audio output, lives in `/var/lib/couch/state.json`. Check a config with `couchd --check-config`. If the file is broken, couchd logs the error and starts with defaults, so the TV still comes up.
 
 ## Plan
 

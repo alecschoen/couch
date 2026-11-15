@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Couch</title>
+  <!-- Placeholder until the launcher screens land (M2). Shows the live connection to couchd. -->
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; padding: 64px; box-sizing: border-box;
+      background: #14121a; color: #ece8f2; font: 24px/1.4 system-ui, sans-serif;
+    }
+    h1 { margin: 0 0 8px; font-size: 56px; font-weight: 600; }
+    #status::before { content: "●"; margin-right: 10px; color: #c0564b; }
+    #status.on::before { color: #6fbf73; }
+    pre { margin-top: 40px; font-size: 18px; color: #b9b2c6; }
+    #toast {
+      position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%);
+      padding: 16px 28px; border-radius: 14px; background: #2a2633; opacity: 0;
+      transition: opacity 200ms;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <h1>Couch</h1>
+  <div id="status">Connecting to couchd…</div>
+  <pre id="state"></pre>
+  <div id="toast"></div>
+  <script type="module">
+    import { Couch } from "./js/couch.js";
+
+    const couch = new Couch();
+    const status = document.getElementById("status");
+    const stateEl = document.getElementById("state");
+    const toast = document.getElementById("toast");
+    let toastTimer;
+
+    couch.addEventListener("connection", (e) => {
+      status.classList.toggle("on", e.detail.connected);
+      status.textContent = e.detail.connected ? "Connected" : "Reconnecting…";
+    });
+    couch.addEventListener("state", (e) => {
+      stateEl.textContent = JSON.stringify(e.detail.state, null, 2);
+    });
+    couch.addEventListener("toast", (e) => {
+      toast.textContent = e.detail.text;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3000);
+    });
+    couch.connect();
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Couch configuration. Copy to /etc/couch/config.toml and uncomment what you change.
+# Every key is optional; these are the defaults. Check a file with:
+#   couchd --check-config --config /etc/couch/config.toml
+
+[server]
+# couchd always listens on 127.0.0.1 only.
+# port = 8765
+
+[paths]
+# ui = "/opt/couch/ui"
+# state = "/var/lib/couch/state.json"
+
+[log]
+# One of: debug, info, warning, error
+# level = "info"
