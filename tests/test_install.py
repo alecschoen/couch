@@ -34,6 +34,7 @@ def test_every_system_file_it_installs_exists():
         "couch.rules",
         "kodi",
         "60-couch-uinput.rules",
+        "70-couch-no-pointer.rules",
         "couch-uinput.conf",
     } <= named
     for name in named:
@@ -104,3 +105,11 @@ def test_uinput_is_for_group_input_only():
     script = INSTALL.read_text()
     assert "python3-evdev" in script
     assert re.search(r"^COUCH_GROUPS=\(.*\binput\b.*\)$", script, re.M)
+
+
+def test_the_cec_inputs_are_not_pointers():
+    # rc-core's CEC inputs have mouse axes, so cage drew a cursor (#4).
+    rule = (ROOT / "system" / "70-couch-no-pointer.rules").read_text()
+    assert 'ATTRS{name}=="vc4-hdmi-[0-9]"' in rule
+    assert 'ENV{LIBINPUT_IGNORE_DEVICE}="1"' in rule
+    assert '"$NO_POINTER_RULE"' in INSTALL.read_text().split("uninstall() {")[1]

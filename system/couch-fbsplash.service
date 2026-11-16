@@ -1,0 +1,17 @@
+[Unit]
+Description=Couch boot and shutdown splash on vc4's framebuffer
+Documentation=https://github.com/alecschoen/couch
+# Started by system/couch-fbsplash.rules the moment vc4's framebuffer appears, early in the
+# boot, so it can't wait for the usual basic.target.
+DefaultDependencies=no
+Conflicts=shutdown.target
+# Before couch-session at boot, so after it at shutdown: ExecStop runs once cage has let go
+# of the screen, and the splash stays up until the Pi resets.
+Before=shutdown.target couch-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/couch/bin/couch-fbsplash fb0
+# "-": after --revert-boot the script may be gone before the unit stops.
+ExecStop=-/opt/couch/bin/couch-fbsplash fb0 --after-text tty1

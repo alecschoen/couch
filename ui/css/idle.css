@@ -1,0 +1,47 @@
+/* The idle clock (#20): artboard "Screen · Idle clock", sizes ×1.5. Over everything, including
+   toasts; ui/js/idle.js shows it. The clock moves with transform only (compositor), slowly. */
+
+.idle {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background-color: var(--palette-bg);
+  color: var(--palette-ink);
+  overflow: hidden;
+}
+
+.idle[hidden] {
+  display: none;
+}
+
+.idle__clock {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  transition: transform 2400ms var(--ease-in-out);
+  will-change: transform;
+}
+
+:root[data-motion="reduced"] .idle__clock {
+  transition: none;
+}
+
+.idle__date {
+  font-size: var(--text-date-idle);
+  padding-left: 12px;
+  opacity: 0.7;
+}
+
+.idle__footer {
+  position: absolute;
+  left: var(--screen-pad-x);
+  right: var(--screen-pad-x);
+  bottom: 78px;
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-idle-hint);
+  opacity: 0.55;
+}

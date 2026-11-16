@@ -119,6 +119,7 @@ def test_fresh_profile_then_nothing_to_do(world):
     assert plex["auto_update_check"] == "false"
     assert plex["ensure_lastused"] == "false"  # else Kodi's Programs window shows on exit
     assert gui["services.wsdiscovery"] == "false"
+    assert gui["services.esenabled"] == "true"
     cec = ET.parse(home / "userdata" / "peripheral_data" / "cec_CEC_Adapter.xml").getroot()
     assert [(s.get("id"), s.get("value")) for s in cec] == [("enabled", "0")]
 

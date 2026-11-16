@@ -7,7 +7,8 @@ The name is **Couch**. The mark is **Seat**: a sofa drawn from four rounded bars
 | File | Use |
 | --- | --- |
 | `splash.png` | Boot splash (#4), 1920×1080: the stacked lockup on the night colour |
-| `splash.svg` | The same splash as a vector, if Plymouth or a KMS splash wants one |
+| `splash.svg` | The same splash as a vector |
+| `splash.tga` | What the Pi's kernel draws at boot (#4): the middle 400×320 of `splash.png`, 128 greys. The kernel centres it and fills the rest of the screen with night, so it lands on the same pixels as `splash.png` |
 | `svg/lockup-stacked*.svg` | Mark over the word: the startup screen (#19) |
 | `svg/lockup*.svg` | Mark beside the word: the launcher header and About |
 | `svg/wordmark*.svg` | The word alone |

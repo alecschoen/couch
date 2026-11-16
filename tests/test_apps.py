@@ -11,10 +11,12 @@ from couchd.bus import EventBus
 from couchd.chromium import Chromium
 from couchd.commands import CommandError, Commands
 from couchd.display import FakeDisplay
+from couchd.kodi_rpc import KodiRpc
 from couchd.network import FakeConnectivity
 from couchd.services import Context
 from couchd.state import LiveState, SavedState
 from tests.fake_chromium import FakeChromium
+from tests.fake_kodi import FakeKodi
 
 LAUNCHER = "http://127.0.0.1:8765/"
 YOUTUBE = "https://www.youtube.com/"
@@ -142,6 +144,23 @@ async def test_pause_key_pauses_the_app_in_front(ctx, apps, browser):
     await until(lambda: youtube.paused == 1)
     assert state(ctx)["foreground"] == "youtube"  # it stays on screen
     assert browser.tab_for(LAUNCHER).paused == 0
+
+
+async def test_pause_key_pauses_kodi_over_json_rpc(ctx, browser, display):
+    kodi = FakeKodi()
+    await kodi.start()
+    service = await make_service(ctx, browser, display, kodi_rpc=KodiRpc(port=kodi.port))
+    try:
+        ctx.bus.publish("key", {"key": "pause"})  # on the launcher: Kodi isn't asked
+        await asyncio.sleep(0.05)
+        assert kodi.calls == []
+        await run(ctx, "apps.launch", app="plex")
+        ctx.bus.publish("key", {"key": "pause"})
+        await until(lambda: kodi.paused == [1])
+        assert state(ctx)["foreground"] == "plex"
+    finally:
+        await service.stop()
+        await kodi.stop()
 
 
 async def test_youtube_gets_a_tv_user_agent_and_its_script(ctx, apps, browser):
