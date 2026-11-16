@@ -2,7 +2,6 @@
 // card, and a row of cards that flood the screen with their colour. Stands in until Home (#15).
 
 import { card, cardRow, clock, h } from "../components.js";
-import { openQuickMenu } from "./quickmenu.js";
 
 const CARDS = [
   { id: "console", name: "Console", palette: "settings", blurb: "The TV, sound and Bluetooth, live from couchd" },
@@ -26,7 +25,7 @@ export function foundationScreen(_params, app) {
   const headline = h("span", { class: "t-title" });
   const blurb = h("span", { class: "t-md muted" });
 
-  const open = (it) => (it.id === "menu" ? openQuickMenu(app) : app.router.go(it.id));
+  const open = (it) => (it.id === "menu" ? app.couch.command("overlay.menu", { open: true }).catch(() => {}) : app.router.go(it.id));
   const cards = CARDS.map((it, i) =>
     card({ label: it.name, key: it.id, onSelect: () => open(it), "data-focus-default": i === 0 || null }),
   );

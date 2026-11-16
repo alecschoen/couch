@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 
 Message = dict[str, Any]
 
+TOAST_LEVELS = ("info", "warning", "error")
+TOAST_ICONS = ("speaker", "bluetooth", "check", "info", "update", "muted")  # ui/js/overlay-view.js
+
 _CLOSED: Message = {"type": "__closed__"}
 
 
@@ -85,8 +88,13 @@ class EventBus:
         for sub in list(self._subscribers):
             sub._offer(message)
 
-    def toast(self, text: str, level: str = "info") -> None:
-        self.publish("toast", {"text": text, "level": level})
+    def toast(self, text: str, level: str = "info", *, icon: str | None = None) -> None:
+        """A toast on whatever is on screen (couchd/overlay.py). `icon` is optional; see
+        docs/protocol.md for the names."""
+        data = {"text": text, "level": level}
+        if icon is not None:
+            data["icon"] = icon
+        self.publish("toast", data)
 
     @property
     def subscriber_count(self) -> int:

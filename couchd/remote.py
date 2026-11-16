@@ -8,8 +8,15 @@ Where a key goes depends on the app in front (`apps.foreground`):
   see every key; the launcher, hidden behind the app, ignores it.
 - Some keys are couchd's wherever you are and are never typed into an app: `home` (back to
   the launcher, couchd/apps.py), `red` (next audio output, couchd/audio.py), `blue` (the
-  quick menu: a `quick_menu` message for the UI), and `green` and `yellow` (kept for
-  couchd's own uses).
+  quick menu, couchd/overlay.py), and `green` and `yellow` (kept for couchd's own uses).
+- While the quick menu is open, the overlay takes the keys it uses before anything else
+  (`KeyTaker.take_key`): they go to no app, and their `key` message says `overlay: true`
+  so the launcher leaves them alone too.
+- A launcher screen can claim the raw keys for a while (`remote.raw_keys`, for Settings'
+  remote test): couchd's colour-key actions then stand down. Their `key` messages say
+  `raw: true`, the overlay takes nothing, and couchd/audio.py lets Red be. Home still goes
+  home. The claim lapses `RAW_KEYS_FOR` seconds after it was made or after the last key, so a
+  launcher that goes away mid-test can't leave the colour keys dead.
 
 Timing is couchd's, because TVs differ in whether, and how often, they repeat a held button:
 
@@ -32,7 +39,7 @@ through the same press and release as the TV's, to try repeat with curl.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from couchd import uinput
 from couchd.backends import BackendError, KeyAction, KeyboardBackend, TvBackend
@@ -45,6 +52,7 @@ log = logging.getLogger(__name__)
 REPEATING = frozenset({"up", "down", "left", "right"})
 ON_RELEASE = frozenset({"back", "select"})  # these wait to see whether they're held
 COUCHD_KEYS = frozenset({"home", "red", "green", "yellow", "blue"})
+RAW_KEYS_FOR = 15.0  # seconds a claim on the raw keys lasts without a key
 LAUNCHER = "launcher"
 
 _COMMON = {
@@ -75,6 +83,12 @@ APP_KEYMAPS: dict[str, dict[str, int]] = {
 }
 
 
+class KeyTaker(Protocol):
+    """Gets every key first (the overlay, couchd/overlay.py). True: the key is taken."""
+
+    def take_key(self, key: str, *, repeat: bool = False, hold: bool = False) -> bool: ...
+
+
 @dataclass(frozen=True)
 class Timing:
     delay: float = 0.4  # held this long before the first repeat
@@ -95,15 +109,18 @@ class RemoteService(Service):
         keyboard: KeyboardBackend | None = None,
         *,
         timing: Timing = Timing(),
+        overlay: KeyTaker | None = None,
     ) -> None:
         self.ctx = ctx
         self.tv = tv
         self.keyboard = keyboard
         self.timing = timing
+        self.overlay = overlay
         self._held: str | None = None
         self._held_task: asyncio.Task | None = None
         self._held_long = False  # the held Back or OK already acted as a long press
         self._keyboard_up = False
+        self._raw_until = 0.0  # loop time a screen's claim on the raw keys lapses
 
     async def start(self) -> None:
         if self.keyboard is not None:
@@ -117,6 +134,7 @@ class RemoteService(Service):
             self.tv.on_key(self._on_tv_key)
         self.ctx.commands.add("remote.press", self._press_command)
         self.ctx.commands.add("remote.hold", self._hold_command)
+        self.ctx.commands.add("remote.raw_keys", self._raw_keys_command)
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("remote.")
@@ -208,10 +226,21 @@ class RemoteService(Service):
         foreground = apps.get("foreground") or LAUNCHER
         app_id = LAUNCHER if keyboard else foreground
         kind = next((a["kind"] for a in apps.get("list", ()) if a["id"] == app_id), LAUNCHER)
-        self.ctx.bus.publish("key", {"key": key, "repeat": repeat, "hold": hold, "app": app_id})
-        if key == "blue" and not repeat:
-            self.ctx.bus.publish("quick_menu", {"app": app_id})
-        if kind == LAUNCHER or key in COUCHD_KEYS:
+        raw = self.raw_keys and app_id == LAUNCHER
+        if raw:  # each key keeps the claim alive
+            self._raw_until = asyncio.get_running_loop().time() + RAW_KEYS_FOR
+        taken = (
+            not raw
+            and self.overlay is not None
+            and self.overlay.take_key(key, repeat=repeat, hold=hold)
+        )
+        message = {"key": key, "repeat": repeat, "hold": hold, "app": app_id}
+        if taken:
+            message["overlay"] = True
+        if raw:
+            message["raw"] = True
+        self.ctx.bus.publish("key", message)
+        if taken or kind == LAUNCHER or key in COUCHD_KEYS:
             return
         code = APP_KEYMAPS.get(app_id, {}).get(key, KEYMAPS.get(kind, {}).get(key))
         if code is None:
@@ -221,7 +250,18 @@ class RemoteService(Service):
             return
         self.keyboard.tap(code)
 
+    @property
+    def raw_keys(self) -> bool:
+        """True while a launcher screen has the raw keys: couchd's colour keys stand down."""
+        return self._raw_until > 0 and asyncio.get_running_loop().time() < self._raw_until
+
     # --- commands --------------------------------------------------------------------------
+
+    async def _raw_keys_command(self, args: dict[str, Any]) -> None:
+        on = args.get("on")
+        if not isinstance(on, bool):
+            raise CommandError("'on' must be true or false")
+        self._raw_until = asyncio.get_running_loop().time() + RAW_KEYS_FOR if on else 0.0
 
     async def _press_command(self, args: dict[str, Any]) -> None:
         key = arg(args, "key", str)

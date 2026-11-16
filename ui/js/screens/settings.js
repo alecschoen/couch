@@ -385,8 +385,13 @@ export function settingsScreen(params, app) {
     ];
   }
 
+  // While the test listens, couchd's colour keys stand down (remote.raw_keys), so Red shows up
+  // here instead of moving the sound.
+  const claimKeys = (on) => app.couch.command("remote.raw_keys", { on }).catch(() => {});
+
   function startTesting() {
     testing = { timer: null, lastBack: 0 };
+    claimKeys(true);
     lastKey = null;
     bumpTestTimer();
     draw();
@@ -397,6 +402,7 @@ export function settingsScreen(params, app) {
     clearTimeout(testing.timer);
     testing = null;
     lastKey = null;
+    claimKeys(false);
     if (current === "remote") draw();
   }
 
