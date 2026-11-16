@@ -1535,6 +1535,8 @@ async def check_plex(args) -> dict[str, Any]:
         return await plex_nav(args)
     if args.plex_cmd == "watch":
         return await plex_watch(args)
+    if args.plex_cmd == "play":
+        return await plex_play(args)
     return await plex_info(args)
 
 
@@ -1593,8 +1595,51 @@ async def plex_info(args) -> dict[str, Any]:
     return result
 
 
-async def plex_watch(args) -> dict[str, Any]:
-    kodi = await ensure_kodi(False)
+def clip_path(arg: str | None) -> Path:
+    if not arg:
+        raise SystemExit("plex play needs --file PATH (a clip from make-clips.sh, on the Pi)")
+    path = Path(arg).expanduser()
+    if not path.name.startswith("couch-perf-"):
+        raise SystemExit("plex play only plays make-clips.sh's clips (couch-perf-*)")
+    if not path.is_file():
+        raise SystemExit(f"no such file on the Pi: {path}")
+    return path
+
+
+async def plex_play(args) -> dict[str, Any]:
+    """Play a test clip of our own in Kodi, straight from a file, and watch it. Only for clips
+    made by make-clips.sh: nothing from the Plex library is played, so its watch history and
+    On Deck stay as they are. Kodi is stopped again at the end."""
+    path = clip_path(args.file)
+    kodi = await ensure_kodi(args.launch)
+    opened = time.monotonic()
+    await kodi.call("Player.Open", {"item": {"file": str(path)}})
+    started = None
+    for _ in range(40):
+        players = await kodi.call("Player.GetActivePlayers")
+        if any(p.get("type") == "video" for p in players):
+            started = round(time.monotonic() - opened, 2)
+            break
+        await asyncio.sleep(0.25)
+    if started is None:
+        await kodi.close()
+        raise SystemExit(f"Kodi didn't start playing {path}; can user couch read it?")
+    log(f"playing {path.name} after {started} s")
+    try:
+        result = await plex_watch(args, kodi)
+    finally:
+        with contextlib.suppress(Exception):
+            players = await kodi.call("Player.GetActivePlayers")
+            for p in players:
+                await kodi.call("Player.Stop", {"playerid": p["playerid"]})
+        await kodi.close()
+    result.update({"check": "plex play", "file": path.name, "open_to_playing_s": started})
+    return result
+
+
+async def plex_watch(args, kodi: Kodi | None = None) -> dict[str, Any]:
+    own = kodi is None
+    kodi = kodi or await ensure_kodi(False)
     result: dict[str, Any] = {"check": "plex watch", "label": args.label, "env": environment()}
     sampler = Sampler(args.interval).start()
     rows = []
@@ -1632,7 +1677,8 @@ async def plex_watch(args) -> dict[str, Any]:
             last_save = time.monotonic()
         await asyncio.sleep(1.0)
     await sampler.stop()
-    await kodi.close()
+    if own:
+        await kodi.close()
     result.update(
         {
             **summarize_plex(rows),
@@ -1786,7 +1832,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("boot", help="the last boot's timeline")
 
     s = sub.add_parser("plex", help="Kodi's player, display modes and settings")
-    s.add_argument("plex_cmd", choices=["info", "watch", "nav"])
+    s.add_argument("plex_cmd", choices=["info", "watch", "nav", "play"])
     s.add_argument(
         "steps",
         nargs="*",
@@ -1797,6 +1843,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--label", default="playback", help="watch: a name for this run, e.g. 4k-hevc")
     s.add_argument("--interval", type=float, default=5, help="watch: system sample interval")
     s.add_argument("--pause", type=float, default=0.8, help="nav: seconds after each step")
+    s.add_argument("--file", help="play: a make-clips.sh clip on the Pi, e.g. ~/couch-perf/...")
     return p
 
 
@@ -1820,6 +1867,8 @@ def main(argv: list[str] | None = None) -> int:
     result["started"] = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(started))
     result["seconds"] = round(time.time() - started, 1)
     name = args.check if args.check != "plex" else f"plex-{args.plex_cmd}"
+    if args.check == "plex" and args.plex_cmd in ("watch", "play"):
+        name += f"-{args.label}"
     save(name, result, args.out)
     json.dump(result, sys.stdout, indent=1)
     print()

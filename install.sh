@@ -64,7 +64,6 @@ CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
 CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
-    swayimg                              # the session's splash until Chromium draws (#23)
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
@@ -259,9 +258,10 @@ install_couch() {
     fi
 
     ensure_file "$SRC/system/couch-browser" "$PREFIX/bin/couch-browser" 755 && session=1
-    # cage's client: the Startup frame with swayimg, then Chromium (#23).
+    # cage's client: couch-splash over everything until the launcher has drawn, then
+    # Chromium (#23). couch-splash draws with couch-fbsplash's code, installed below.
     ensure_file "$SRC/system/couch-session-start" "$PREFIX/bin/couch-session-start" 755 && session=1
-    ensure_file "$SRC/system/couch-swayimg.conf" "$PREFIX/share/swayimg/config" 644 && session=1
+    ensure_file "$SRC/system/couch-splash" "$PREFIX/bin/couch-splash" 755 && session=1
     ensure_file "$SRC/system/couch-kodi" "$PREFIX/bin/couch-kodi" 755 || true
     # polkitd picks up rule changes by itself.
     ensure_file "$SRC/system/couch.rules" "$POLKIT_RULE" 644 || true

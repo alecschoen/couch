@@ -30,7 +30,7 @@ def test_every_system_file_it_installs_exists():
         "couch-session.service",
         "couch-browser",
         "couch-session-start",
-        "couch-swayimg.conf",
+        "couch-splash",
         "couch-kodi.service",
         "couch-kodi",
         "couch.rules",
@@ -54,21 +54,15 @@ def test_session_runs_the_installed_browser_wrapper():
     assert "exec /opt/couch/bin/couch-browser" in start
 
 
-def test_the_session_splash_is_the_startup_frame_with_no_keys():
+def test_the_session_splash_is_installed_next_to_what_it_draws_with():
+    script = INSTALL.read_text()
+    assert re.search(r'"\$SRC/system/couch-splash" "\$PREFIX/bin/couch-splash" 755', script)
+    # couch-splash borrows couch-fbsplash's drawing code from the same directory
+    assert re.search(r'"\$SRC/system/couch-fbsplash" "\$PREFIX/bin/couch-fbsplash" 755', script)
+    assert "swayimg" not in script
     start = (ROOT / "system" / "couch-session-start").read_text()
-    assert "SPLASH=/opt/couch/ui/brand/splash.png" in start
-    assert (ROOT / "ui" / "brand" / "splash.png").is_file()
     assert "couch-splash.pid" in start
-    conf_install = r'"\$SRC/system/couch-swayimg.conf" "\$PREFIX/share/swayimg/config"'
-    assert re.search(conf_install, INSTALL.read_text())
-    conf = (ROOT / "system" / "couch-swayimg.conf").read_text()
-    keys = conf.split("[keys.viewer]")[1]
-    bindings = [line for line in keys.splitlines() if "=" in line and not line.startswith("#")]
-    assert {"Escape", "q", "Return", "Left", "Right", "Up", "Down", "BackSpace"} <= {
-        b.split("=")[0].strip() for b in bindings
-    }
-    assert all(b.split("=", 1)[1].strip() == "none" for b in bindings)
-    assert "show = no" in conf
+    assert "/opt/couch/bin/couch-splash" in start
 
 
 def test_kodi_and_the_session_take_turns():

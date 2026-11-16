@@ -1,19 +1,19 @@
 """The last stretch of the boot splash: from cage's start to the launcher's first frame (#23).
 
 The boot splash (#4) is drawn on the framebuffer until cage takes the screen. cage then
-shows black until a Wayland client draws, and Chromium needs several seconds to start and
-paint the launcher. To bridge that, `couch-session-start` (cage's client) first shows the
-Startup frame, `ui/brand/splash.png`, with swayimg, and only then starts Chromium. cage
-stacks each newly mapped window on top, so Chromium covers the splash when it maps.
+shows black until a Wayland client draws, Chromium needs several seconds to start, and its
+window's first frames are white. So `couch-session-start` (cage's client) first starts
+`couch-splash`, a small Wayland client that draws the boot splash's own pixels and stays
+above Chromium's window, and only then starts Chromium.
 
-The splash must then go: left running under Chromium it would cost the compositor a
-fullscreen blend on every frame, video included. The launcher says when it has drawn its
-first frame (`ui.first_frame`), and this service ends swayimg `HANDOVER_DELAY` seconds
-later, enough for that frame to reach the screen. Before, the swayimg window was the only
-thing to look at; after, it was under Chromium's, so the hand-over can't be seen.
+The splash must then go: while it's up, nothing on the launcher can be seen, and the
+compositor blends it over every frame. The launcher says when it has drawn its first frame
+(`ui.first_frame`), and this service ends couch-splash `HANDOVER_DELAY` seconds later,
+enough for that frame to be on screen under it. The launcher's first frame is the Startup
+screen, the same picture as the splash, so the hand-over can't be seen.
 
-couch-session-start writes swayimg's pid to `$XDG_RUNTIME_DIR/couch-splash.pid`. couchd
-runs as the same user, so it can signal it. In dev mode there's no such file and the
+couch-session-start writes couch-splash's pid to `$XDG_RUNTIME_DIR/couch-splash.pid`.
+couchd runs as the same user, so it can signal it. In dev mode there's no such file and the
 command does nothing.
 """
 
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 
 HANDOVER_DELAY = 0.5
 PIDFILE = "couch-splash.pid"
-SPLASH_COMMS = frozenset({"swayimg"})  # what the pid must belong to before we signal it
+SPLASH_COMMS = frozenset({"couch-splash"})  # what the pid must belong to before we signal it
 
 
 def default_pidfile() -> Path:

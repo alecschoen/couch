@@ -33,6 +33,9 @@ Single checks:
 | `run.sh plex info --launch` | Kodi's display, refresh-rate setting and the Plex add-on |
 | `run.sh plex nav down down select` | Moves around the Plex add-on (read-only: it only presses keys) |
 | `run.sh plex watch --seconds 120 --label 4k-hevc` | Decoder, size, fps, refresh rate and stalls while something plays |
+| `run.sh plex play --file ~/couch-perf/CLIP --label NAME` | Plays one of our own clips in Kodi from the file, watches it, stops it |
+| `scripts/perf/cage-check.sh` | This PC: the session splash in a real cage with a fake browser, every frame recorded |
+| `scripts/perf/record-boot.sh install` | The Pi, as root: record the next session start, for `frames.py` |
 
 The script runs on the Pi with couchd's Python. It talks to couchd's API on 127.0.0.1:8765,
 Chromium's DevTools on 127.0.0.1:9222 and Kodi's JSON-RPC on 127.0.0.1:9090. It never deploys
@@ -49,11 +52,11 @@ Since #25, Chromium's disk cache is a tmpfs, so every boot starts with a cold ca
 | YouTube decoder | hardware | | |
 | Launcher focus animation, missed frames | 0 at 60 Hz | | |
 | Power on → launcher on screen | | | |
-| Black between the boot splash and the launcher | none | | |
+| Black or white between the boot splash and Home | none | | |
 | Launcher → YouTube playing | | | |
 | Launcher → Plex add-on on screen | | | |
-| Plex 4K HEVC direct play | hardware decode, no stalls | | |
-| Plex 1080p H.264 | hardware decode, no stalls | | |
+| Kodi 4K HEVC 10-bit clip | hardware decode, no stalls | | |
+| Kodi 1080p H.264 clip | hardware decode, no stalls | | |
 | Refresh rate follows 23.976 content | switches to 23.98 Hz | | |
 | Temperature after 30 min of video | no throttling | | |
 
@@ -118,22 +121,40 @@ From `run.sh boot`. Times are seconds since the kernel started. `scripts/boot-ti
 
 `systemd-analyze`: firmware + loader + kernel + userspace = .
 
-### Black between cage and the launcher
+### Black and white between the splash and Home
 
 Before #23, cage modesets at ~17.4 s and then shows black until Chromium's first paint at
-~24.7 s. That was measured in #4.
+~24.7 s. That was measured in #4. The director also saw a brief white flash before the
+Startup screen: Chromium's window before the launcher paints.
 
-The fix is in `system/couch-session-start` and `couchd/splash.py`. cage's client first runs
-`swayimg` on `ui/brand/splash.png`, the launcher's Startup frame, and only then starts
-Chromium. cage stacks newly mapped windows on top, so Chromium covers the splash when it maps.
-The launcher reports its first frame with `ui.first_frame`, and 0.5 s later couchd ends swayimg.
-Left running under Chromium, swayimg would cost the compositor a fullscreen blend on every frame.
+The fix is `system/couch-splash`, which cage starts before Chromium (`couch-session-start`).
+It draws couch-fbsplash's own frame, so the logo stays on the same pixels. When Chromium's
+window maps over it, it maps a second window on top at once. It goes when couchd says the
+launcher has drawn (`couchd/splash.py`). [system/README.md](../system/README.md#session-splash)
+has the details.
 
-What to check after a reboot:
+On this PC, `scripts/perf/cage-check.sh` runs the Pi's cage 0.2.0 headless with a fake browser
+that maps a white window. 4 runs recorded every frame, ~380 each:
 
-- No black frame between the boot splash and the Startup screen. A person has to watch for this.
-- `couchd.splash: splash handed over` appears in the journal, and swayimg is gone afterwards.
-- Chromium's `Startup.BrowserWindow.FirstPaint` versus `Startup.FirstWebContents.NonEmptyPaint3`. If Chromium maps its window before it draws content, one blank frame could still show. Plan B in that case: couchd starts a second swayimg when Chromium maps, which lands on top, and ends it after the first frame.
+| | |
+|---|---|
+| Frames: black → splash → after hand-over | black×19–36 (before the splash starts) → splash×291–297 → ground×66 |
+| White frames | 0 in every run. A control with the remap off showed white×179 |
+| Splash on screen after its process started | 114 ms (TGA rendered here; from fbsplash's cache drawing takes 7 ms, not 152) |
+| Fake browser's frame callbacks while covered | 59–62 per second, so the launcher keeps drawing underneath |
+| Splash back on top after the browser mapped | the same frame, per wp_presentation (both presented on one vblank) |
+
+On the Pi, measured:
+
+| | Value |
+|---|---|
+| cage started → splash on screen (`couch-splash: splash on screen … since_start_ms`) | |
+| Remaps (`back on top of a new window`) | |
+| `ui.first_frame` → splash handed over | |
+| Frames recorded by `record-boot.sh`, classified by `frames.py` | |
+
+Still unavoidable: cage shows black from its modeset until couch-splash's first frame. That's
+roughly Python's start plus one round trip; the first table row above measures it.
 
 Result:
 
@@ -146,14 +167,19 @@ These are noted for later. Both need the `boot` numbers before deciding.
 
 ## Plex
 
-From `run.sh plex info` and `run.sh plex watch`. Kodi setting `videoplayer.adjustrefreshrate`:
-.
+Nothing from the Plex library is played: that would change its watch history and On Deck.
+Our own clips from `scripts/perf/make-clips.sh` (ffmpeg's test pattern with noise, no
+download) are copied to the Pi, played in Kodi straight from the file with
+`run.sh plex play --file ~/couch-perf/<clip> --seconds 120 --label <name>`, and deleted
+afterwards. Reading the Plex add-on's and Kodi's state (`plex info`) is fine.
 
-| Content | Decoder | Size | fps | Screen refresh | Stalls | CPU % |
-|---|---|---|---|---|---|---|
-| 4K HEVC (direct play) | | | | | | |
-| 1080p H.264 | | | | | | |
-| 23.976 film | | | | | | |
+Kodi setting `videoplayer.adjustrefreshrate`: .
+
+| Clip | Decoder | Size | fps | Screen refresh | Open → playing | Stalls | CPU % |
+|---|---|---|---|---|---|---|---|
+| `couch-perf-4k-hevc10-23.976` (HEVC Main 10, ~40 Mb/s) | | | | | | | |
+| `couch-perf-1080p-h264-60` (H.264 High, ~12 Mb/s) | | | | | | | |
+| `couch-perf-1080p-h264-23.976` (H.264 High, ~8 Mb/s) | | | | | | | |
 
 TV modes from EDID: .
 
@@ -167,8 +193,8 @@ TV modes from EDID: .
 
 ## Needs the user (morning)
 
-- Watch a cold boot, power on to launcher, for any black frame between the splash and the Startup screen.
-- Watch YouTube 1080p60 and the Plex test files by eye: smoothness, judder at 23.976, and audio sync.
+- Watch a cold boot, power-on to Home, for any black or white between the splash and Home, and for the logo moving.
+- Watch YouTube 1080p60 and the test clips by eye: smoothness, judder at 23.976, and audio sync.
 
 ## Follow-ups
 

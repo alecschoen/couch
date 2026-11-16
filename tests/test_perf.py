@@ -319,3 +319,45 @@ def test_the_cli_knows_every_check():
         assert args.check in perf.CHECKS
     with pytest.raises(SystemExit):
         p.parse_args(["plex", "dance"])
+
+
+frames_spec = importlib.util.spec_from_file_location(
+    "frames", Path(__file__).resolve().parent.parent / "scripts" / "perf" / "frames.py"
+)
+frames = importlib.util.module_from_spec(frames_spec)
+frames_spec.loader.exec_module(frames)
+
+
+def frame(fill=(0x12, 0x12, 0x14), dots=()):
+    w, h = frames.W, frames.H
+    px = bytearray(bytes(fill) * (w * h))
+    for x, y in dots:
+        px[(y * w + x) * 3 : (y * w + x) * 3 + 3] = b"\xff\xff\xff"
+    return bytes(px)
+
+
+def test_frames_are_classified():
+    box = (400 / 1920, 320 / 1080)
+    mid = (frames.W // 2, frames.H // 2)
+    assert frames.classify(frame((0, 0, 0)), box) == "black"
+    assert frames.classify(frame((255, 255, 255)), box) == "white"
+    assert frames.classify(frame(), box) == "ground"
+    assert frames.classify(frame(dots=[mid, (mid[0] + 5, mid[1])]), box) == "splash"
+    assert frames.classify(frame(dots=[(x, 100) for x in range(40, 150)]), box) == "other"
+
+
+def test_a_white_frame_inside_the_splash_is_a_gap():
+    kinds = ["black", "splash", "splash", "white", "splash", "other", "white"]
+    runs = frames.runs_of([(i / 60, k) for i, k in enumerate(kinds)])
+    v = frames.verdict(runs)
+    assert not v["ok"] and [g["kind"] for g in v["gaps"]] == ["white"]
+    assert v["black_before_splash_frames"] == 1
+    ok = frames.verdict(frames.runs_of([(0, "black"), (1, "splash"), (2, "other"), (3, "white")]))
+    assert ok["ok"]  # white after Home (an app) isn't the splash's business
+    assert not frames.verdict(frames.runs_of([(0, "black"), (1, "other")]))["ok"]
+
+
+def test_plex_play_only_plays_our_own_clips(tmp_path):
+    args = perf.parser().parse_args(["plex", "play", "--file", str(tmp_path / "Movie.mkv")])
+    with pytest.raises(SystemExit, match="couch-perf-"):
+        asyncio.run(perf.plex_play(args))

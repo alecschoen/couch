@@ -31,7 +31,7 @@ async def test_ends_the_splash_after_the_launchers_first_frame(ctx, tmp_path):
         ctx,
         pidfile=pidfile,
         delay=0.01,
-        proc=fake_proc(tmp_path, 4242, "swayimg"),
+        proc=fake_proc(tmp_path, 4242, "couch-splash"),
         kill=lambda pid, sig: killed.append((pid, sig)),
     )
     await splash.start()
@@ -86,5 +86,7 @@ def test_a_process_that_exits_meanwhile(ctx, tmp_path):
     def kill(pid, sig):
         raise ProcessLookupError
 
-    splash = SplashService(ctx, pidfile=pidfile, proc=fake_proc(tmp_path, 7, "swayimg"), kill=kill)
+    splash = SplashService(
+        ctx, pidfile=pidfile, proc=fake_proc(tmp_path, 7, "couch-splash"), kill=kill
+    )
     assert not splash.end_splash()

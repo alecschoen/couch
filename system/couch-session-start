@@ -1,21 +1,16 @@
 #!/bin/sh
-# cage's client in couch-session.service: the Startup frame first, then Chromium (#23).
+# cage's client in couch-session.service: the splash first, then Chromium (#23).
 #
-# cage draws black from its start until a client draws, and Chromium takes seconds to start
-# and paint the launcher. swayimg is up in a fraction of that, so it shows the launcher's
-# Startup frame (ui/brand/splash.png: the boot splash's lockup on the same pixels) in the
-# meantime. cage puts each newly mapped window on top, so Chromium covers it once it maps.
-# couchd ends swayimg after the launcher's first frame (couchd/splash.py), using the pid
-# written here. Without swayimg or the image, Chromium starts as before.
-#
-# swayimg has the keyboard until Chromium maps, so its config (couch-swayimg.conf) unbinds
-# every key: a remote press at boot can't zoom, move or close the splash.
-SPLASH=/opt/couch/ui/brand/splash.png
-CONFIG_HOME=/opt/couch/share
+# cage draws black from its start until a client draws, Chromium takes seconds to start, and
+# its window's first frames are white until the launcher paints. couch-splash keeps the boot
+# splash on screen through all of that: it's up a fraction of a second after cage, draws the
+# same pixels as the boot splash, and stays above Chromium's window until couchd ends it,
+# after the launcher's first frame (couchd/splash.py, using the pid written here). Without it
+# (or without Python), Chromium starts as before.
 PIDFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/couch-splash.pid"
 
-if command -v swayimg >/dev/null 2>&1 && [ -r "$SPLASH" ]; then
-    XDG_CONFIG_HOME=$CONFIG_HOME swayimg "$SPLASH" </dev/null &
+if [ -x /opt/couch/bin/couch-splash ]; then
+    /opt/couch/bin/couch-splash </dev/null &
     echo $! >"$PIDFILE"
 fi
 exec /opt/couch/bin/couch-browser
