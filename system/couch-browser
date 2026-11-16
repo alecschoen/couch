@@ -10,6 +10,10 @@
 #   accessibility tree for every page and costs renderer CPU. Nobody uses a screen reader
 #   on the couch, so it's turned off (this flag wins over the forced one).
 #
+# - --force-dark-mode: Chromium's own theme goes dark, so what it shows before a page's first
+#   frame is dark grey, not white (it flashed white between the boot splash and the
+#   launcher, #4). Pages also see prefers-color-scheme: dark.
+#
 # couchd drives the tabs over DevTools on 127.0.0.1 only (couchd/chromium.py). Chromium
 # refuses DevTools WebSockets from web pages (they send an Origin), so pages can't use it.
 exec /usr/bin/chromium \
@@ -25,6 +29,7 @@ exec /usr/bin/chromium \
     --password-store=basic \
     --autoplay-policy=no-user-gesture-required \
     --hide-scrollbars \
+    --force-dark-mode \
     --enable-gpu-rasterization \
     --disable-renderer-accessibility \
     --remote-debugging-port="${COUCH_CDP_PORT:-9222}" \

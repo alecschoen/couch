@@ -1,0 +1,5 @@
+# Silent boot (#4): no rainbow square, no overscan border. HDMI-CEC stays on: it's the
+# kernel's (vc4-kms-v3d's /dev/cec0), not the firmware's.
+[all]
+disable_splash=1
+disable_overscan=1

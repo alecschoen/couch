@@ -5,6 +5,7 @@
 #   sudo ./install.sh              # install or update from this checkout
 #   sudo ./install.sh --uninstall  # remove Couch, keep /etc/couch and /var/lib/couch
 #   sudo ./install.sh --purge      # remove Couch with its config, state and user
+#   sudo ./install.sh --revert-boot  # only put the boot files back (Couch stays)
 #
 # Without a checkout next to it (curl ... | sudo bash) it clones the repo into
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
@@ -13,7 +14,12 @@
 # /etc/systemd/system, one polkit rule, one WirePlumber drop-in, one udev rule and one
 # modules-load.d file (for /dev/uinput), the couch user, and apt packages. It also turns on
 # PipeWire's user units for every user (they come enabled; this makes sure). Plex's Kodi
-# addons are downloaded at the versions and sha256s pinned in system/kodi/addons.toml.
+# addons are downloaded at the versions and sha256s pinned in system/kodi/addons.toml. For the
+# silent boot it edits cmdline.txt and config.txt through couch-bootfiles, which keeps the
+# originals and undoes its edits on --uninstall. It also puts the splash in the initramfs
+# (/lib/firmware/couch-splash.tga and one initramfs hook), adds couch-fbsplash with its unit
+# and udev rule, and turns cloud-init off once the first boot is done
+# (/etc/cloud/cloud-init.disabled).
 # Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
 # /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
 set -euo pipefail
@@ -28,6 +34,7 @@ UNITS=(couchd.service couch-session.service)
 STATIC_UNITS=(couch-kodi.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
+NO_POINTER_RULE=/etc/udev/rules.d/70-couch-no-pointer.rules
 UINPUT_MODULE_CONF=/etc/modules-load.d/couch-uinput.conf
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
 # Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
@@ -46,6 +53,25 @@ UPDATE_STATE=/var/lib/couch-update
 APT_UPDATES_CONF=/etc/apt/apt.conf.d/52couch-updates
 # What install.sh needs from a checkout; copied to /opt/couch/source for a rollback.
 SOURCE_FILES=(install.sh pyproject.toml README.md couchd ui system)
+# Silent boot (#4). couch-bootfiles makes these edits to cmdline.txt and config.txt as the
+# owner "boot", and `revert boot` undoes exactly them. Other boot settings get an owner of
+# their own (see the top of system/couch-bootfiles).
+BOOTFILES=$PREFIX/bin/couch-bootfiles
+BOOT_CMDLINE=(
+    quiet loglevel=0                  # no kernel or systemd text
+    vt.global_cursor_default=0        # no cursor
+    consoleblank=0
+    console=tty3                      # the console leaves the TV's tty1 (Ctrl+Alt+F3 has it)
+    fullscreen_logo=1 fullscreen_logo_name=couch-splash.tga # the kernel draws the splash
+)
+# Not logo.nologo: it would hide the fullscreen logo too, which replaces the penguins anyway.
+BOOT_CMDLINE_DROP=(console=tty1)
+SPLASH_TGA=/lib/firmware/couch-splash.tga
+INITRAMFS_HOOK=/etc/initramfs-tools/hooks/couch-splash
+FBSPLASH_UNIT=$UNIT_DIR/couch-fbsplash.service
+FBSPLASH_RULE=/etc/udev/rules.d/70-couch-fbsplash.rules
+CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
+CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -62,6 +88,7 @@ PACKAGES=(
 
 changes=0
 USER_CHANGED=0
+REBOOT=0
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 note() { changes=$((changes + 1)); echo "  $*"; }
 die() { echo "error: $*" >&2; exit 1; }
@@ -144,6 +171,12 @@ install_uinput() {
     ensure_file "$SRC/system/couch-uinput.conf" "$UINPUT_MODULE_CONF" 644 || true
     if ensure_file "$SRC/system/60-couch-uinput.rules" "$UINPUT_RULE" 644; then
         udevadm control --reload-rules
+    fi
+    # And no mouse cursor: the CEC inputs aren't pointers (system/70-couch-no-pointer.rules).
+    # libinput reads it when a device is added, so it takes effect from the next boot.
+    if ensure_file "$SRC/system/70-couch-no-pointer.rules" "$NO_POINTER_RULE" 644; then
+        udevadm control --reload-rules
+        REBOOT=1
     fi
     if [[ ! -e /dev/uinput ]]; then
         modprobe uinput
@@ -364,10 +397,94 @@ uninstall_updates() {
     rm -rf "$UPDATE_STATE"
 }
 
+# The silent boot (#4). The firmware shows nothing (no rainbow square). The kernel draws the
+# Couch splash as soon as there's a framebuffer and prints nothing on the TV. The splash stays
+# until cage takes the screen for the launcher. All of this takes effect at the next boot.
+install_boot() {
+    ensure_file "$SRC/system/couch-bootfiles" "$BOOTFILES" 755 || true
+    if command -v update-initramfs >/dev/null; then
+        # The splash has to be in the initramfs: the firmware's framebuffer, which the kernel
+        # draws it on, comes up before the root filesystem does.
+        local initramfs=0
+        ensure_file "$SRC/ui/brand/splash.tga" "$SPLASH_TGA" 644 && initramfs=1
+        ensure_file "$SRC/system/initramfs-splash" "$INITRAMFS_HOOK" 755 && initramfs=1
+        if ((initramfs)); then
+            update-initramfs -u -k all >/dev/null
+            note "rebuilt the initramfs with the splash"
+            REBOOT=1
+        fi
+    fi
+    # The kernel draws it only until vc4 takes the screen over; couch-fbsplash draws it on
+    # vc4's framebuffer from then until cage.
+    ensure_file "$SRC/system/couch-fbsplash" "$PREFIX/bin/couch-fbsplash" 755 || true
+    if ensure_file "$SRC/system/couch-fbsplash.service" "$FBSPLASH_UNIT" 644; then
+        systemctl daemon-reload
+        REBOOT=1
+    fi
+    if ensure_file "$SRC/system/couch-fbsplash.rules" "$FBSPLASH_RULE" 644; then
+        udevadm control --reload 2>/dev/null || true
+        REBOOT=1
+    fi
+    local args=() t out line
+    for t in "${BOOT_CMDLINE[@]}"; do args+=(--set "$t"); done
+    for t in "${BOOT_CMDLINE_DROP[@]}"; do args+=(--drop "$t"); done
+    out=$("$BOOTFILES" apply boot --config "$SRC/system/boot-config.txt" "${args[@]}")
+    if [[ -n $out ]]; then
+        while IFS= read -r line; do note "$line"; done <<<"$out"
+        REBOOT=1
+    fi
+    # cloud-init only matters on a card's first boot, where it sets up the user and SSH key
+    # (docs/sd-card.md). After that it adds about 2.5 s to every boot, before anything else
+    # starts. Pi OS's network doesn't come from it: NetworkManager configures eth0 itself.
+    # `cloud-init status` exits 2 for "degraded done" (Pi OS's first boot ends that way), so
+    # read its first line rather than its exit status.
+    local status=
+    if [[ -d /etc/cloud && ! -e $CLOUD_INIT_OFF ]]; then
+        status=$(cloud-init status 2>/dev/null) || true
+    fi
+    if [[ ${status%%$'\n'*} == "status: done" ]]; then
+        echo "$CLOUD_INIT_MARK" >"$CLOUD_INIT_OFF"
+        note "turned cloud-init off after its first boot ($CLOUD_INIT_OFF)"
+        REBOOT=1
+    fi
+}
+
 # --- uninstall ----------------------------------------------------------------------------
+
+# Undo the silent boot: couch-bootfiles puts back what it changed in cmdline.txt and
+# config.txt, then the splash leaves the initramfs.
+uninstall_boot() {
+    # The copy next to this script first: it can undo what an older installed copy can't.
+    local tool
+    tool=$(dirname "${BASH_SOURCE[0]:-$0}")/system/couch-bootfiles
+    [[ -x $tool ]] || tool=$BOOTFILES
+    if [[ -x $tool ]]; then
+        "$tool" revert boot
+    elif [[ -e /boot/firmware/couch-boot.json ]]; then
+        echo "warning: couch-bootfiles is missing, so cmdline.txt and config.txt keep Couch's" \
+            "boot settings. The originals are the .couch-orig files next to them." >&2
+    fi
+    # The rule first: initramfs-tools copies /etc/udev/rules.d into the initramfs.
+    if [[ -e $FBSPLASH_RULE || -e $FBSPLASH_UNIT ]]; then
+        rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT" "$PREFIX/bin/couch-fbsplash"
+        udevadm control --reload 2>/dev/null || true
+        systemctl daemon-reload
+    fi
+    if [[ -e $INITRAMFS_HOOK || -e $SPLASH_TGA ]]; then
+        rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
+        update-initramfs -u -k all >/dev/null
+        echo "Took the splash out of the initramfs."
+    fi
+    # Only if Couch turned cloud-init off; someone else's cloud-init.disabled stays.
+    if [[ -f $CLOUD_INIT_OFF ]] && [[ $(<"$CLOUD_INIT_OFF") == "$CLOUD_INIT_MARK" ]]; then
+        rm -f "$CLOUD_INIT_OFF"
+        echo "Turned cloud-init back on."
+    fi
+}
 
 uninstall() {
     local purge=$1 u
+    uninstall_boot
     uninstall_updates
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
@@ -375,7 +492,7 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
-    rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$UINPUT_MODULE_CONF"
+    rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$NO_POINTER_RULE" "$UINPUT_MODULE_CONF"
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
@@ -390,6 +507,7 @@ uninstall() {
     # Give tty1 its login prompt back.
     systemctl start getty@tty1.service 2>/dev/null || true
     echo "Apt packages stay installed: ${PACKAGES[*]}"
+    echo "The boot settings are back as they were, from the next boot."
 }
 
 # --- main ---------------------------------------------------------------------------------
@@ -399,8 +517,9 @@ uninstall() {
 case ${1:-} in
 --uninstall) uninstall 0; exit 0 ;;
 --purge) uninstall 1; exit 0 ;;
+--revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system
@@ -415,12 +534,15 @@ ensure_user
 say "Couch"
 install_couch
 install_bluetooth_audio
+say "Boot"
+install_boot
 say "Updates"
 install_updates
 
 echo
 if ((changes)); then
     say "Done: $changes changes. The launcher is on the TV."
+    if ((REBOOT)); then echo "The new boot screen shows from the next boot: sudo reboot"; fi
 else
     say "Nothing to change; Couch is up to date."
 fi
