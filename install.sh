@@ -9,9 +9,10 @@
 # Without a checkout next to it (curl ... | sudo bash) it clones the repo into
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
 #
-# It writes only to /opt/couch, /etc/couch, /var/lib/couch, the two units in
-# /etc/systemd/system, one WirePlumber drop-in, the couch user, and apt packages. It also
-# turns on PipeWire's user units for every user (they come enabled; this makes sure).
+# It writes only to /opt/couch, /etc/couch, /var/lib/couch, the three units in
+# /etc/systemd/system, one polkit rule, one WirePlumber drop-in, the couch user, and apt
+# packages. It also turns on PipeWire's user units for every user (they come enabled; this
+# makes sure).
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -20,6 +21,9 @@ ETC=/etc/couch
 STATE=/var/lib/couch
 UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
+# Installed but not enabled: couchd starts Kodi when Plex is launched.
+STATIC_UNITS=(couch-kodi.service)
+POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
 AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
@@ -31,6 +35,7 @@ PACKAGES=(
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
     bluez
+    polkitd                              # lets couchd switch the screen to Kodi and back
     python3-venv python3-aiohttp python3-hatchling python3-editables
     fonts-noto-core
     rsync
@@ -137,6 +142,7 @@ install_couch() {
     ensure_dir "$ETC" root 755
     ensure_dir "$STATE" "$COUCH_USER" 755
     ensure_dir "$STATE/chromium" "$COUCH_USER" 700
+    ensure_dir "$STATE/kodi" "$COUCH_USER" 700
 
     # couchd runs from an editable install, so its bundled UI is /opt/couch/ui.
     ensure_tree "$SRC/couchd" "$PREFIX/couchd" && code=1
@@ -156,6 +162,9 @@ install_couch() {
     fi
 
     ensure_file "$SRC/system/couch-browser" "$PREFIX/bin/couch-browser" 755 && session=1
+    ensure_file "$SRC/system/couch-kodi" "$PREFIX/bin/couch-kodi" 755 || true
+    # polkitd picks up rule changes by itself.
+    ensure_file "$SRC/system/couch.rules" "$POLKIT_RULE" 644 || true
     # The config is yours: written once, never overwritten.
     if [[ ! -e $ETC/config.toml ]]; then
         install -m 644 "$SRC/system/config.example.toml" "$ETC/config.toml"
@@ -172,6 +181,9 @@ install_couch() {
             units=1
             [[ $u == couchd.service ]] && code=1 || session=1
         fi
+    done
+    for u in "${STATIC_UNITS[@]}"; do
+        if ensure_file "$SRC/system/$u" "$UNIT_DIR/$u" 644; then units=1; fi
     done
     ((units)) && systemctl daemon-reload
     for u in "${UNITS[@]}"; do
@@ -213,10 +225,13 @@ install_audio() {
 
 uninstall() {
     local purge=$1 u
+    systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
         rm -f "$UNIT_DIR/$u"
     done
+    for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    rm -f "$POLKIT_RULE"
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"

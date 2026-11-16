@@ -1,0 +1,7 @@
+#!/bin/sh
+# Kodi for Plex, on the whole screen (DRM/GBM, no compositor). couch-kodi.service runs this as
+# the couch user, and only when couchd hands it the screen; see couchd/display.py.
+# The profile (settings, the script.plexmod addon, autostart into Plex) is #22's job and
+# lives in /var/lib/couch/kodi, away from the couch user's home.
+export KODI_DATA=/var/lib/couch/kodi
+exec /usr/bin/kodi --standalone --windowing=gbm

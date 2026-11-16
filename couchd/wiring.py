@@ -2,9 +2,14 @@
 
 import logging
 
+from couchd.apps import AppService
 from couchd.audio import AudioService
 from couchd.bluetooth import BluetoothService
+from couchd.cec_tv import CecTv
+from couchd.chromium import Chromium
+from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeTv
+from couchd.idle import IdleService
 from couchd.pipewire import PipewireAudio
 from couchd.services import Context, Service
 from couchd.tv import RemoteService, TvService
@@ -22,8 +27,20 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             RemoteService(ctx, tv),
             AudioService(ctx, audio),
             BluetoothService(ctx, bluetooth),
+            *_apps(ctx, dev=True),
         ]
-    # Real CEC (#7) and Bluetooth (#12) backends are still to come. Until then the Pi gets
-    # the remote, so a USB keyboard can drive the launcher.
-    log.info("CEC and Bluetooth backends not built yet; running without them")
-    return [RemoteService(ctx), AudioService(ctx, PipewireAudio())]
+    # The real Bluetooth backend (#12) is still to come.
+    log.info("Bluetooth backend not built yet; running without it")
+    tv = CecTv()
+    return [
+        TvService(ctx, tv),
+        RemoteService(ctx, tv),
+        AudioService(ctx, PipewireAudio()),
+        *_apps(ctx, dev=False),
+    ]
+
+
+def _apps(ctx: Context, *, dev: bool) -> list[Service]:
+    """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend."""
+    display = FakeDisplay() if dev else SystemdDisplay()
+    return [AppService(ctx, display, Chromium()), IdleService(ctx)]

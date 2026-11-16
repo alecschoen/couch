@@ -79,6 +79,8 @@ class Daemon:
         # The API comes up first and systemd is told we're ready right after, so the
         # launcher can appear while slower services (Bluetooth, CEC) are still starting.
         await self._start_api()
+        # The app manager opens the launcher at this URL if its tab is ever lost.
+        self.state.update("system", {"url": f"{self.url}/"})
         notify("READY=1")
         await self.services.start_all()
         log.info("couchd ready", extra={"url": self.url})
@@ -87,9 +89,10 @@ class Daemon:
 
     async def stop(self) -> None:
         notify("STOPPING=1")
+        # Services first, so the app manager lets go of the dev browser before it closes.
+        await self.services.stop_all()
         if self.browser is not None:
             await self.browser.close()
-        await self.services.stop_all()
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None

@@ -1,8 +1,11 @@
-# Couch
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="ui/brand/svg/lockup-white.svg">
+    <img src="ui/brand/svg/lockup-night.svg" alt="Couch" height="56">
+  </picture>
+</h1>
 
 A remote-first TV launcher for the Raspberry Pi 4. It runs YouTube's TV interface and Plex, lets you choose where the sound goes (TV, the headphone jack or Bluetooth), and you control all of it with the TV remote over HDMI-CEC.
-
-*Couch is a working name.*
 
 ## How it fits together
 

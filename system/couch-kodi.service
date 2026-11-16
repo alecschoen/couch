@@ -1,0 +1,36 @@
+[Unit]
+Description=Couch Plex (Kodi on tty1, started by couchd)
+Documentation=https://github.com/alecschoen/couch
+# Kodi and the browser session take turns on tty1 and the HDMI output: starting either one
+# stops the other. The ordering makes the stop finish before the start.
+Conflicts=getty@tty1.service couch-session.service
+After=getty@tty1.service couch-session.service systemd-user-sessions.service
+After=dbus.socket systemd-logind.service
+Wants=dbus.socket systemd-logind.service
+# However Kodi ends, the launcher comes back, even if couchd isn't around to do it.
+OnSuccess=couch-session.service
+OnFailure=couch-session.service
+ConditionPathExists=/dev/tty1
+
+[Service]
+Type=simple
+User=couch
+# Same logind session setup as couch-session.service: Kodi gets DRM and input through it.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+ExecStart=/opt/couch/bin/couch-kodi
+# couchd decides what runs next; never restart Kodi on our own.
+Restart=no
+TimeoutStopSec=10
+# /usr/bin/kodi is a shell script, so a stop ends in exit 143 rather than a signal.
+SuccessExitStatus=143
+
+# No [Install]: couchd starts this unit, nothing else does.
