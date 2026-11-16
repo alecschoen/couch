@@ -44,6 +44,9 @@ TvPower = Literal["on", "standby", "unknown"]
 
 
 KeyAction = Literal["press", "release", "tap"]
+# The TV remote's volume buttons, which the TV sends to its Audio System (#11). "mute" is a
+# toggle; "mute_on" and "mute_off" are CEC's Mute Function and Restore Volume Function.
+VolumeKey = Literal["up", "down", "mute", "mute_on", "mute_off"]
 
 
 class TvBackend(Backend):
@@ -54,6 +57,7 @@ class TvBackend(Backend):
     def __init__(self) -> None:
         super().__init__()
         self._key_listeners: list[Callable[[KeyAction, str | None], None]] = []
+        self._volume_listeners: list[Callable[[VolumeKey | None], None]] = []
 
     def on_key(self, listener: Callable[[KeyAction, str | None], None]) -> None:
         self._key_listeners.append(listener)
@@ -73,6 +77,34 @@ class TvBackend(Backend):
     def _key_event(self, action: KeyAction, key: str | None) -> None:
         for listener in list(self._key_listeners):
             listener(action, key)
+
+    def on_volume_key(self, listener: Callable[[VolumeKey | None], None]) -> None:
+        """Volume buttons the TV handed us as its Audio System; None is a release."""
+        self._volume_listeners.append(listener)
+
+    def volume_key_pressed(self, key: VolumeKey) -> None:
+        for listener in list(self._volume_listeners):
+            listener(key)
+
+    def volume_key_released(self) -> None:
+        for listener in list(self._volume_listeners):
+            listener(None)
+
+    def system_audio(self) -> bool:
+        """True while the TV's speakers are muted and its volume buttons come to us."""
+        return False
+
+    async def set_system_audio(self, on: bool) -> None:
+        """Be the TV's Audio System, because sound is going somewhere other than the TV
+        (`on`), or give sound and the volume buttons back to the TV's speakers."""
+
+    def set_audio_status(self, volume: int, muted: bool, *, report: bool = False) -> None:
+        """The volume we have now, for the TV to show. Sent to it if it changed, or always
+        with `report` (after a volume button, so the TV shows where it got to)."""
+
+    async def simulate(self, frame: bytes) -> None:
+        """Handle a CEC frame as if the TV had sent it. For trying things on the Pi."""
+        raise BackendError("This TV backend can't simulate CEC frames")
 
     @abstractmethod
     def power(self) -> TvPower: ...

@@ -65,7 +65,12 @@ async def test_everything_starts_and_reports(rig):
         "audio": "running",
         "bluetooth": "running",
     }
-    assert snap["tv"] == {"power": "on", "active": True, "standby_on_poweroff": False}
+    assert snap["tv"] == {
+        "power": "on",
+        "active": True,
+        "standby_on_poweroff": False,
+        "system_audio": False,
+    }
     assert [o["id"] for o in snap["audio"]["outputs"]] == ["tv", "jack"]
     assert snap["audio"]["current"] == "tv"
     assert snap["bluetooth"] == {
@@ -94,6 +99,7 @@ async def test_tv_power(rig):
         "power": "standby",
         "active": False,
         "standby_on_poweroff": False,
+        "system_audio": False,
     }
     await run(rig, "tv.power_on")
     assert rig.state.get("tv")["power"] == "on"
