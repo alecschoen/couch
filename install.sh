@@ -32,6 +32,7 @@ UNITS=(couchd.service couch-session.service)
 STATIC_UNITS=(couch-kodi.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
+NO_POINTER_RULE=/etc/udev/rules.d/70-couch-no-pointer.rules
 UINPUT_MODULE_CONF=/etc/modules-load.d/couch-uinput.conf
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
 # Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
@@ -159,6 +160,12 @@ install_uinput() {
     ensure_file "$SRC/system/couch-uinput.conf" "$UINPUT_MODULE_CONF" 644 || true
     if ensure_file "$SRC/system/60-couch-uinput.rules" "$UINPUT_RULE" 644; then
         udevadm control --reload-rules
+    fi
+    # And no mouse cursor: the CEC inputs aren't pointers (system/70-couch-no-pointer.rules).
+    # libinput reads it when a device is added, so it takes effect from the next boot.
+    if ensure_file "$SRC/system/70-couch-no-pointer.rules" "$NO_POINTER_RULE" 644; then
+        udevadm control --reload-rules
+        REBOOT=1
     fi
     if [[ ! -e /dev/uinput ]]; then
         modprobe uinput
@@ -427,7 +434,7 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
-    rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$UINPUT_MODULE_CONF"
+    rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$NO_POINTER_RULE" "$UINPUT_MODULE_CONF"
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
