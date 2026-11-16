@@ -64,7 +64,7 @@ async def test_everything_starts_and_reports(rig):
         "audio": "running",
         "bluetooth": "running",
     }
-    assert snap["tv"] == {"power": "on"}
+    assert snap["tv"] == {"power": "on", "active": True, "standby_on_poweroff": False}
     assert [o["id"] for o in snap["audio"]["outputs"]] == ["tv", "jack"]
     assert snap["audio"]["current"] == "tv"
     assert snap["bluetooth"] == {"scanning": False, "devices": [_dict(ALREADY_PAIRED)]}
@@ -85,9 +85,20 @@ def _dict(device):
 
 async def test_tv_power(rig):
     await run(rig, "tv.standby")
-    assert rig.state.get("tv") == {"power": "standby"}
+    assert rig.state.get("tv") == {
+        "power": "standby",
+        "active": False,
+        "standby_on_poweroff": False,
+    }
     await run(rig, "tv.power_on")
-    assert rig.state.get("tv") == {"power": "on"}
+    assert rig.state.get("tv")["power"] == "on"
+    assert rig.state.get("tv")["active"]
+
+
+async def test_tv_standby_pauses_whatever_is_playing(rig):
+    sub = rig.bus.subscribe()
+    await run(rig, "tv.standby")
+    assert await sub.get() == {"type": "key", "data": {"key": "pause"}}
 
 
 async def test_remote_press_becomes_a_key_message(rig):

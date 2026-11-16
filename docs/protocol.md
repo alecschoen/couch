@@ -23,7 +23,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | --- | --- |
 | `system` | `version`, `mode` (`device` or `dev`) |
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
-| `tv` | `power`: `on`, `standby` or `unknown` |
+| `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id), `volume` (0–100), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
 
@@ -49,6 +49,8 @@ Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `b
 (in dev mode, or plugged into the Pi) is turned into `remote.press` commands by
 `ui/js/keys.js`, so it takes the same path through couchd as the TV remote.
 
+When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops.
+
 **`result`**: the reply to a command, matched by `id`.
 
 ### From the UI
@@ -69,7 +71,8 @@ The text `ping` gets `pong`.
 | Command | Args |
 | --- | --- |
 | `remote.press` | `key` |
-| `tv.power_on`, `tv.standby` | |
+| `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
+| `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |

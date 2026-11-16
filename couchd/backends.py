@@ -5,8 +5,8 @@ Services never touch hardware directly; they talk to one of these. A backend cal
 to standby), and the service re-reads it and updates live state. Live state only publishes
 the keys that actually differ, so a spurious `changed()` costs nothing.
 
-Real backends land with their issues: CEC (#7), audio (#10), Bluetooth (#12). The fakes are
-in `couchd/fakes.py`.
+Real backends land with their issues: CEC (`couchd/cec_tv.py`, #7), audio (#10), Bluetooth
+(#12). The fakes are in `couchd/fakes.py`.
 """
 
 from abc import ABC, abstractmethod
@@ -57,6 +57,10 @@ class TvBackend(Backend):
 
     @abstractmethod
     def power(self) -> TvPower: ...
+
+    def active(self) -> bool:
+        """True while the TV is showing our input (not another input, not off)."""
+        return self.power() == "on"
 
     @abstractmethod
     async def power_on(self) -> None:
