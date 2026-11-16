@@ -5,6 +5,7 @@ import logging
 from couchd.apps import AppService
 from couchd.audio import AudioService
 from couchd.bluetooth import BluetoothService
+from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeTv
@@ -27,10 +28,10 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
         ]
-    # Real backends arrive with CEC (#7), audio (#10) and Bluetooth (#12). Until then the
-    # Pi still gets the remote, so a USB keyboard can drive the launcher.
-    log.info("hardware backends not built yet; running without CEC, audio or Bluetooth")
-    return [RemoteService(ctx), *_apps(ctx, dev=False)]
+    # Real audio (#10) and Bluetooth (#12) backends are still to come.
+    log.info("audio and Bluetooth backends not built yet; running without them")
+    tv = CecTv()
+    return [TvService(ctx, tv), RemoteService(ctx, tv), *_apps(ctx, dev=False)]
 
 
 def _apps(ctx: Context, *, dev: bool) -> list[Service]:
