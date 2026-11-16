@@ -25,6 +25,10 @@ UNITS=(couchd.service couch-session.service)
 STATIC_UNITS=(couch-kodi.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
+# Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
+# ssh login) must stay off Bluetooth, or the two fight over the speaker.
+WIREPLUMBER_BT_DIR=$STATE/.config/wireplumber/wireplumber.conf.d
+WIREPLUMBER_BT_CONF=$WIREPLUMBER_BT_DIR/51-couch-bluetooth.conf
 AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
@@ -34,9 +38,9 @@ PACKAGES=(
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
-    bluez
+    bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
     polkitd                              # lets couchd switch the screen to Kodi and back
-    python3-venv python3-aiohttp python3-hatchling python3-editables
+    python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     fonts-noto-core
     rsync
 )
@@ -49,10 +53,12 @@ die() { echo "error: $*" >&2; exit 1; }
 
 # --- helpers: each one does nothing when things already match ---------------------------
 
+installed() { dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -qx installed; }
+
 ensure_packages() {
     local p missing=()
     for p in "$@"; do
-        dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null | grep -qx installed || missing+=("$p")
+        installed "$p" || missing+=("$p")
     done
     ((${#missing[@]})) || return 0
     apt-get update -q
@@ -83,6 +89,36 @@ ensure_tree() {
         --itemize-changes "$1/" "$2/")
     [[ -n $out ]] || return 1
     note "updated $2 ($(wc -l <<<"$out") files)"
+}
+
+# Raspberry Pi OS starts with the radios soft-blocked (rfkill). Couch needs Bluetooth, so
+# unblock it; systemd-rfkill keeps that across reboots. Wi-Fi is left alone.
+# Returns 0 if it unblocked anything.
+unblock_bluetooth() {
+    local r changed=1
+    for r in /sys/class/rfkill/rfkill*; do
+        [[ -r $r/type && $(<"$r/type") == bluetooth && $(<"$r/soft") == 1 ]] || continue
+        echo 0 >"$r/soft"
+        changed=0
+    done
+    ((changed)) || note "unblocked Bluetooth (rfkill)"
+    return $changed
+}
+
+# WirePlumber reads its config and looks for PipeWire's Bluetooth plugin only when it
+# starts. Without the plugin BlueZ has nothing to send a speaker's sound to and drops the
+# connection; the config is in system/wireplumber-bluetooth.conf.
+install_bluetooth_audio() {
+    local restart=0
+    ((HAD_BT_AUDIO)) || restart=1
+    ensure_dir "$STATE/.config" "$COUCH_USER" 700
+    ensure_dir "$STATE/.config/wireplumber" "$COUCH_USER" 700
+    ensure_dir "$WIREPLUMBER_BT_DIR" "$COUCH_USER" 700
+    ensure_file "$SRC/system/wireplumber-bluetooth.conf" "$WIREPLUMBER_BT_CONF" 644 && restart=1
+    ((restart)) || return 0
+    systemctl --user -M "$COUCH_USER@" -q is-active wireplumber.service 2>/dev/null || return 0
+    systemctl --user -M "$COUCH_USER@" restart wireplumber.service
+    note "restarted WirePlumber so it picks up Bluetooth audio"
 }
 
 # --- install ------------------------------------------------------------------------------
@@ -193,6 +229,9 @@ install_couch() {
         fi
     done
 
+    # couchd powers the radio when it starts, so restart it if the radio was blocked.
+    unblock_bluetooth && code=1
+
     # Restart only what changed; start what isn't running.
     if ((code)) || ! systemctl -q is-active couchd.service; then
         systemctl restart couchd.service
@@ -235,6 +274,7 @@ uninstall() {
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
+    rm -f "$WIREPLUMBER_BT_CONF"
     if ((purge)); then
         rm -rf "$ETC" "$STATE"
         if id -u "$COUCH_USER" >/dev/null 2>&1; then userdel "$COUCH_USER"; fi
@@ -260,6 +300,7 @@ esac
 
 check_system
 say "Packages"
+installed libspa-0.2-bluetooth && HAD_BT_AUDIO=1 || HAD_BT_AUDIO=0
 ensure_packages "${PACKAGES[@]}"
 say "Source"
 find_source
@@ -268,6 +309,7 @@ say "User"
 ensure_user
 say "Couch"
 install_couch
+install_bluetooth_audio
 
 echo
 if ((changes)); then

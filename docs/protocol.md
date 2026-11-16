@@ -25,7 +25,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
-| `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
+| `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
 
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true) |
@@ -111,8 +111,10 @@ The text `ping` gets `pong`.
 | `audio.cycle_output` | Next available output, as the Red button does |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |
-| `bluetooth.scan` | `on` (bool) |
-| `bluetooth.pair`, `.connect`, `.disconnect`, `.forget` | `address` |
+| `bluetooth.scan` | `on` (bool). Scanning stops by itself after 2 minutes; send it again to keep going |
+| `bluetooth.pair` | `address`. Pairs and trusts; an audio device is then connected too, so one press does it |
+| `bluetooth.connect`, `.disconnect`, `.forget` | `address` |
+| `bluetooth.set_auto_reconnect` | `on` (bool). Saved; on by default |
 | `apps.launch` | `app` (an id from `apps.list`). Starts it, or brings it to the front |
 | `apps.close` | `app`. Not the launcher |
 | `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |
@@ -123,6 +125,14 @@ The text `ping` gets `pong`.
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of
 range) sound moves to the TV, and when it comes back the sound follows. Volume is remembered
 per output. Every change of output, whatever caused it, shows a "Sound now on X" toast.
+
+When an audio device connects, sound moves to it as soon as its output shows up in `audio`
+(that is an `audio.set_output`, so it is saved and toasted like one). When it disconnects
+and sound was on it, the "Sound now on X" toast says where sound went; when sound was
+elsewhere there is a "Headphones disconnected" toast instead. The last audio device
+connected is remembered: with `auto_reconnect` on, couchd keeps trying to reach it whenever
+no audio device is connected, at boot and after it drops out of range (backing off to once
+a minute, and not while scanning). `bluetooth.disconnect` and `bluetooth.forget` make it stop.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 

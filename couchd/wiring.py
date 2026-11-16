@@ -5,6 +5,7 @@ import logging
 from couchd.apps import AppService
 from couchd.audio import AudioService
 from couchd.bluetooth import BluetoothService
+from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
@@ -29,13 +30,12 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
         ]
-    # The real Bluetooth backend (#12) is still to come.
-    log.info("Bluetooth backend not built yet; running without it")
     tv = CecTv()
     return [
         TvService(ctx, tv),
         RemoteService(ctx, tv),
         AudioService(ctx, PipewireAudio()),
+        BluetoothService(ctx, BluezBluetooth()),
         *_apps(ctx, dev=False),
     ]
 

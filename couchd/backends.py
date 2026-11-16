@@ -6,7 +6,7 @@ to standby), and the service re-reads it and updates live state. Live state only
 the keys that actually differ, so a spurious `changed()` costs nothing.
 
 Real backends land with their issues: CEC (`couchd/cec_tv.py`, #7), audio (#10), Bluetooth
-(#12). The fakes are in `couchd/fakes.py`.
+(`couchd/bluez.py`, #12). The fakes are in `couchd/fakes.py`.
 """
 
 from abc import ABC, abstractmethod

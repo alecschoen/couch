@@ -67,7 +67,11 @@ async def test_everything_starts_and_reports(rig):
     assert snap["tv"] == {"power": "on", "active": True, "standby_on_poweroff": False}
     assert [o["id"] for o in snap["audio"]["outputs"]] == ["tv", "jack"]
     assert snap["audio"]["current"] == "tv"
-    assert snap["bluetooth"] == {"scanning": False, "devices": [_dict(ALREADY_PAIRED)]}
+    assert snap["bluetooth"] == {
+        "scanning": False,
+        "devices": [_dict(ALREADY_PAIRED)],
+        "auto_reconnect": True,
+    }
 
 
 def _dict(device):
@@ -191,7 +195,11 @@ async def test_scan_finds_devices_and_stop_clears_unpaired(rig):
     assert set(names) == {ALREADY_PAIRED.name, *(d.name for _, d in NEARBY)}
 
     await run(rig, "bluetooth.scan", on=False)
-    assert rig.state.get("bluetooth") == {"scanning": False, "devices": [_dict(ALREADY_PAIRED)]}
+    assert rig.state.get("bluetooth") == {
+        "scanning": False,
+        "devices": [_dict(ALREADY_PAIRED)],
+        "auto_reconnect": True,
+    }
 
 
 async def test_pair_connect_adds_an_output_and_disconnect_falls_back(rig):
