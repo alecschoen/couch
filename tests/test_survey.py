@@ -56,6 +56,12 @@ def test_a_held_button(tmp_path):
     assert other == "VENDOR_COMMAND_WITH_ID (0 to 15) vendor-id: 0x080046 (Sony)"
 
 
+def test_only_other_frames(tmp_path):
+    arrived, *_, other = summarise(tmp_path, "\n".join(HELD_DOWN.splitlines()[-2:]) + "\n")
+    assert arrived == "no button"
+    assert other.startswith("VENDOR_COMMAND_WITH_ID")
+
+
 def test_nothing_arrived(tmp_path):
     arrived, *_ = summarise(tmp_path, "")
     assert arrived == "nothing"
