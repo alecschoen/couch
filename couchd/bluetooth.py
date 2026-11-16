@@ -217,7 +217,9 @@ class BluetoothService(Service):
         async with self._busy:
             await self.backend.pair(address)
             device = self._device(address)
-            if device is not None and device.audio and not device.connected:
+            # Even if it already shows as connected: pairing brings the link up but not the
+            # sound, and the speaker hangs up again if nothing follows.
+            if device is not None and device.audio:
                 await self.backend.connect(address)
 
     async def _connect(self, args: dict[str, Any]) -> None:

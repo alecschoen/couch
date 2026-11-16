@@ -26,7 +26,7 @@ PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio
-    bluez
+    bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     fonts-noto-core
     rsync
@@ -40,10 +40,12 @@ die() { echo "error: $*" >&2; exit 1; }
 
 # --- helpers: each one does nothing when things already match ---------------------------
 
+installed() { dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -qx installed; }
+
 ensure_packages() {
     local p missing=()
     for p in "$@"; do
-        dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null | grep -qx installed || missing+=("$p")
+        installed "$p" || missing+=("$p")
     done
     ((${#missing[@]})) || return 0
     apt-get update -q
@@ -88,6 +90,15 @@ unblock_bluetooth() {
     done
     ((changed)) || note "unblocked Bluetooth (rfkill)"
     return $changed
+}
+
+# WirePlumber looks for PipeWire's Bluetooth plugin only when it starts. Without it BlueZ
+# has nothing to send a speaker's sound to and drops the connection.
+restart_wireplumber_for_bluetooth() {
+    ((HAD_BT_AUDIO)) && return 0
+    systemctl --user -M "$COUCH_USER@" -q is-active wireplumber.service 2>/dev/null || return 0
+    systemctl --user -M "$COUCH_USER@" restart wireplumber.service
+    note "restarted WirePlumber so it picks up Bluetooth audio"
 }
 
 # --- install ------------------------------------------------------------------------------
@@ -238,6 +249,7 @@ esac
 
 check_system
 say "Packages"
+installed libspa-0.2-bluetooth && HAD_BT_AUDIO=1 || HAD_BT_AUDIO=0
 ensure_packages "${PACKAGES[@]}"
 say "Source"
 find_source
@@ -246,6 +258,7 @@ say "User"
 ensure_user
 say "Couch"
 install_couch
+restart_wireplumber_for_bluetooth
 
 echo
 if ((changes)); then

@@ -122,6 +122,22 @@ async def test_pair_connects_and_moves_sound(ctx, toasts):
         assert f"Sound now on {SPEAKER.name}" in toasts()
 
 
+class LinkUpAfterPairing(FakeBluetooth):
+    """Like BlueZ: pairing leaves the link up, so it reads as connected without any sound."""
+
+    async def pair(self, address):
+        await super().pair(address)
+        self._set(address, connected=True)
+
+
+async def test_pair_connects_sound_even_if_the_link_is_already_up(ctx):
+    async with Rig(ctx, LinkUpAfterPairing) as rig:
+        await rig.run("bluetooth.scan", on=True)
+        rig.bluetooth._devices[SPEAKER.address] = SPEAKER
+        await rig.run("bluetooth.pair", address=SPEAKER.address)
+        await until(lambda: rig.sound() == out(SPEAKER))
+
+
 async def test_pairing_a_phone_doesnt_connect_it(ctx):
     async with Rig(ctx) as rig:
         await rig.run("bluetooth.scan", on=True)

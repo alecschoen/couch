@@ -440,8 +440,9 @@ class BluezBluetooth(BluetoothBackend):
         name = _name(props)
         if not props.get("Paired"):
             raise BackendError(f"{name} isn't paired")
-        if props.get("Connected"):
-            return
+        # No shortcut on Connected: it only means the radio link is up, which pairing alone
+        # does too. Connect brings up the audio profiles; if they're up already BlueZ says
+        # AlreadyConnected, which counts as done.
         await self._power_on()
         async with self._quiet():
             await self._device_call(path, "Connect", name, "connect", max_wait=CONNECT_TIMEOUT)

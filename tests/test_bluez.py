@@ -296,10 +296,16 @@ async def test_connect_and_disconnect(rig):
     bluez.add_device(SPEAKER, "Soundbar", Paired=True, UUIDs=[A2DP_SINK])
     await backend.connect(SPEAKER)
     assert by_address(backend)[SPEAKER].connected
-    await backend.connect(SPEAKER)  # already connected: nothing to do
-    assert bluez.members().count("Connect") == 1
     await backend.disconnect(SPEAKER)
     assert not by_address(backend)[SPEAKER].connected
+
+
+async def test_connect_asks_bluez_even_when_the_link_is_up(rig):
+    # Right after pairing, Connected is true but no audio profile is: Connect must still go out.
+    bluez, backend = rig
+    bluez.add_device(SPEAKER, "Soundbar", Paired=True, Connected=True, UUIDs=[A2DP_SINK])
+    await backend.connect(SPEAKER)
+    assert bluez.members().count("Connect") == 1
 
 
 async def test_connect_needs_pairing(rig):
