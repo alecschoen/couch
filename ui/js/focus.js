@@ -77,6 +77,17 @@ export class FocusEngine extends EventTarget {
     return true;
   }
 
+  // Where move(direction) would go, without going there (null: nowhere).
+  peek(direction) {
+    const from = this.current;
+    return from && DIRECTIONS.has(direction) ? this._best(from, direction) : null;
+  }
+
+  // The "nothing that way" nudge, for a screen that stops a move itself.
+  bump(direction) {
+    if (this.current && DIRECTIONS.has(direction)) this._bump(this.current, direction);
+  }
+
   activate() {
     const el = this.current;
     if (!el) return false;
