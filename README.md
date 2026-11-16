@@ -83,7 +83,7 @@ To update, pull and run it again. It only changes what's different, and restarts
 
 Logs: `journalctl -u couchd -u couch-session`.
 
-It also sets up a silent boot: from power-on the TV goes from black to the Couch splash, then the launcher. There's no rainbow square and no text. It edits `cmdline.txt` and `config.txt`, and `--uninstall` undoes that; see [system/README.md](system/README.md#boot). This takes effect from the next boot, so reboot once after the first install.
+It also sets up a silent boot: from power-on the TV goes from black to the Couch splash, then the launcher, and a reboot or power-off shows the splash too. There's no rainbow square and no text. It edits `cmdline.txt` and `config.txt`, and `--uninstall` undoes that; see [system/README.md](system/README.md#boot). This takes effect from the next boot, so reboot once after the first install.
 
 ### The TV
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Couch boot splash on a framebuffer: couch-fbsplash [fb0]
+"""Draw the Couch boot splash on a framebuffer: couch-fbsplash [fb0] [--after-text tty1]
 
 The kernel draws the splash itself (fullscreen_logo in cmdline.txt), but only on the
 firmware's framebuffer. When vc4 takes the screen over, about 6 s into the boot, the kernel
@@ -9,16 +9,26 @@ screen filled with its top-left pixel. couch-fbsplash.service runs it as soon as
 framebuffer appears (system/couch-fbsplash.rules), and the splash then stays until cage
 draws the launcher.
 
+At shutdown the same unit stops after couch-session, once cage has let go of the screen, and
+draws the splash again, so a reboot or power-off shows it instead of black or text until the
+Pi resets. The frame drawn at boot is kept in /run, so that redraw is only a copy. With
+--after-text tty1 it first waits (up to 2 s) for tty1 to be back in text mode: logind puts it
+back once cage has gone, and fbcon then repaints the screen, which would wipe the splash.
+
 Python's standard library only, any resolution, 16 or 32 bits per pixel.
 """
 
 import fcntl
+import os
 import struct
 import sys
+import time
 from pathlib import Path
 
 TGA = Path("/lib/firmware/couch-splash.tga")
+CACHE = Path("/run/couch-fbsplash")
 FBIOGET_VSCREENINFO = 0x4600
+KDGETMODE = 0x4B3B  # 0 is KD_TEXT
 
 
 def read_tga(data: bytes):
@@ -77,17 +87,49 @@ def screen_info(fd: int):
     return xres, yres, xoff, yoff, bpp, red, green, blue
 
 
+def wait_for_text_mode(tty: str, timeout: float = 2.0) -> None:
+    fd = os.open(f"/dev/{tty}", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            mode = struct.unpack("i", fcntl.ioctl(fd, KDGETMODE, bytes(4)))[0]
+            if mode == 0:
+                time.sleep(0.05)  # fbcon repaints just after the switch
+                return
+            time.sleep(0.02)
+    finally:
+        os.close(fd)
+
+
 def main(argv: list[str]) -> int:
-    fb = argv[1] if len(argv) > 1 else "fb0"
+    args = argv[1:]
+    if "--after-text" in args:
+        i = args.index("--after-text")
+        try:
+            wait_for_text_mode(args[i + 1])
+        except OSError as e:
+            print(f"couch-fbsplash: {e}", file=sys.stderr)
+        del args[i : i + 2]
+    fb = args[0] if args else "fb0"
     sysfs = Path("/sys/class/graphics") / fb
     stride = int((sysfs / "stride").read_text())
-    w, h, rows = read_tga(TGA.read_bytes())
     with open(f"/dev/{fb}", "r+b", buffering=0) as dev:
         xres, yres, xoff, yoff, bpp, red, green, blue = screen_info(dev.fileno())
         if bpp not in (16, 32):
             print(f"couch-fbsplash: {fb} is {bpp} bpp; only 16 and 32 are drawn", file=sys.stderr)
             return 0
-        frame = render(w, h, rows, xres, yres, stride, packer(bpp, red, green, blue))
+        layout = "-".join(map(str, (*red, *green, *blue)))
+        cached = CACHE / f"{fb}-{xres}x{yres}-{bpp}-{stride}-{layout}"
+        try:
+            frame = cached.read_bytes()
+        except OSError:
+            w, h, rows = read_tga(TGA.read_bytes())
+            frame = render(w, h, rows, xres, yres, stride, packer(bpp, red, green, blue))
+            try:
+                CACHE.mkdir(exist_ok=True)
+                cached.write_bytes(frame)
+            except OSError:
+                pass  # only the shutdown redraw gets slower
         dev.seek(yoff * stride + xoff * bpp // 8)
         dev.write(frame)
     return 0

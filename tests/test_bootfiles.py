@@ -310,3 +310,43 @@ def test_revert_removes_the_udev_rule_before_rebuilding_the_initramfs():
     install = (ROOT / "install.sh").read_text()
     body = install[install.index("uninstall_boot() {") :]
     assert body.index('rm -f "$FBSPLASH_RULE"') < body.index("update-initramfs")
+
+
+def test_fbsplash_draws_again_at_shutdown_once_cage_has_gone():
+    unit = (ROOT / "system/couch-fbsplash.service").read_text()
+    assert "RemainAfterExit=yes" in unit  # so it gets stopped, after couch-session
+    assert "ExecStop=-/opt/couch/bin/couch-fbsplash fb0 --after-text tty1" in unit
+
+
+def test_fbsplash_reuses_the_boot_frame(tmp_path, monkeypatch):
+    """The shutdown redraw copies the frame drawn at boot instead of rendering it again."""
+    monkeypatch.setattr(fbsplash, "CACHE", tmp_path / "cache")
+    sysfs = tmp_path / "sys"
+    (sysfs / "fb0").mkdir(parents=True)
+    (sysfs / "fb0/stride").write_text("3840\n")
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    (dev / "fb0").write_bytes(bytes(3840 * 1080))
+    real_path, real_open = fbsplash.Path, open
+
+    def path(p, *rest):
+        p = str(p).replace("/sys/class/graphics", str(sysfs))
+        return real_path(p, *rest)
+
+    def fake_open(p, *a, **k):
+        return real_open(str(p).replace("/dev/", str(dev) + "/"), *a, **k)
+
+    monkeypatch.setattr(fbsplash, "Path", path)
+    monkeypatch.setattr(fbsplash, "open", fake_open, raising=False)
+    monkeypatch.setattr(fbsplash, "TGA", ROOT / "ui/brand/splash.tga")
+    info = (1920, 1080, 0, 0, 16, (11, 5), (5, 6), (0, 5))
+    monkeypatch.setattr(fbsplash, "screen_info", lambda fd: info)
+    assert fbsplash.main(["couch-fbsplash", "fb0"]) == 0
+    drawn = (dev / "fb0").read_bytes()
+    (cached,) = (tmp_path / "cache").iterdir()
+    assert cached.name == "fb0-1920x1080-16-3840-11-5-5-6-0-5"
+    assert cached.read_bytes() == drawn
+    (dev / "fb0").write_bytes(bytes(3840 * 1080))
+    monkeypatch.setattr(fbsplash, "render", lambda *a: pytest.fail("rendered again"))
+    assert fbsplash.main(["couch-fbsplash", "fb0"]) == 0
+    assert (dev / "fb0").read_bytes() == drawn
