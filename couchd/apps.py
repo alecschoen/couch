@@ -231,8 +231,29 @@ class AppService(Service):
             async with self._lock:
                 await self._launch_chromium(app)
         else:
-            async with self._lock:
-                await self._launch_kodi(app)
+            # Kodi takes the screen from the browser, and with it the launcher's connection,
+            # which cancels the command that asked for Plex (couchd/api.py). The handoff has to
+            # finish anyway, or Kodi is on screen while the remote still goes to the launcher.
+            # So it runs as our own task, and only the wait for it can be cancelled.
+            await asyncio.shield(self._own(self._launch_kodi_locked(app)))
+
+    async def _launch_kodi_locked(self, app: App) -> None:
+        async with self._lock:
+            await self._launch_kodi(app)
+
+    def _own(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
+        """A task that outlives its caller: stop() cancels it, and its error (which the
+        caller sees, if it's still waiting) isn't logged as the app manager's."""
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            self._tasks.discard(t)
+            if not t.cancelled():
+                t.exception()  # retrieved, so an abandoned failure isn't reported twice
+
+        task.add_done_callback(done)
+        return task
 
     async def home(self) -> None:
         if self._opening is not None:

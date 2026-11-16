@@ -310,6 +310,36 @@ async def test_plex_takes_the_screen_and_gives_it_back(ctx, apps, browser, displ
     assert "plex" not in state(ctx)["running"]
 
 
+async def test_plex_opens_even_if_the_launcher_that_asked_goes_away(ctx, browser):
+    # On the Pi, Kodi starting stops the browser, which closes the launcher's WebSocket,
+    # which cancels the apps.launch it sent. Kodi came up anyway, with couchd still sending
+    # the remote to the launcher that was gone.
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowDisplay(FakeDisplay):
+        async def start_kodi(self, on_exit):
+            started.set()
+            await release.wait()
+            await super().start_kodi(on_exit)
+
+    display = SlowDisplay(speed=0)
+    service = await make_service(ctx, browser, display)
+    try:
+        launch = asyncio.create_task(run(ctx, "apps.launch", app="plex"))
+        await started.wait()
+        launch.cancel()  # the launcher's socket closed
+        with pytest.raises(asyncio.CancelledError):
+            await launch
+        release.set()
+        await until(lambda: state(ctx)["foreground"] == "plex")
+        assert display.kodi_running
+        assert "plex" in state(ctx)["running"]
+        assert state(ctx)["opening"] is None
+    finally:
+        await service.stop()
+
+
 async def test_kodi_crashing_shows_an_error(ctx, apps, display):
     await run(ctx, "apps.launch", app="plex")
     await run(ctx, "apps.dev.kodi_exit", crashed=True)
