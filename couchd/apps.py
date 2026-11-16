@@ -7,6 +7,7 @@ browser session stops, Kodi starts, and when Kodi exits the browser session come
 
 Rules:
 - `home` always ends on the launcher, from anywhere, and the remote's Home key does it too.
+  So does a Chromium app asking to leave (YouTube's Back from its top level).
   The Pause key (also sent when the TV goes to standby) pauses the Chromium app in front.
 - An app going to the background has its media paused. Its tab stays open, so bringing it
   back to the front is instant.
@@ -29,8 +30,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from couchd import youtube
 from couchd.backends import BackendError
-from couchd.chromium import CdpError, Chromium
+from couchd.chromium import CdpError, Chromium, PageSetup
 from couchd.commands import CommandError, arg
 from couchd.display import Display, FakeDisplay
 from couchd.services import Context, Service
@@ -39,7 +41,6 @@ log = logging.getLogger(__name__)
 
 AppKind = Literal["launcher", "chromium", "kodi"]
 
-YOUTUBE_URL = "https://www.youtube.com/tv"  # user agent and decode flags: #21
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 OPENING_DELAY = 0.8  # time for the launcher to paint its Opening screen before a handoff
@@ -59,6 +60,7 @@ class App:
     kind: AppKind
     url: str = ""  # Chromium apps: what to open
     match: str = ""  # Chromium apps: a tab whose URL starts with this is this app
+    setup: PageSetup | None = None  # Chromium apps: user agent and script for the tab
 
     def public(self) -> dict[str, str]:
         return {"id": self.id, "name": self.name, "kind": self.kind}
@@ -66,7 +68,7 @@ class App:
 
 DEFAULT_APPS = (
     App("launcher", "Home", "launcher"),
-    App("youtube", "YouTube", "chromium", url=YOUTUBE_URL, match="https://www.youtube.com/"),
+    App("youtube", "YouTube", "chromium", youtube.URL, youtube.MATCH, youtube.SETUP),
     App("plex", "Plex", "kodi"),  # Kodi profile and the PM4K addon: #22
 )
 
@@ -139,6 +141,7 @@ class AppService(Service):
     async def start(self) -> None:
         await self.display.start()
         self.chromium.on_page_gone(self._page_gone)
+        self.chromium.on_page_message(self._page_message)
         if await self.display.owner() == "kodi":
             # couchd restarted while Plex was up: leave it there and watch it.
             kodi = next(a for a in self.apps.values() if a.kind == "kodi")
@@ -244,7 +247,7 @@ class AppService(Service):
             self._opening = app.id
             self._publish()
             try:
-                self._pages[app.id] = await self.chromium.open(app.url)
+                self._pages[app.id] = await self.chromium.open(app.url, app.setup)
             except CdpError as e:
                 raise CommandError(f"Couldn't open {app.name}") from e
             finally:
@@ -264,6 +267,15 @@ class AppService(Service):
         if previous != app_id and previous in self._pages and previous != self.launcher.id:
             with contextlib.suppress(CdpError):
                 await self.chromium.evaluate(self._pages[previous], PAUSE_MEDIA)
+
+    def _page_message(self, target_id: str, message: str) -> None:
+        """A Chromium app's page asks for something. "home": it wants to leave."""
+        app_id = next((a for a, t in self._pages.items() if t == target_id), None)
+        if app_id is None or app_id == self.launcher.id:
+            return
+        if message == "home" and self._foreground == app_id:
+            log.info("app asked to go home", extra={"app": app_id})
+            self._spawn(self.home())
 
     def _page_gone(self, target_id: str, crashed: bool) -> None:
         if target_id in self._pages.values():
@@ -422,6 +434,12 @@ class AppService(Service):
             app = self._app_for_url(page.url)
             if app is not None and app.id not in self._pages:
                 self._pages[app.id] = page.id
+                if app.setup is not None:
+                    # couchd restarted: the tab lost its setup with our old session.
+                    try:
+                        await self.chromium.prepare(page.id, app.setup)
+                    except CdpError as e:
+                        log.warning("couldn't set up a tab", extra={"app": app.id, "error": str(e)})
         if self.launcher.id not in self._pages:
             await self._reopen_launcher()
         if not self._seen_browser:

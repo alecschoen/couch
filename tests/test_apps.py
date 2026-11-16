@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from couchd import apps as apps_module
+from couchd import youtube
 from couchd.apps import AppService, CrashLimiter
 from couchd.bus import EventBus
 from couchd.chromium import Chromium
@@ -140,6 +141,44 @@ async def test_pause_key_pauses_the_app_in_front(ctx, apps, browser):
     await until(lambda: youtube.paused == 1)
     assert state(ctx)["foreground"] == "youtube"  # it stays on screen
     assert browser.tab_for(LAUNCHER).paused == 0
+
+
+async def test_youtube_gets_a_tv_user_agent_and_its_script(ctx, apps, browser):
+    await run(ctx, "apps.launch", app="youtube")
+    tab = browser.tab_for(YOUTUBE)
+    assert tab.url == youtube.URL
+    assert tab.user_agent == youtube.USER_AGENT and "Tizen" in tab.user_agent
+    assert tab.scripts == [youtube.SCRIPT]
+    assert "isTypeSupported" in youtube.SCRIPT and "window.close" in youtube.SCRIPT
+
+
+async def test_leaving_youtube_goes_home_and_keeps_the_tab(ctx, apps, browser):
+    await run(ctx, "apps.launch", app="youtube")
+    tab = browser.tab_for(YOUTUBE)
+    await browser.page_calls(tab.id, "something else")  # ignored
+    await asyncio.sleep(0.05)
+    assert state(ctx)["foreground"] == "youtube"
+
+    await browser.page_calls(tab.id, "home")
+    await until(lambda: state(ctx)["foreground"] == "launcher")
+    assert browser.active == browser.tab_for(LAUNCHER).id
+    assert state(ctx)["running"] == ["launcher", "youtube"]
+
+    # From the background it can't take anyone home.
+    await browser.page_calls(tab.id, "home")
+    await asyncio.sleep(0.05)
+    assert state(ctx)["foreground"] == "launcher"
+
+
+async def test_a_restarted_couchd_sets_youtube_up_again(ctx, browser, display):
+    tab_id = browser.add_tab(YOUTUBE + "tv#/watch")
+    service = await make_service(ctx, browser, display)
+    try:
+        assert browser.tabs[tab_id].user_agent == youtube.USER_AGENT
+        await browser.page_calls(tab_id, "home")
+        await until(lambda: state(ctx)["foreground"] == "launcher")
+    finally:
+        await service.stop()
 
 
 async def test_a_crashed_tab_goes_home_with_an_error(ctx, apps, browser):

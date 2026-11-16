@@ -81,6 +81,10 @@ To update, pull and run it again. It only changes what's different, and restarts
 
 Logs: `journalctl -u couchd -u couch-session`.
 
+### YouTube sign-in
+
+Open YouTube from the launcher and choose **Sign in with your phone**, then go to [yt.be/activate](https://yt.be/activate) on your phone and enter the code on the TV. The sign-in is kept in Chromium's profile, `/var/lib/couch/chromium`, so it's needed once. **Watch as guest** works without an account.
+
 ## Configuration
 
 On the Pi, couchd reads `/etc/couch/config.toml`. The file is optional, and every key has a default; see [system/config.example.toml](system/config.example.toml). Saved state, such as the preferred audio output, lives in `/var/lib/couch/state.json`. Check a config with `couchd --check-config`. If the file is broken, couchd logs the error and starts with defaults, so the TV still comes up.
