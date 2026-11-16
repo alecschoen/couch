@@ -370,6 +370,8 @@ def test_a_broken_release_rolls_back(tmp_path, server, box):
         "at": status["event"]["at"],
     }
     assert "stayed on v0.1.0" in status["message"]
+    reset = ["systemctl", "reset-failed", "couchd.service", "couch-session.service"]
+    assert system.ran.index(reset) < len(system.ran) - 1  # before the old install.sh
     assert system.quiet_seen == [False, False]  # Check now: the TV is on anyway
     # it isn't tried again, but a newer one is
     assert u.run(nightly=False) == "up-to-date"

@@ -528,6 +528,8 @@ class Updater:
         why = f"install.sh exited {code}" if code else "the health check failed"
         self.say(f"{tag} failed ({why}); going back to {current}")
         self.status.set(state="rolling-back", message=f"{tag} didn't work; going back")
+        # A crash-looping couchd may have hit systemd's start limit; restart would refuse.
+        self.sys.run(["systemctl", "reset-failed", *UNITS], timeout=30, log=self.log)
         back = self.sys.run(
             ["bash", str(rollback / "install.sh")], timeout=self.cfg.install_timeout, log=self.log
         )
