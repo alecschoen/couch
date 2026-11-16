@@ -10,7 +10,7 @@
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
 #
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the two units in
-# /etc/systemd/system, one WirePlumber drop-in, the couch user, and apt packages.
+# /etc/systemd/system, the couch user, and apt packages.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -19,7 +19,10 @@ ETC=/etc/couch
 STATE=/var/lib/couch
 UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
-WIREPLUMBER_BT_CONF=/etc/wireplumber/wireplumber.conf.d/51-couch-bluetooth.conf
+# In couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an ssh login) must
+# stay off Bluetooth, or the two fight over the speaker.
+WIREPLUMBER_BT_DIR=$STATE/.config/wireplumber/wireplumber.conf.d
+WIREPLUMBER_BT_CONF=$WIREPLUMBER_BT_DIR/51-couch-bluetooth.conf
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
@@ -99,6 +102,9 @@ unblock_bluetooth() {
 install_bluetooth_audio() {
     local restart=0
     ((HAD_BT_AUDIO)) || restart=1
+    ensure_dir "$STATE/.config" "$COUCH_USER" 700
+    ensure_dir "$STATE/.config/wireplumber" "$COUCH_USER" 700
+    ensure_dir "$WIREPLUMBER_BT_DIR" "$COUCH_USER" 700
     ensure_file "$SRC/system/wireplumber-bluetooth.conf" "$WIREPLUMBER_BT_CONF" 644 && restart=1
     ((restart)) || return 0
     systemctl --user -M "$COUCH_USER@" -q is-active wireplumber.service 2>/dev/null || return 0
