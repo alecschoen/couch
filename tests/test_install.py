@@ -32,9 +32,11 @@ def test_every_system_file_it_installs_exists():
         "couch-kodi.service",
         "couch-kodi",
         "couch.rules",
+        "kodi",
     } <= named
     for name in named:
-        assert (ROOT / "system" / name).is_file(), name
+        path = ROOT / "system" / name
+        assert path.is_dir() if name == "kodi" else path.is_file(), name
 
 
 def test_session_runs_the_installed_browser_wrapper():
