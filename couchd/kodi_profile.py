@@ -23,7 +23,7 @@ What it sets up, and why:
 - media/splash.png: Kodi's splash, the same Opening screen.
 - guisettings.xml: that skin, DRM PRIME decoding, refresh rate matched on start/stop, sound
   through PulseAudio (so it follows couchd's PipeWire routing), no UI sounds, no screensaver,
-  no addon updates.
+  no addon updates, JSON-RPC on for couchd's pause.
 - Kodi's CEC adapter off: couchd owns CEC (#7).
 - PM4K's own settings: no update check, no kiosk auto-start (service.couch starts it).
 """
@@ -94,6 +94,8 @@ GUI_SETTINGS: dict[str, tuple[str, Callable[[str | None], bool]]] = {
     # Nothing to announce on the network. WS-Discovery alone takes ~2 s of Kodi's quit.
     "services.wsdiscovery": ("false", _always("false")),
     "services.zeroconf": ("false", _always("false")),
+    # JSON-RPC on 127.0.0.1:9090: couchd pauses Kodi through it (#20). Kodi 21 defaults it on.
+    "services.esenabled": ("true", _always("true")),
 }
 
 # PM4K's settings (it keeps them in Kodi's addon settings, most of them undeclared).

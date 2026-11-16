@@ -1,0 +1,10 @@
+#!/bin/sh
+# initramfs-tools hook (installed as /etc/initramfs-tools/hooks/couch-splash): puts the Couch
+# boot splash in the initramfs. The kernel draws it (fullscreen_logo_name= in cmdline.txt)
+# as soon as the firmware's framebuffer appears, before the root filesystem is mounted.
+PREREQ=""
+case $1 in
+prereqs) echo "$PREREQ"; exit 0 ;;
+esac
+. /usr/share/initramfs-tools/hook-functions
+add_firmware couch-splash.tga

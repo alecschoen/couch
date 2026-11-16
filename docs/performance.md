@@ -100,7 +100,8 @@ Medians of 3 runs, from the `remote.press`/`apps.launch` command to the event na
 
 ## Boot
 
-From `run.sh boot`. Times are seconds since the kernel started.
+From `run.sh boot`. Times are seconds since the kernel started. `scripts/boot-timing.sh`
+(#4) prints the same milestones for a person to read.
 
 | Milestone | s |
 |---|---|

@@ -51,6 +51,8 @@
 
   --text-hero: 210px; /* app name while it opens */
   --text-clock-idle: 300px;
+  --text-date-idle: 36px; /* the date under the idle clock */
+  --text-idle-hint: 25px; /* "Press any button" on the idle clock */
   --text-clock: 168px;
   --text-wordmark: 120px;
   --text-title: 96px; /* screen title, home headline */

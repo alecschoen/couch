@@ -25,7 +25,7 @@ def state():
 def test_defaults_are_published(state):
     settings = Settings(state)
     assert state.get("settings") == {k: s.default for k, s in SCHEMA.items()}
-    assert settings.get("display.evening") == "always"
+    assert settings.get("display.evening") == "sunset"
 
 
 def test_set_validates_saves_and_publishes(state, tmp_path):
@@ -33,12 +33,12 @@ def test_set_validates_saves_and_publishes(state, tmp_path):
     settings = Settings(state, path, save_delay=0)
     seen = []
     settings.on_change(lambda k, v: seen.append((k, v)))
-    assert settings.set("display.evening", "sunset") is True
-    assert settings.set("display.evening", "sunset") is False
+    assert settings.set("display.evening", "always") is True
+    assert settings.set("display.evening", "always") is False
     settings.flush()
-    assert json.loads(path.read_text())["display.evening"] == "sunset"
-    assert state.get("settings")["display.evening"] == "sunset"
-    assert seen == [("display.evening", "sunset")]
+    assert json.loads(path.read_text())["display.evening"] == "always"
+    assert state.get("settings")["display.evening"] == "always"
+    assert seen == [("display.evening", "always")]
 
 
 @pytest.mark.parametrize(
@@ -79,7 +79,7 @@ def test_a_broken_file_is_set_aside(state, tmp_path):
     path.write_text("{not json")
     settings = Settings(state, path)
     settings.load()
-    assert settings.get("display.evening") == "always"
+    assert settings.get("display.evening") == "sunset"
     assert (tmp_path / "settings.json.bad").exists()
 
 
