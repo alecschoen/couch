@@ -551,8 +551,8 @@ function checkHint(u) {
   if (u.result === "waiting" && u.waiting) return `Waiting because ${u.waiting}`;
   if (u.result === "no-access") {
     const why = u.message ?? "Couch can't read its releases";
-    const still = u.nightly ? " Security updates still run." : "";
-    return `${why}.${still} See Release access in system/README.md.`;
+    if (u.nightly) return `${why}. Security updates still run. See Release access in system/README.md.`;
+    return `${why}. Nightly and security updates are off until they're turned on. See Updates in system/README.md.`;
   }
   if (["rolled-back", "broken", "failed"].includes(u.result)) return u.message ?? null;
   if (u.result === "up-to-date" && u.message) return u.message;
