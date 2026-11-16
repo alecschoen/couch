@@ -1,0 +1,162 @@
+/* Settings (#17), ui/js/screens/settings.js. Artboard "Screen · Settings" at 1.5×. */
+
+.settings-screen__title {
+  margin-top: 27px;
+}
+
+.settings-screen__body {
+  display: grid;
+  grid-template-columns: 450px minmax(0, 1fr);
+  column-gap: 84px;
+  margin-top: 54px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Room either side for the focus fill, which reaches 27px past the text. */
+.settings-panel {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 30px 30px;
+  margin: 0 -30px;
+  scrollbar-width: none;
+}
+
+/* ---- Rows that pick from a range: "‹ 5 minutes ›", arrows only while focused. */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.stepper__arrow {
+  font-size: var(--text-md);
+  opacity: 0;
+  transition: opacity var(--dur-quick);
+}
+
+.setting.is-focused .stepper__arrow {
+  opacity: 0.9;
+}
+
+.setting.is-focused .stepper__arrow.is-end {
+  opacity: 0.25;
+}
+
+.setting.is-focused .setting__value {
+  opacity: 1;
+}
+
+/* ---- Remote: the "test your remote" box. */
+.remote-test-line {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: 27px 0;
+  position: relative;
+}
+
+.remote-test-line::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--palette-ink) var(--a-hairline), transparent);
+}
+
+.remote-test {
+  position: relative;
+  min-height: 96px;
+  padding: 18px 36px;
+  border-radius: var(--radius-tab);
+  border: var(--border) dashed color-mix(in srgb, currentColor 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-4);
+  font-size: var(--text-base);
+  text-align: center;
+  transition:
+    background-color var(--dur-quick),
+    color var(--dur-quick),
+    border-color var(--dur-quick);
+}
+
+.remote-test > span:only-child {
+  opacity: var(--a-muted);
+}
+
+.remote-test.is-focused {
+  --ground: var(--palette-ink);
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+.remote-test.is-listening {
+  border-style: solid;
+}
+
+.remote-test__key {
+  font-family: var(--font-display);
+  font-size: var(--text-row);
+  font-weight: 600;
+}
+
+.remote-test__code {
+  font-size: var(--text-sm);
+  opacity: var(--a-muted);
+}
+
+.remote-test__hint {
+  position: absolute;
+  right: 36px;
+  font-size: var(--text-xs);
+  opacity: var(--a-faint);
+}
+
+/* ---- Updates: Check now. */
+.settings-actions {
+  margin-top: 15px;
+}
+
+/* ---- Power: Restart and Turn off. */
+.power {
+  padding-top: 12px;
+}
+
+.power-action {
+  height: 108px;
+  padding: 0 36px;
+  border-radius: var(--radius-row);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  font-family: var(--font-display);
+  font-size: var(--text-row);
+  font-weight: 600;
+  text-align: left;
+  transition:
+    background-color var(--dur-quick),
+    color var(--dur-quick),
+    border-color var(--dur-quick),
+    box-shadow var(--dur-quick);
+}
+
+.power-action.is-primary,
+.power-action.is-focused {
+  --ground: var(--palette-ink);
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+/* Already filled: focus shows as a ring of ground colour inside the fill, like a primary pill. */
+.power-action.is-primary.is-focused {
+  box-shadow: inset 0 0 0 4px var(--palette-bg);
+}
+
+.power + .settings,
+.power .settings {
+  margin-top: 6px;
+}

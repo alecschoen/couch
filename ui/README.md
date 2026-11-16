@@ -14,6 +14,7 @@ css/
   base.css            page basics, the colour flood, screens, type classes, layout helpers
   components.css      cards, pills, segmented controls, rows, tabs, setting lines,
                       switches, progress, toasts, sheet, key hints
+  settings.css        the Settings screen's own pieces (steppers, remote test, power)
 fonts/                woff2 files and their licences
 js/
   couch.js            couchd client: state, commands, toasts, key events; reconnects
@@ -23,9 +24,10 @@ js/
   focus.js            spatial focus engine (arrows move between focusables)
   theme.js            palette flood transitions, evening colours
   motion.js           animate() that respects Reduce motion; durations come from tokens.css
-  settings.js         Evening colors and Reduce motion (in localStorage for now)
+  settings.js         user settings, kept by couchd (docs/protocol.md), and their hooks
   components.js       h(), icons and the component builders
   demo/               the foundation demo: home cards, Components, Type, Console, quick menu
+  screens/            the real screens, one module each: settings.js (#17)
 ```
 
 ## Palettes
@@ -54,13 +56,13 @@ Listen for `couch:focus` (bubbles) to react to focus arriving. A sheet calls `fo
 app.router.register("bluetooth", (params, app) => ({
   el,                 // the screen's root element
   palette: "bt",      // or a function, for screens whose colour follows focus
-  onKey(key) {},      // optional: return true to take a key before focus does
+  onKey(key, data) {}, // optional: return true to take a key before focus does
   onShow() {}, onHide() {}, destroy() {},
 }));
 app.router.go("bluetooth");
 ```
 
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen.
+Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. The app then fires its own `key` event with `taken: true` if a scope or screen took the key, so global handlers (Blue for the quick menu) can stand aside.
 
 ## Motion
 

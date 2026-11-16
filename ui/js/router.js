@@ -3,7 +3,7 @@
 //   router.register("bluetooth", (params, app) => ({
 //     el,                         // the screen's root element (class="screen")
 //     palette: "bt",              // flood colour while it's on top
-//     onKey(key) {},              // optional: return true to take a key before focus does
+//     onKey(key, data) {},        // optional: return true to take a key before focus does
 //     onShow() {}, onHide() {},   // optional: on top / covered or closed
 //     destroy() {},               // optional: closed for good (stop timers, listeners)
 //   }));
@@ -74,8 +74,8 @@ export class Router extends EventTarget {
   }
 
   // The top screen's own key handling. True if it took the key.
-  handleKey(key) {
-    return this.current?.onKey?.(key) === true;
+  handleKey(key, data = { key }) {
+    return this.current?.onKey?.(key, data) === true;
   }
 
   _show(screen, { entering }) {
