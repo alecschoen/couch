@@ -80,4 +80,4 @@ async def test_dev_mode_runs_the_fakes(tmp_path):
 
 async def test_device_mode_still_has_the_remote(tmp_path):
     daemon = Daemon(make_config(tmp_path), dev=False)
-    assert [s.name for s in daemon.services] == ["remote"]
+    assert [s.name for s in daemon.services] == ["remote", "apps", "idle"]
