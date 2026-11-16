@@ -17,13 +17,15 @@ Section times are rough.
 
 - [ ] **A1** Plug the Pi in and start the stopwatch. Expected: the TV wakes up by itself and
       switches to the Pi.
-- [ ] **A2** Watch the screen. Expected: black, then the Couch logo on dark grey. No rainbow
-      square, no text, no blinking cursor and no mouse pointer at any point.
+- [ ] **A2** Watch the screen. Expected: black, then the Couch logo on dark grey. Later the
+      screen goes black once, for under a second (about 0.8 s, when the display session takes
+      over), and the logo comes back on the same spot. No rainbow square, no text, no white
+      flash, no blinking cursor and no mouse pointer at any point.
 - [ ] **A3** Expected: a progress bar and "Turning on the TV" fade in under the logo. The logo
       doesn't move or flash while that happens.
-- [ ] **A4** Expected: Home appears within about 15 s of plugging in, with no white flash just
-      before it. Write down the time: ____ s, and how long the screen is black between the
-      logo and Home, if it is: ____ s.
+- [ ] **A4** Expected: Home appears about 30–35 s after plugging in (measured overnight: 29 s
+      after the kernel starts, plus the Pi's firmware), with no white flash just before it.
+      Write down the time: ____ s, and how long the black in A2 lasts: ____ s.
 - [ ] **A5** Expected: nothing is cut off at the edges. The clock at top left and "Sound: …" at
       top right have space around them.
 
@@ -108,7 +110,9 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 ## E. YouTube (6 min)
 
 - [ ] **E1** OK on YouTube. Expected: a red Opening screen, then YouTube's TV interface (not the
-      website, no cookie banner), signed in to your account.
+      website, no cookie banner), signed in to your account. If it shows "Who's watching?",
+      pick your profile: Couch leaves that choice to you. (It can also come up a few seconds
+      after a video opens.)
 - [ ] **E2** Hold Down on the home grid. Expected: it scrolls smoothly and stops when you let go.
 - [ ] **E3** Play a 1080p video and watch for a minute. Expected: no visible stutter, sound on
       the Bluetooth speaker.
@@ -332,6 +336,42 @@ file, not that Plex was still signed in. So after **each** pull, check:
 
       Expected: about 5–7 MB right after a boot, as measured overnight.
 
+### Performance (20 min)
+
+From a checkout of Couch on the PC, with SSH to couch.local. The overnight numbers and what
+each script does are in docs/performance.md (#23). Give Claude the results, or the JSON
+files under `perf-results/<date>/`, for that page.
+
+- [ ] **P1** YouTube. On the TV, open YouTube and pick your profile on "Who's watching?": the
+      overnight run couldn't, so YouTube isn't measured yet. Go back Home, then:
+
+      ```bash
+      scripts/perf/run.sh youtube --short
+      ```
+
+      It plays a 1080p60 video for 3 minutes. Expected: under 0.5 % dropped frames and a
+      hardware decoder. If the picker comes back during the run, pick your profile again
+      and run it again. With time to spare, `--minutes 30` instead of `--short`.
+- [ ] **P2** The boot recording. Overnight, every frame from the session splash to Home was
+      recorded (480 × 270). It's on the PC in the COUCH-23 worktree,
+      `.claude/worktrees/nostalgic-euclid-f7f555/perf-results/2026-11-16/session-072302-15.27.mkv`.
+      Open it in a video player that steps one frame at a time (VLC: E; mpv: `.`).
+      Expected: the logo, then the Startup screen's logo on the same pixels with its bar and
+      "Turning on the TV", then Home fading in. No black or white frame, and the logo doesn't jump. (The recording starts at the
+      splash's first frame, so A2's short black isn't in it; A2 is the check for that.)
+- [ ] **P3** Kodi at 1080p60. Overnight, our own 1080p60 H.264 test clip played with hardware
+      decoding, yet Kodi used 110 % of a core (one core at 95–100 %), against 23 % for 4K
+      HEVC. If your Plex library has something at 60 fps (sport, a phone video), play it in
+      Plex and run:
+
+      ```bash
+      scripts/perf/run.sh plex watch --seconds 120 --label 1080p60
+      ```
+
+      Note Kodi's CPU % (the result's `system` summary, per program): ____ %, and whether
+      the picture stutters. (It only reads Kodi's player state; it doesn't press anything or
+      touch your watch history.)
+
 ### Later, on your own
 
 - Plex: if you like, set up Plex's user select or automatic sign-in in Plex's own settings.
@@ -361,3 +401,4 @@ decides what the remote's buttons do.
 | Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
 | Wi-Fi option | #31, PR #57 |
+| Performance, boot splash without black or white | #23, PR #60 |
