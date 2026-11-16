@@ -24,6 +24,7 @@ export const DEFAULTS = {
   "audio.volume_limit": 100,
   "audio.tv_remote_volume": true,
   "bluetooth.auto_reconnect": true,
+  "network.wifi": false,
   "tv.off_when_idle": false,
   "tv.standby_on_poweroff": false,
   "updates.overnight": true,

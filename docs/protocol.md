@@ -27,6 +27,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting); `system_audio`: the TV's speakers are muted and its volume buttons come to couchd (see [TV remote volume](#tv-remote-volume)) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
+| `wifi` | `available` (there's a Wi-Fi radio and NetworkManager is running), `enabled` (the radio is on), `connection`: `off`, `disconnected`, `connecting` or `connected`; `ssid` (while connecting or connected) and `signal` (0–100, while connected), else null; `primary` (Couch's traffic goes over Wi-Fi). Switched with the `network.wifi` setting |
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
@@ -338,6 +339,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
 | `updates.overnight` | bool | true | Install updates overnight (#24): read by couch-update's nightly run |

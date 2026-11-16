@@ -109,6 +109,8 @@ SCHEMA: dict[str, Setting] = _schema(
     # Kept for the CEC volume keys (System Audio Mode); nothing acts on it yet.
     Setting("audio.tv_remote_volume", "bool", True, label="TV remote controls volume"),
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
+    # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.
+    Setting("network.wifi", "bool", False, label="Wi-Fi"),
     # The TV goes to standby after 2 hours idle on the launcher (couchd/idle.py).
     Setting("tv.off_when_idle", "bool", False, label="Turn the TV off when idle"),
     # The TV goes to standby when the Pi powers off (not on a reboot).
@@ -177,6 +179,11 @@ class Settings:
 
     def values(self) -> dict[str, Any]:
         return dict(self._values)
+
+    def is_set(self, key: str) -> bool:
+        """Whether `key` was ever set (it's in the file), rather than left at its default."""
+        self._setting(key)
+        return self._file is not None and self._file.get(key) is not None
 
     def set(self, key: str, value: Any) -> bool:
         """Validate and store `value`. True if it changed. Raises SettingError if invalid."""

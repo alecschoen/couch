@@ -9,13 +9,14 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage/Chrom
 - `couch-browser`: the Chromium command line cage runs (kiosk, Wayland, profile in `/var/lib/couch/chromium`, DevTools on 127.0.0.1:9222 for couchd)
 - `couch-kodi.service`: Kodi on tty1 for Plex. Not enabled: couchd starts it, and starting it stops `couch-session.service` (they conflict). When Kodi exits the unit starts the session again, so the launcher comes back even without couchd.
 - `couch-kodi`: the Kodi command line (DRM/GBM, profile in `/var/lib/couch/kodi`, filled by #22)
-- `couch.rules`: polkit rules letting the `couch` user start, stop and reset those two units, and reboot or power off the Pi (Settings › Power), nothing else. Installed as `/etc/polkit-1/rules.d/50-couch.rules`.
+- `couch.rules`: polkit rules letting the `couch` user start, stop and reset those two units, reboot or power off the Pi (Settings › Power), and switch Wi-Fi on and off (Settings › Network), nothing else. Installed as `/etc/polkit-1/rules.d/50-couch.rules`.
 - `config.example.toml`: every config key with its default
 - `couch-bootfiles`: edits `cmdline.txt` and `config.txt` in `/boot/firmware`, and undoes exactly those edits. Each change has an owner (`boot` for the silent boot), so other boot settings can come and go on their own. It keeps the first copy of each file as `*.couch-orig`. Installed as `/opt/couch/bin/couch-bootfiles`; run it with `show` to see what Couch changed.
 - `boot-config.txt`: the silent boot's lines for `config.txt` (`disable_splash=1`, `disable_overscan=1`), in a `# >>> couch:boot` block at the end.
 - `initramfs-splash`: an initramfs-tools hook, installed as `/etc/initramfs-tools/hooks/couch-splash`. It puts the splash (`/lib/firmware/couch-splash.tga`, from `ui/brand/splash.tga`) in the initramfs.
 - `70-couch-no-pointer.rules`: no mouse cursor on the TV. The kernel's CEC remote inputs (`vc4-hdmi-0`, `vc4-hdmi-1`) have mouse axes, so libinput would hand them to cage as pointers and cage would draw its cursor. This makes libinput ignore them. couchd doesn't use them: it reads `/dev/cec0` and types through its own Couch remote device.
 - `couch-fbsplash`, `couch-fbsplash.service`, `couch-fbsplash.rules`: draw the same splash again on vc4's framebuffer when vc4 takes the screen over, and once more at shutdown (see Boot below). The rule is installed as `/etc/udev/rules.d/70-couch-fbsplash.rules`.
+- `couch-wifi-boot`, `couch-wifi-boot.service`, `70-couch-wifi.rules`, `systemd-rfkill-couch.conf`: keep Wi-Fi off across a reboot without a failed unit (see Wi-Fi below). The drop-in is installed as `/etc/systemd/system/systemd-rfkill.service.d/couch.conf`, the rule as `/etc/udev/rules.d/70-couch-wifi.rules`.
 - `couch-update.service`, `couch-update.timer`, `couch-update-now.service`: overnight updates (#24), see below
 - `update.example.toml`: couch-update's settings, installed as `/etc/couch/update.example.toml`
 - `apt-couch.conf`: installed as `/etc/apt/apt.conf.d/52couch-updates`. apt still refreshes its lists by itself, but security updates are installed by couch-update at night, not by `apt-daily-upgrade`, so they never land during a film
@@ -35,6 +36,32 @@ To look at the same thing couchd sees, on the Pi:
 ```bash
 sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) pactl list sinks short
 sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) wpctl status
+```
+
+## Wi-Fi
+
+Couch is meant to be on Ethernet, so Wi-Fi is an option in Settings › Network, off unless someone turns it on (the `network.wifi` setting, #31). couchd applies it when it starts and whenever it changes, through NetworkManager's `WirelessEnabled` over D-Bus (`couchd/networkmanager.py`). NetworkManager then soft-blocks or unblocks the radio (rfkill) and remembers the choice in `/var/lib/NetworkManager/NetworkManager.state`. couchd only switches the radio. It never joins a network: a network NetworkManager already knows reconnects by itself once the radio is on. `install.sh` never switches Wi-Fi either, so an existing install keeps what it has until couchd applies the setting. One exception: if the setting was never touched and Wi-Fi is the Pi's only way onto the network (no Ethernet), couchd leaves it on and saves that as the setting, so a Pi set up for Wi-Fi only stays reachable.
+
+The boot needed a fix. At boot, systemd-rfkill puts back each radio's saved block. On the Pi 4 it reaches Wi-Fi about 6.4 s in, while `brcmfmac` is still starting the chip (wlan0 appears at about 10 s). Writing the block then hangs until the unit's 90 s timeout, and `systemd-rfkill.service` fails. With Wi-Fi unblocked there's nothing to write and it doesn't happen. So:
+
+- `systemd-rfkill-couch.conf` removes the saved Wi-Fi state (`/var/lib/systemd/rfkill/*:wlan`) before systemd-rfkill starts. Without a saved state systemd-rfkill leaves that radio alone. Bluetooth's saved state stays, and is still restored.
+- `70-couch-wifi.rules` starts `couch-wifi-boot.service` when wlan0 appears, once the chip is up. `couch-wifi-boot` reads NetworkManager's state file and, if it says `WirelessEnabled=false`, soft-blocks the Wi-Fi radio. It never unblocks anything and always exits 0.
+
+What actually happens on Raspberry Pi OS (seen on the Pi, 16 Nov 2026): `raspberrypi-sys-mods` ships `/etc/modprobe.d/rfkill_default.conf` (`options rfkill default_state=0`), so every radio is registered soft-blocked, and systemd-rfkill unblocks the ones with a saved state (Bluetooth). With Wi-Fi's saved state gone, Wi-Fi stays blocked from the start: no write, no hang, and `couch-wifi-boot` logs "Wi-Fi is off and already blocked". Its own block is the backstop for a system without that file. With Wi-Fi on, NetworkManager unblocks the radio itself when wlan0 appears (about 10 s in, "Wi-Fi now enabled by radio killswitch"). Checked with three reboots with Wi-Fi off and one with it on: no failed units, and Bluetooth was unblocked every time.
+
+The other ways considered, and why not:
+
+- **Order or delay systemd-rfkill until wlan is up.** It's socket-activated by `/dev/rfkill` and restores each radio as it appears, so there's nothing to order it after: wlan0 isn't a dependency it can wait for. Delaying the whole unit would delay Bluetooth's restore too, and couchd powers Bluetooth on at start.
+- **`systemd.restore_state=0`** on the kernel command line stops systemd-rfkill from restoring anything, Bluetooth included. Pi OS starts Bluetooth soft-blocked, so it would be off after every boot.
+- **`dtoverlay=disable-wifi`** in `config.txt` removes the Wi-Fi chip altogether. It's the most thorough off, but every change needs a reboot, so it can't sit behind a toggle in Settings. It's still the right choice for a Pi that will never use Wi-Fi.
+
+To check, on the Pi:
+
+```bash
+nmcli radio wifi
+rfkill list
+systemctl --failed
+journalctl -b -u couch-wifi-boot -u systemd-rfkill
 ```
 
 ## Updates

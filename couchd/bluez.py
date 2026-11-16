@@ -566,10 +566,14 @@ def _plain(value: Any) -> Any:
 
 
 class DBusLink(BluezLink):
-    """BlueZ on the system bus (or `bus_address`, which tests point at a private bus)."""
+    """BlueZ on the system bus (or `bus_address`, which tests point at a private bus).
 
-    def __init__(self, bus_address: str | None = None) -> None:
+    `service` picks another bus name to talk to and watch, the same way: NetworkManager's
+    Wi-Fi (couchd/networkmanager.py) uses this link too."""
+
+    def __init__(self, bus_address: str | None = None, *, service: str = BLUEZ) -> None:
         self._address = bus_address
+        self._service = service
         self._bus: MessageBus | None = None
         self._owner: str | None = None
         self._signal_handlers: list[SignalHandler] = []
@@ -580,14 +584,14 @@ class DBusLink(BluezLink):
         self._bus = await bus.connect()
         self._bus.add_message_handler(self._on_message)
         rules = (
-            f"type='signal',sender='{BLUEZ}'",
+            f"type='signal',sender='{self._service}'",
             "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',"
-            f"member='NameOwnerChanged',arg0='{BLUEZ}'",
+            f"member='NameOwnerChanged',arg0='{self._service}'",
         )
         for rule in rules:
             await self._bus_call("AddMatch", "s", [rule])
         try:
-            (self._owner,) = await self._bus_call("GetNameOwner", "s", [BLUEZ])
+            (self._owner,) = await self._bus_call("GetNameOwner", "s", [self._service])
         except BluezError:
             self._owner = None
 
@@ -619,7 +623,7 @@ class DBusLink(BluezLink):
         *,
         max_wait: float = CALL_TIMEOUT,
     ) -> list[Any]:
-        return await self._send(BLUEZ, path, interface, member, signature, body, max_wait)
+        return await self._send(self._service, path, interface, member, signature, body, max_wait)
 
     async def _bus_call(self, member: str, signature: str, body: list[Any]) -> list[Any]:
         return await self._send(
@@ -664,7 +668,7 @@ class DBusLink(BluezLink):
             return
         if message.member == "NameOwnerChanged" and message.sender == "org.freedesktop.DBus":
             name, _old, new = message.body
-            if name == BLUEZ:
+            if name == self._service:
                 self._owner = new or None
                 for handler in list(self._presence_handlers):
                     _safely(handler, bool(new))
