@@ -80,8 +80,8 @@ The text `ping` gets `pong`.
 
 When an audio device connects, sound moves to it as soon as its output shows up in `audio`
 (that is an `audio.set_output`, so it is saved and toasted like one). When it disconnects
-there is a toast, and sound goes back to the output it was on before, unless another output
-was picked in between. The last audio device connected is remembered: with
+there is a "Headphones disconnected" toast, and the audio service decides where sound goes
+next. The last audio device connected is remembered: with
 `auto_reconnect` on, couchd keeps trying to reach it whenever no audio device is connected,
 at boot and after it drops out of range (backing off to once a minute, and not while
 scanning). `bluetooth.disconnect` and `bluetooth.forget` make it stop.

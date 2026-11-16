@@ -131,16 +131,17 @@ async def test_pairing_a_phone_doesnt_connect_it(ctx):
         assert ctx.saved.get(SAVED_LAST) is None
 
 
-async def test_disconnect_falls_back_with_a_toast(ctx, toasts):
+async def test_disconnect_toasts_and_leaves_the_choice_to_audio(ctx, toasts):
     ctx.saved.set(SAVED_OUTPUT, "jack")
     async with Rig(ctx) as rig:
-        assert rig.sound() == "jack"
         await rig.run("bluetooth.connect", address=KITCHEN.address)
         await until(lambda: rig.sound() == out(KITCHEN))
         toasts()
         await rig.run("bluetooth.disconnect", address=KITCHEN.address)
-        await until(lambda: rig.sound() == "jack")
-        assert toasts() == [f"{KITCHEN.name} disconnected", "Sound now on Headphone jack"]
+        await settle(0.05)
+        assert toasts() == [f"{KITCHEN.name} disconnected"]
+        # Still the chosen output, so the audio service can bring sound back to it.
+        assert ctx.saved.get(SAVED_OUTPUT) == out(KITCHEN)
 
 
 async def test_a_later_choice_survives_the_disconnect(ctx):

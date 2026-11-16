@@ -4,8 +4,9 @@ The backend does the radio: BlueZ on the Pi (couchd/bluez.py), a fake in dev. Th
 adds what the couch needs on top, the same for both:
 
 - `bluetooth.pair` pairs, trusts and then connects an audio device: one press on the remote.
-- When an audio device connects, sound moves to it once its output turns up in `audio`.
-  When it drops, sound goes back to where it was before, with a toast.
+- When an audio device connects, sound moves to it once its output turns up in `audio`
+  (an `audio.set_output`, so it becomes the chosen output). When it drops there is a toast;
+  where the sound goes then is AudioService's rule, not ours.
 - The last audio device is remembered. At boot, and whenever it isn't connected, couchd
   keeps trying to reach it (backing off to once a minute), so a speaker that is switched
   back on reconnects by itself. Disconnecting it on purpose or forgetting it stops that, and
@@ -20,7 +21,6 @@ from collections.abc import Coroutine, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from couchd.audio import SAVED_OUTPUT
 from couchd.backends import BackendError, BluetoothBackend, Device
 from couchd.commands import CommandError, arg
 from couchd.services import Context, Service
@@ -58,8 +58,6 @@ class BluetoothService(Service):
         self.scan_limit = scan_limit
         self.output_wait = output_wait
         self._connected: dict[str, Device] = {}
-        # Bluetooth address -> the output sound was on before we moved it to that device.
-        self._previous_output: dict[str, str] = {}
         # One radio operation at a time: user commands and reconnect attempts take turns.
         self._busy = asyncio.Lock()
         self._poke = asyncio.Event()
@@ -128,31 +126,15 @@ class BluetoothService(Service):
     def _on_disconnected(self, device: Device) -> None:
         log.info("device disconnected", extra={"device": device.address})
         if device.audio:
-            self._spawn(self._fall_back(device))
+            self.ctx.bus.toast(f"{device.name} disconnected")
 
     async def _switch_to(self, device: Device) -> None:
         output = await self._wait_for_output(device)
         if output is None:
             log.warning("no audio output for device", extra={"device": device.address})
             return
-        current = self.ctx.state.get("audio").get("current")
-        if current == output:
-            return
-        if current is not None:
-            self._previous_output[device.address] = current
-        await self._run("audio.set_output", output=output)
-
-    async def _fall_back(self, device: Device) -> None:
-        previous = self._previous_output.pop(device.address, None)
-        self.ctx.bus.toast(f"{device.name} disconnected")
-        # Only if the speaker was still the chosen output: if someone picked another one
-        # since, that choice stands.
-        chosen = self.ctx.saved.get(SAVED_OUTPUT)
-        if previous is None or chosen is None or not _output_matches(chosen, device.address):
-            return
-        outputs = self.ctx.state.get("audio").get("outputs", [])
-        if any(o["id"] == previous and o.get("available", True) for o in outputs):
-            await self._run("audio.set_output", output=previous)
+        if self.ctx.state.get("audio").get("current") != output:
+            await self._run("audio.set_output", output=output)
 
     async def _wait_for_output(self, device: Device) -> str | None:
         try:
