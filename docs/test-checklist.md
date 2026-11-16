@@ -180,7 +180,7 @@ default).
 - [ ] **I1** Unplug the Pi's network cable (or turn off the internet router). Wait a minute, then
       OK on YouTube. Expected: "YouTube needs the internet" on a grey screen, with Try again
       and Go home.
-- [ ] **I2** Turn the router back on, wait for it, then Try again. Expected: YouTube opens.
+- [ ] **I2** Plug the cable back in (or turn the router back on and wait for it), then Try again. Expected: YouTube opens.
 - [ ] **I3** Turn off the Plex server computer (or quit Plex Media Server on it). OK on Plex.
       Expected: "Can't reach your Plex server", with Try again and Go home.
 - [ ] **I4** Return. Expected: Home. Turn the Plex server back on and open Plex: it works.
