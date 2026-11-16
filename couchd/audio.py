@@ -198,7 +198,12 @@ class AudioService(Service):
             with self.ctx.bus.subscribe() as sub:
                 async for message in sub:
                     data = message.get("data")
-                    if message.get("type") == "key" and data == {"key": CYCLE_KEY}:
+                    if (
+                        message.get("type") == "key"
+                        and isinstance(data, dict)
+                        and data.get("key") == CYCLE_KEY
+                        and not data.get("repeat")
+                    ):
                         await self._cycle_from_remote()
 
     async def _cycle_from_remote(self) -> None:
