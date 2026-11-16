@@ -27,7 +27,34 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id), `volume` (0–100), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
 
-A section for the current app arrives with #13.
+| `apps` | see below |
+| `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true) |
+
+`system` also has `url`, the launcher's own address.
+
+`apps` says what's on screen:
+
+```json
+{"apps": {
+  "list": [{"id": "launcher", "name": "Home", "kind": "launcher"},
+           {"id": "youtube", "name": "YouTube", "kind": "chromium"},
+           {"id": "plex", "name": "Plex", "kind": "kodi"}],
+  "foreground": "youtube",
+  "running": ["launcher", "youtube"],
+  "opening": null,
+  "error": null,
+  "browser": "connected"}}
+```
+
+- `foreground`: the app in front. Starts as `launcher`.
+- `running`: apps with an open tab, plus the Kodi app while it has the screen.
+- `opening`: the app being started, else `null`. For Plex the launcher is in front for a
+  moment with this set, then Kodi takes the screen: show the Opening screen.
+- `error`: `{"app", "message"}` after an app died or didn't start, else `null`. couchd is
+  back on the launcher by then. A launch or `apps.clear_error` clears it. An `error` toast
+  goes out at the same time.
+- `browser`: `connected` or `disconnected` (DevTools link to Chromium; it's
+  `disconnected` while Kodi has the screen).
 
 **`toast`**: a short notice to show on screen.
 
@@ -78,6 +105,12 @@ The text `ping` gets `pong`.
 | `audio.set_muted` | `muted` (bool) |
 | `bluetooth.scan` | `on` (bool) |
 | `bluetooth.pair`, `.connect`, `.disconnect`, `.forget` | `address` |
+| `apps.launch` | `app` (an id from `apps.list`). Starts it, or brings it to the front |
+| `apps.close` | `app`. Not the launcher |
+| `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |
+| `apps.clear_error` | Dismiss `apps.error` |
+| `idle.activity` | Counts as a key press for idle detection |
+| `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 
