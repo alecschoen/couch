@@ -6,7 +6,8 @@ to standby), and the service re-reads it and updates live state. Live state only
 the keys that actually differ, so a spurious `changed()` costs nothing.
 
 Real backends land with their issues: CEC (`couchd/cec_tv.py`, #7), audio (#10), Bluetooth
-(`couchd/bluez.py`, #12). The fakes are in `couchd/fakes.py`.
+(`couchd/bluez.py`, #12), the virtual keyboard (`couchd/uinput.py`, #8). The fakes are in
+`couchd/fakes.py`.
 """
 
 from abc import ABC, abstractmethod
@@ -42,18 +43,36 @@ class Backend(ABC):  # noqa: B024 - lifecycle hooks are optional, the subclasses
 TvPower = Literal["on", "standby", "unknown"]
 
 
+KeyAction = Literal["press", "release", "tap"]
+
+
 class TvBackend(Backend):
+    """Also the source of the remote's buttons. A button held on the remote is a `press`
+    then a `release` (CEC's User Control Pressed / Released; the release names no key). A
+    one-shot key with no release to come, such as CEC's <Play>, is a `tap`."""
+
     def __init__(self) -> None:
         super().__init__()
-        self._key_listeners: list[Callable[[str], None]] = []
+        self._key_listeners: list[Callable[[KeyAction, str | None], None]] = []
 
-    def on_key(self, listener: Callable[[str], None]) -> None:
+    def on_key(self, listener: Callable[[KeyAction, str | None], None]) -> None:
         self._key_listeners.append(listener)
 
     def key_pressed(self, key: str) -> None:
-        """Called by the backend for each remote button (a name from couchd.keys)."""
+        """A remote button went down (a name from couchd.keys)."""
+        self._key_event("press", key)
+
+    def key_released(self) -> None:
+        """Whatever button was down came back up."""
+        self._key_event("release", None)
+
+    def key_tapped(self, key: str) -> None:
+        """A button press that has no release to come."""
+        self._key_event("tap", key)
+
+    def _key_event(self, action: KeyAction, key: str | None) -> None:
         for listener in list(self._key_listeners):
-            listener(key)
+            listener(action, key)
 
     @abstractmethod
     def power(self) -> TvPower: ...
@@ -68,6 +87,18 @@ class TvBackend(Backend):
 
     @abstractmethod
     async def standby(self) -> None: ...
+
+
+# --- Virtual keyboard ---------------------------------------------------------------------
+
+
+class KeyboardBackend(Backend):
+    """Types keys into whatever app has the screen (Chromium, Kodi). Codes are Linux input
+    event codes (couchd/uinput.py)."""
+
+    @abstractmethod
+    def tap(self, code: int) -> None:
+        """Press and release one key."""
 
 
 # --- Audio ---------------------------------------------------------------------------------

@@ -11,12 +11,14 @@
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
 #
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the three units in
-# /etc/systemd/system, one polkit rule, one WirePlumber drop-in, the couch user, and apt
-# packages. It also turns on PipeWire's user units for every user (they come enabled; this
-# makes sure). For the silent boot it edits cmdline.txt and config.txt through
-# couch-bootfiles, which keeps the originals and undoes its edits on --uninstall. It also puts
-# the splash in the initramfs (/lib/firmware/couch-splash.tga and one initramfs hook) and
-# turns cloud-init off once the first boot is done (/etc/cloud/cloud-init.disabled).
+# /etc/systemd/system, one polkit rule, one WirePlumber drop-in, one udev rule and one
+# modules-load.d file (for /dev/uinput), the couch user, and apt packages. It also turns on
+# PipeWire's user units for every user (they come enabled; this makes sure). For the silent
+# boot it edits cmdline.txt and config.txt through couch-bootfiles, which keeps the originals
+# and undoes its edits on --uninstall. It also puts the splash in the initramfs
+# (/lib/firmware/couch-splash.tga and one initramfs hook), adds couch-fbsplash with its unit
+# and udev rule, and turns cloud-init off once the first boot is done
+# (/etc/cloud/cloud-init.disabled).
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -28,6 +30,8 @@ UNITS=(couchd.service couch-session.service)
 # Installed but not enabled: couchd starts Kodi when Plex is launched.
 STATIC_UNITS=(couch-kodi.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
+UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
+UINPUT_MODULE_CONF=/etc/modules-load.d/couch-uinput.conf
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
 # Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
 # ssh login) must stay off Bluetooth, or the two fight over the speaker.
@@ -64,6 +68,7 @@ PACKAGES=(
     bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
     polkitd                              # lets couchd switch the screen to Kodi and back
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
+    python3-evdev                        # the remote's virtual keyboard (#8)
     fonts-noto-core
     rsync
 )
@@ -143,6 +148,29 @@ install_bluetooth_audio() {
     systemctl --user -M "$COUCH_USER@" -q is-active wireplumber.service 2>/dev/null || return 0
     systemctl --user -M "$COUCH_USER@" restart wireplumber.service
     note "restarted WirePlumber so it picks up Bluetooth audio"
+}
+
+# The remote's keys reach Chromium and Kodi through a virtual keyboard on /dev/uinput (#8),
+# which couchd (user couch, group input) must be able to open. The udev rule covers every
+# boot; this boot's node is fixed up directly. Returns 0 if couchd must restart to open it.
+install_uinput() {
+    local changed=1
+    ensure_file "$SRC/system/couch-uinput.conf" "$UINPUT_MODULE_CONF" 644 || true
+    if ensure_file "$SRC/system/60-couch-uinput.rules" "$UINPUT_RULE" 644; then
+        udevadm control --reload-rules
+    fi
+    if [[ ! -e /dev/uinput ]]; then
+        modprobe uinput
+        note "loaded uinput"
+        changed=0
+    fi
+    if [[ $(stat -c '%G %a' /dev/uinput) != "input 660" ]]; then
+        chgrp input /dev/uinput
+        chmod 660 /dev/uinput
+        note "let group input use /dev/uinput"
+        changed=0
+    fi
+    return $changed
 }
 
 # --- install ------------------------------------------------------------------------------
@@ -234,6 +262,7 @@ install_couch() {
     # Plex via Kodi (#22) adds its Kodi profile and the script.plexmod addon here.
 
     install_audio
+    install_uinput && code=1
 
     local u
     for u in "${UNITS[@]}"; do
@@ -372,7 +401,7 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
-    rm -f "$POLKIT_RULE"
+    rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$UINPUT_MODULE_CONF"
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
@@ -399,7 +428,7 @@ case ${1:-} in
 --purge) uninstall 1; exit 0 ;;
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system
