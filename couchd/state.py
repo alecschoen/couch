@@ -5,7 +5,7 @@ app is up). It lives in memory, is grouped into sections, and every change goes 
 bus as a patch.
 
 `SavedState` is what must survive a reboot (preferred output, paired speakers). It is a
-small JSON file, written atomically and debounced so a burst of changes is one SD card write.
+small JSON file, written atomically (couchd/files.py) and debounced so a burst of changes is one SD card write.
 """
 
 import asyncio
@@ -13,13 +13,12 @@ import contextlib
 import copy
 import json
 import logging
-import os
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from couchd.bus import EventBus
+from couchd.files import remove_leftovers, write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +56,9 @@ class SavedState:
         self._dirty = False
 
     def load(self) -> None:
+        # A power cut mid-write leaves the old file and a temporary one; the old one counts.
+        for p in remove_leftovers(self.path):
+            log.info("removed a half-written save", extra={"file": str(p)})
         try:
             raw = self.path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -104,16 +106,5 @@ class SavedState:
             self._dirty = False
 
     def _write(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{self.path.name}.")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, sort_keys=True)
-                f.write("\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
+        text = json.dumps(self._data, indent=2, sort_keys=True) + "\n"
+        write_atomic(self.path, text.encode("utf-8"))
