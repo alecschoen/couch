@@ -1,44 +1,26 @@
-"""Kodi's JSON-RPC, over its TCP port on 127.0.0.1 (9090), for the overlays over Plex (#18).
-
-Kodi listens there while it runs (`services.esenabled`, set in its profile by
-couchd/kodi_profile.py; loopback only, since `services.esallinterfaces` stays off). Each
-call is one short connection: Kodi comes and goes with Plex, so there's nothing worth
-keeping open. The TCP port also carries Kodi's own notifications to every client, so a
-reply is picked out by its id.
-
-What couchd uses:
+"""What the overlays (#18) ask of Kodi, through its JSON-RPC (couchd/kodi_rpc.py).
 
 - `GUI.ShowNotification`: toasts, in Kodi's own notification.
 - `JSONRPC.NotifyAll`: hands overlay state to service.couch (system/kodi/service.couch),
   which draws the quick menu and the volume panel through skin.couch.
 - `XBMC.GetInfoLabels`: asks whether service.couch is up to draw them.
 
-`FakeKodi` is the dev-mode and test stand-in: it records what would have been sent.
+`KodiClient` sends them over the real socket; `FakeKodi` is the dev-mode and test stand-in,
+which records what would have been sent.
 """
 
-import asyncio
-import codecs
-import contextlib
-import itertools
-import json
 import logging
-import os
 from typing import Any
 
-from couchd.backends import BackendError
+from couchd.kodi_rpc import KodiRpc, KodiRpcError
 
 log = logging.getLogger(__name__)
 
-HOST = "127.0.0.1"
-DEFAULT_PORT = 9090
-CALL_TIMEOUT = 2.0
 SENDER = "couch"  # NotifyAll's sender, which service.couch listens for
 # Set by service.couch while it can draw overlays. Kodi's Home window is 10000.
 HOST_PROPERTY = "Window(10000).Property(couch.overlay)"
 
-
-class KodiError(BackendError):
-    """Kodi isn't there, didn't answer in time, or said no."""
+KodiError = KodiRpcError  # Kodi isn't there, didn't answer in time, or said no
 
 
 class Kodi:
@@ -62,56 +44,12 @@ class Kodi:
         return isinstance(labels, dict) and labels.get(HOST_PROPERTY) == "1"
 
 
-class KodiRpc(Kodi):
-    def __init__(self, port: int | None = None) -> None:
-        self.port = (
-            int(os.environ.get("COUCH_KODI_RPC_PORT", DEFAULT_PORT)) if port is None else port
-        )
-        self._ids = itertools.count(1)
+class KodiClient(Kodi):
+    def __init__(self, rpc: KodiRpc) -> None:
+        self.rpc = rpc
 
     async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        call_id = next(self._ids)
-        request = {"jsonrpc": "2.0", "id": call_id, "method": method, "params": params or {}}
-        writer = None
-        try:
-            async with asyncio.timeout(CALL_TIMEOUT):
-                reader, writer = await asyncio.open_connection(HOST, self.port)
-                writer.write(json.dumps(request).encode())
-                await writer.drain()
-                reply = await _read_reply(reader, call_id)
-        except TimeoutError:
-            raise KodiError(f"{method}: Kodi didn't answer") from None
-        except (OSError, ValueError) as e:
-            raise KodiError(f"{method}: {e}") from e
-        finally:
-            if writer is not None:
-                writer.close()
-                with contextlib.suppress(OSError):
-                    await writer.wait_closed()
-        if "error" in reply:
-            raise KodiError(f"{method}: {reply['error'].get('message', 'error')}")
-        return reply.get("result")
-
-
-async def _read_reply(reader: asyncio.StreamReader, call_id: int) -> dict[str, Any]:
-    """Kodi's TCP JSON-RPC has no framing: objects follow one another. Skip notifications."""
-    decoder = json.JSONDecoder()
-    text = codecs.getincrementaldecoder("utf-8")(errors="replace")  # a chunk can split a char
-    buffer = ""
-    while True:
-        chunk = await reader.read(65536)
-        if not chunk:
-            raise ValueError("Kodi closed the connection")
-        buffer += text.decode(chunk)
-        while buffer:
-            buffer = buffer.lstrip()
-            try:
-                obj, end = decoder.raw_decode(buffer)
-            except ValueError:
-                break  # incomplete; read more
-            buffer = buffer[end:]
-            if isinstance(obj, dict) and obj.get("id") == call_id:
-                return obj
+        return await self.rpc.call(method, params)
 
 
 class FakeKodi(Kodi):

@@ -12,7 +12,8 @@ from couchd import overlay_page, youtube
 from couchd.bus import EventBus
 from couchd.chromium import Chromium, PageSetup
 from couchd.commands import CommandError, Commands
-from couchd.kodi import FakeKodi, KodiError, KodiRpc
+from couchd.kodi import FakeKodi, KodiClient, KodiError
+from couchd.kodi_rpc import KodiRpc
 from couchd.overlay import (
     ITEMS,
     VOLUME_STEP,
@@ -109,11 +110,14 @@ def test_back_and_blue_close_it_home_closes_and_goes_through():
 
 
 def test_evening():
-    assert is_evening("always", datetime(2026, 1, 1, 12))
-    assert not is_evening("off", datetime(2026, 1, 1, 22))
-    assert is_evening("sunset", datetime(2026, 1, 1, 19))
-    assert is_evening("sunset", datetime(2026, 1, 1, 6))
-    assert not is_evening("sunset", datetime(2026, 1, 1, 12))
+    noon, night = datetime(2026, 1, 1, 12), datetime(2026, 1, 1, 22)
+    assert is_evening("always", False, noon)
+    assert not is_evening("off", True, night)
+    assert is_evening("sunset", True, noon)  # the sun is down: evening.dark says so
+    assert not is_evening("sunset", False, night)
+    assert is_evening("sunset", None, datetime(2026, 1, 1, 19))  # no couchd/evening.py yet
+    assert is_evening("sunset", None, datetime(2026, 1, 1, 6))
+    assert not is_evening("sunset", None, noon)
 
 
 # --- the volume adapter ---------------------------------------------------------------------
@@ -592,7 +596,7 @@ async def kodi_server():
 
 
 async def test_kodi_rpc(kodi_server):
-    kodi = KodiRpc(kodi_server.port)
+    kodi = KodiClient(KodiRpc(port=kodi_server.port))
     await kodi.show_notification("Couch", "Sound now on TV", "info", 2400)
     assert kodi_server.got[-1]["method"] == "GUI.ShowNotification"
     assert kodi_server.got[-1]["params"]["displaytime"] == 2400
@@ -609,7 +613,7 @@ async def test_kodi_rpc(kodi_server):
 
 
 async def test_no_kodi_is_a_kodi_error(unused_tcp_port):
-    kodi = KodiRpc(unused_tcp_port)
+    kodi = KodiClient(KodiRpc(port=unused_tcp_port))
     with pytest.raises(KodiError):
         await kodi.call("JSONRPC.Ping")
     assert not await kodi.can_host()

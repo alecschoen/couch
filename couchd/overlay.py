@@ -64,7 +64,7 @@ KODI_IMAGES = {"info": "info", "warning": "warning", "error": "error"}
 ITEMS = ("home", "sound", "volume", "bluetooth")
 MINUS = "\u2212"  # the Volume card's "<minus> 60 +", as in the design
 PALETTES = {"youtube": "yt", "plex": "plex"}  # app id -> ui/css/tokens.css palette
-EVENING_STARTS, EVENING_ENDS = 18, 7  # as ui/js/settings.js
+EVENING_STARTS, EVENING_ENDS = 18, 7  # without couchd/evening.py's `dark`, as it does
 
 
 # --- the volume panel's source ---------------------------------------------------------------
@@ -155,11 +155,14 @@ class QuickMenu:
         return False, None
 
 
-def is_evening(mode: Any, now: datetime) -> bool:
+def is_evening(mode: Any, dark: Any, now: datetime) -> bool:
+    """The `display.evening` setting with the live `evening.dark`, as the launcher does."""
     if mode == "always":
         return True
     if mode == "off":
         return False
+    if isinstance(dark, bool):
+        return dark
     return now.hour >= EVENING_STARTS or now.hour < EVENING_ENDS
 
 
@@ -318,7 +321,11 @@ class OverlayService(Service):
             "host": self.menu.host,
             "title": "Couch" if app == "launcher" else title,
             "palette": PALETTES.get(app),
-            "evening": is_evening(self.ctx.settings.get("display.evening"), self.now()),
+            "evening": is_evening(
+                self.ctx.settings.get("display.evening"),
+                self.ctx.state.get("evening").get("dark"),
+                self.now(),
+            ),
             "focus": self.menu.focus,
             "items": [{"id": i, "label": values[i][0], "value": values[i][1]} for i in ITEMS],
         }

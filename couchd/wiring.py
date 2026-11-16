@@ -1,6 +1,7 @@
 """Which services run, with which backends. The only place that knows dev from device."""
 
 import logging
+import os
 
 from couchd.apps import AppService
 from couchd.audio import AudioService
@@ -9,9 +10,11 @@ from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
+from couchd.evening import EveningService
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
 from couchd.idle import IdleService
-from couchd.kodi import FakeKodi, KodiRpc
+from couchd.kodi import FakeKodi, KodiClient
+from couchd.kodi_rpc import KodiRpc
 from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
@@ -66,13 +69,26 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
     over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode)."""
     display = FakeDisplay() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
+    rpc = None if dev else KodiRpc()  # one client for both: pausing and the overlays
     chromium = Chromium()
-    apps = AppService(ctx, display, chromium, connectivity=net)
+    apps = AppService(ctx, display, chromium, connectivity=net, kodi_rpc=rpc)
     overlay = OverlayService(
         ctx,
         chromium=chromium,
         pages=apps.page,
-        kodi=FakeKodi() if dev else KodiRpc(),
+        kodi=FakeKodi() if rpc is None else KodiClient(rpc),
         go_home=apps.home,
     )
-    return [apps, IdleService(ctx)], overlay
+    return [apps, IdleService(ctx, idle_after=_idle_after()), EveningService(ctx)], overlay
+
+
+def _idle_after() -> float | None:
+    """`COUCH_IDLE_AFTER=10 ./scripts/dev.sh` brings the idle clock up after 10 s (#20)."""
+    raw = os.environ.get("COUCH_IDLE_AFTER")
+    if not raw:
+        return None
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        log.warning("COUCH_IDLE_AFTER isn't a number, ignored", extra={"value": raw})
+        return None
