@@ -20,6 +20,7 @@ from couchd.services import Context, Service
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
+from couchd.tv_volume import TvVolumeService
 from couchd.uinput import UinputKeyboard
 
 log = logging.getLogger(__name__)
@@ -31,11 +32,13 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         audio = FakeAudio()
         bluetooth = FakeBluetooth(audio)
         apps, overlay = _apps(ctx, dev=True)
+        sound = AudioService(ctx, audio)
         return [
             StartupService(ctx),
             TvService(ctx, tv),
             RemoteService(ctx, tv, FakeKeyboard(), overlay=overlay),
-            AudioService(ctx, audio),
+            sound,
+            TvVolumeService(ctx, tv, sound),
             BluetoothService(ctx, bluetooth),
             *apps,
             overlay,
@@ -43,11 +46,13 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         ]
     tv = CecTv()
     apps, overlay = _apps(ctx, dev=False)
+    sound = AudioService(ctx, PipewireAudio())
     return [
         StartupService(ctx),
         TvService(ctx, tv),
         RemoteService(ctx, tv, UinputKeyboard(), overlay=overlay),
-        AudioService(ctx, PipewireAudio()),
+        sound,
+        TvVolumeService(ctx, tv, sound),
         BluetoothService(ctx, BluezBluetooth()),
         *apps,
         overlay,

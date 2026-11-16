@@ -14,6 +14,10 @@ ANNOUNCE_DELAY: the TV's HDMI sink vanishes for under a second whenever the TV s
 our input, and that blip shouldn't produce two toasts. The Red button cycles through the
 outputs that are available.
 
+Every volume or mute change couchd makes goes out as a `volume_changed` message, saying
+what caused it (`source`: "tv_remote", "command" or "limit"), for the volume panel (#18).
+The TV remote's volume buttons reach here through couchd/tv_volume.py.
+
 The real backend is `couchd/pipewire.py`; the dev-mode fake is in `couchd/fakes.py`.
 """
 
@@ -35,6 +39,7 @@ FALLBACK = "tv"
 VOLUME_LIMIT = "audio.volume_limit"  # a setting (couchd/settings.py)
 CYCLE_KEY = "red"
 ANNOUNCE_DELAY = 1.5
+VOLUME_STEP = 2  # one press of a volume button
 
 
 class AudioService(Service):
@@ -66,6 +71,8 @@ class AudioService(Service):
         commands.add("audio.cycle_output", self._cycle_output)
         commands.add("audio.set_volume", self._set_volume)
         commands.add("audio.set_muted", self._set_muted)
+        commands.add("audio.step_volume", self._step_volume)
+        commands.add("audio.toggle_muted", self._toggle_muted)
         self._unwatch = self.ctx.settings.on_change(self._setting_changed)
         self._tasks = [
             asyncio.create_task(self._reconcile_loop()),
@@ -258,13 +265,54 @@ class AudioService(Service):
         volume = arg(args, "volume", int)
         if not 0 <= volume <= 100:
             raise CommandError("'volume' must be 0-100")
-        volume = min(volume, self._limit())
+        await self.set_volume(volume, source="command")
+
+    async def set_volume(self, volume: int, *, source: str) -> None:
+        """Set the current output's volume, at most the limit, and remember it for that
+        output. `source` says why, in the `volume_changed` message."""
+        volume = max(0, min(volume, self._limit()))
         await self.backend.set_volume(volume)
         current = self.backend.current()
         if current is not None:
             volumes = dict(self.ctx.saved.get(SAVED_VOLUMES) or {})
             volumes[current] = volume
             self.ctx.saved.set(SAVED_VOLUMES, volumes)
+        self._volume_changed(source)
+
+    async def step_volume(self, by: int, *, source: str) -> None:
+        """Turn the volume up or down by `by`. Turning it up unmutes, like a TV."""
+        if by > 0 and self.backend.muted():
+            await self.backend.set_muted(False)
+        await self.set_volume(self.backend.volume() + by, source=source)
+
+    async def set_muted(self, muted: bool, *, source: str) -> None:
+        await self.backend.set_muted(muted)
+        self._volume_changed(source)
+
+    def _volume_changed(self, source: str) -> None:
+        current = self.backend.current()
+        output = self._output(current) if current is not None else None
+        self.ctx.bus.publish(
+            "volume_changed",
+            {
+                "output": current,
+                "kind": output.kind if output else None,
+                "name": output.name if output else None,
+                "volume": self.backend.volume(),
+                "muted": self.backend.muted(),
+                "limit": self._limit(),
+                "source": source,
+            },
+        )
+
+    async def _step_volume(self, args: dict[str, Any]) -> None:
+        by = arg(args, "by", int)
+        if not -100 <= by <= 100:
+            raise CommandError("'by' must be -100 to 100")
+        await self.step_volume(by, source="command")
+
+    async def _toggle_muted(self, args: dict[str, Any]) -> None:
+        await self.set_muted(not self.backend.muted(), source="command")
 
     def _limit(self) -> int:
         return self.ctx.settings.get(VOLUME_LIMIT)
@@ -277,9 +325,9 @@ class AudioService(Service):
 
     async def _turn_down_to(self, limit: int) -> None:
         try:
-            await self._set_volume({"volume": limit})
+            await self.set_volume(limit, source="limit")
         except BackendError as e:
             log.warning("couldn't apply the volume limit", extra={"error": str(e)})
 
     async def _set_muted(self, args: dict[str, Any]) -> None:
-        await self.backend.set_muted(arg(args, "muted", bool))
+        await self.set_muted(arg(args, "muted", bool), source="command")

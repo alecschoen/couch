@@ -28,6 +28,9 @@ asks `take_key` first), and the launcher ignores them (`overlay: true` on the ke
 Other keys (play/pause, Red) still do what they always do. The menu closes by itself after
 MENU_TIMEOUT without a key, and whenever the app in front changes.
 
+The volume panel comes up for each `volume_changed` (#11), unless the menu is open: its
+Volume card says the same.
+
 Toasts: anything on the bus (`ctx.bus.toast`, the `overlay.toast` command, POST /api/toast)
 goes to the app in front too. They go after TOAST_MS. So does the volume panel, after the
 last change.
@@ -55,9 +58,6 @@ Host = Literal["launcher", "chromium", "kodi"]
 TOAST_MS = 2400  # ui/js/overlay-view.js has the same
 MENU_TIMEOUT = 30.0
 VOLUME_STEP = 5
-# After the output changes, AudioService puts that output's own volume back; that isn't
-# news, the "Sound now on X" toast is.
-VOLUME_QUIET_AFTER_SWITCH = 1.5
 KODI_TITLE = "Couch"
 KODI_IMAGES = {"info": "info", "warning": "warning", "error": "error"}
 
@@ -68,11 +68,11 @@ EVENING_STARTS, EVENING_ENDS = 18, 7  # as ui/js/settings.js
 
 
 # --- the volume panel's source ---------------------------------------------------------------
-# #11 (the TV remote's volume) publishes its own volume-changed message. Until it lands, a
-# change of `audio.volume` or `audio.muted` in a state patch stands in. When it does, set
-# VOLUME_EVENT to its message type; its `data` gives `volume` and `muted` (and `output`, if
-# it says), and anything left out comes from the `audio` state.
-VOLUME_EVENT: str | None = None
+# AudioService's message for every volume or mute change couchd makes (#11): the TV remote's
+# buttons, a command, the limit. Not an output switch putting that output's volume back: the
+# "Sound now on X" toast says that. Its `data` gives `volume` and `muted` (and `output`);
+# anything left out comes from the `audio` state.
+VOLUME_EVENT = "volume_changed"
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class VolumeChange:
 
 
 def volume_from_event(data: Any, audio: dict[str, Any]) -> VolumeChange | None:
-    """#11's volume-changed message, read leniently."""
+    """The volume_changed message, read leniently."""
     if not isinstance(data, dict):
         return None
     volume = data.get("volume", audio.get("volume"))
@@ -92,13 +92,6 @@ def volume_from_event(data: Any, audio: dict[str, Any]) -> VolumeChange | None:
     muted = data.get("muted", audio.get("muted", False))
     output = data.get("output", audio.get("current"))
     return VolumeChange(output if isinstance(output, str) else None, round(volume), bool(muted))
-
-
-def volume_from_patch(patch: dict[str, Any], audio: dict[str, Any]) -> VolumeChange | None:
-    """The stand-in: an `audio` patch with a new volume or mute, and the same output."""
-    if not ({"volume", "muted"} & patch.keys()) or "current" in patch:
-        return None
-    return volume_from_event({}, audio)
 
 
 # --- the quick menu -----------------------------------------------------------------------
@@ -186,7 +179,6 @@ class OverlayService(Service):
         go_home: Callable[[], Any] | None = None,
         now: Callable[[], datetime] = datetime.now,
         menu_timeout: float = MENU_TIMEOUT,
-        quiet_after_switch: float = VOLUME_QUIET_AFTER_SWITCH,
     ) -> None:
         """`pages(app_id)` gives a Chromium app's tab (AppService.page); `go_home()` takes the
         screen back to the launcher (AppService.home)."""
@@ -197,7 +189,6 @@ class OverlayService(Service):
         self.go_home = go_home
         self.now = now
         self.menu_timeout = menu_timeout
-        self.quiet_after_switch = quiet_after_switch
         self.menu = QuickMenu()
         self._running = False
         self._tasks: set[asyncio.Task] = set()
@@ -205,7 +196,6 @@ class OverlayService(Service):
         self._menu_target: str | None = None  # the tab the menu is drawn in
         self._kodi_menu = False  # service.couch has a menu up
         self._opening = False  # asking Kodi whether it can show the menu
-        self._quiet_until = 0.0
         self._pending: dict[str, tuple[str, Any]] = {}  # kind -> (target, payload) for Chromium
         self._pushing: asyncio.Task | None = None
 
@@ -371,7 +361,6 @@ class OverlayService(Service):
 
     async def _act(self, action: Action) -> None:
         commands = self.ctx.commands
-        audio = self.ctx.state.get("audio")
         try:
             match action.kind:
                 case "home" | "bluetooth":
@@ -380,11 +369,10 @@ class OverlayService(Service):
                     self.ctx.bus.publish("open_screen", {"screen": screen})
                 case "cycle_output":
                     await commands.run("audio.cycle_output")
-                case "volume":
-                    volume = max(0, min(100, int(audio.get("volume", 0)) + action.step))
-                    await commands.run("audio.set_volume", {"volume": volume})
+                case "volume":  # never above the limit; up unmutes, like the TV remote
+                    await commands.run("audio.step_volume", {"by": action.step})
                 case "mute":
-                    await commands.run("audio.set_muted", {"muted": not audio.get("muted")})
+                    await commands.run("audio.toggle_muted")
         except CommandError as e:
             self.ctx.bus.toast(str(e), "error")
 
@@ -407,21 +395,10 @@ class OverlayService(Service):
             moved = isinstance(apps, dict) and "foreground" in apps
             if moved and self.menu.open and (apps["foreground"] or "launcher") != self.menu.app:
                 self.close_menu()
-            if isinstance(audio := data.get("audio"), dict):
-                self._audio_changed(audio)
-        elif VOLUME_EVENT is not None and kind == VOLUME_EVENT:
+            if isinstance(data.get("audio"), dict) and self.menu.open:
+                self._menu_changed()  # its Sound and Volume cards
+        elif kind == VOLUME_EVENT and not self.menu.open:  # an open menu's card says it
             change = volume_from_event(data, self.ctx.state.get("audio"))
-            if change is not None:
-                self.show_volume(change)
-
-    def _audio_changed(self, patch: dict[str, Any]) -> None:
-        loop = asyncio.get_running_loop()
-        if "current" in patch:
-            self._quiet_until = loop.time() + self.quiet_after_switch
-        if self.menu.open:
-            self._menu_changed()  # its Sound and Volume cards
-        if VOLUME_EVENT is None and loop.time() >= self._quiet_until:
-            change = volume_from_patch(patch, self.ctx.state.get("audio"))
             if change is not None:
                 self.show_volume(change)
 

@@ -8,7 +8,6 @@ from datetime import datetime
 
 import pytest
 
-from couchd import overlay as overlay_mod
 from couchd import overlay_page, youtube
 from couchd.bus import EventBus
 from couchd.chromium import Chromium, PageSetup
@@ -23,7 +22,6 @@ from couchd.overlay import (
     VolumeChange,
     is_evening,
     volume_from_event,
-    volume_from_patch,
 )
 from couchd.services import Context
 from couchd.state import LiveState, SavedState
@@ -132,13 +130,6 @@ def test_volume_from_an_event_fills_in_from_the_audio_state():
     assert volume_from_event("nope", AUDIO) is None
 
 
-def test_volume_from_a_patch_skips_an_output_switch():
-    assert volume_from_patch({"volume": 40}, AUDIO) == VolumeChange("tv", 40, False)
-    assert volume_from_patch({"muted": True}, AUDIO) is not None
-    assert volume_from_patch({"current": "bt", "volume": 40}, AUDIO) is None
-    assert volume_from_patch({"outputs": []}, AUDIO) is None
-
-
 # --- the service ----------------------------------------------------------------------------
 
 
@@ -200,21 +191,21 @@ async def couch(tmp_path):
         go_home=go_home,
         now=lambda: datetime(2026, 11, 16, 21),
         menu_timeout=0.2,
-        quiet_after_switch=0.1,
     )
     c = holder["couch"] = Couch(ctx, service, pages, kodi)
 
     def record(name):
         async def run(args):
             c.ran.append((name, args))
-            if name == "audio.set_volume":
-                ctx.state.update("audio", {"volume": args["volume"]})
-            if name == "audio.set_muted":
-                ctx.state.update("audio", {"muted": args["muted"]})
+            audio = ctx.state.get("audio")
+            if name == "audio.step_volume":
+                ctx.state.update("audio", {"volume": audio["volume"] + args["by"]})
+            if name == "audio.toggle_muted":
+                ctx.state.update("audio", {"muted": not audio["muted"]})
 
         return run
 
-    for name in ("apps.home", "audio.cycle_output", "audio.set_volume", "audio.set_muted"):
+    for name in ("apps.home", "audio.cycle_output", "audio.step_volume", "audio.toggle_muted"):
         ctx.commands.add(name, record(name))
     await service.start()
     yield c
@@ -320,18 +311,11 @@ async def test_without_service_couch_the_menu_opens_on_the_launcher(couch):
 async def test_volume_card(couch):
     couch.press("blue", "right", "right", "up", "up")
     await until(lambda: len(couch.ran) == 2)
-    assert couch.ran == [("audio.set_volume", {"volume": 45}), ("audio.set_volume", {"volume": 50})]
+    assert couch.ran == [("audio.step_volume", {"by": 5}), ("audio.step_volume", {"by": 5})]
     await until(lambda: couch.menu()["items"][2]["value"] == "\u2212 50 +")
     couch.press("select")
-    await until(lambda: couch.ran[-1] == ("audio.set_muted", {"muted": True}))
+    await until(lambda: couch.ran[-1] == ("audio.toggle_muted", {}))
     await until(lambda: couch.menu()["items"][2]["value"] == "Muted")
-
-
-async def test_volume_stays_between_0_and_100(couch):
-    couch.ctx.state.update("audio", {"volume": 98})
-    couch.press("blue", "right", "right", "up")
-    await until(lambda: couch.ran)
-    assert couch.ran == [("audio.set_volume", {"volume": 100})]
 
 
 async def test_home_and_bluetooth_go_to_the_launcher(couch):
@@ -403,53 +387,44 @@ async def test_a_toast_in_kodi_that_isnt_there_is_dropped(couch):
     await asyncio.sleep(0.05)  # logged, nothing raised
 
 
+def volume_changed(ctx, **data):
+    ctx.bus.publish("volume_changed", {"output": "tv", "volume": 40, "muted": False, **data})
+
+
 async def test_the_volume_panel_follows_the_volume(couch):
     panels, task, sub = watch(couch.ctx, "volume_panel")
     try:
         couch.front("youtube")
-        couch.ctx.state.update("audio", {"volume": 55})
+        volume_changed(couch.ctx, volume=55, source="tv_remote")
         await until(lambda: panels)
         assert panels == [{"output": "tv", "name": "TV speakers", "volume": 55, "muted": False}]
         await until(lambda: couch.pages.last("volume") != "none")
         assert couch.pages.last("volume")["volume"] == 55
 
         couch.front("plex")
-        couch.ctx.state.update("audio", {"muted": True})
+        volume_changed(couch.ctx, output="bt", muted=True, source="command")
         await until(lambda: couch.kodi.sent("JSONRPC.NotifyAll"))
         data = couch.kodi.sent("JSONRPC.NotifyAll")[-1]["data"]
         assert data == {"volume": panels[-1], "ms": 2400}
-        assert data["volume"]["muted"] is True
+        assert (data["volume"]["name"], data["volume"]["muted"]) == ("Headphones", True)
     finally:
         task.cancel()
         sub.close()
 
 
-async def test_an_output_switch_shows_its_toast_not_the_panel(couch):
+async def test_no_panel_under_an_open_menu(couch):
     panels, task, sub = watch(couch.ctx, "volume_panel")
     try:
-        couch.ctx.state.update("audio", {"current": "bt"})
-        couch.ctx.state.update("audio", {"volume": 70})  # the output's own volume, put back
+        couch.press("blue", "right", "right")
+        couch.ctx.state.update("audio", {"volume": 70})  # the card says it
+        volume_changed(couch.ctx, volume=70, source="command")
+        await until(lambda: couch.menu()["items"][2]["value"] == "\u2212 70 +")
         await asyncio.sleep(0.05)
         assert panels == []
-        await asyncio.sleep(0.1)
-        couch.ctx.state.update("audio", {"volume": 75})  # now that's someone's doing
-        await until(lambda: panels)
-        assert panels[-1]["name"] == "Headphones"
-    finally:
-        task.cancel()
-        sub.close()
-
-
-async def test_volume_event_replaces_the_stand_in(couch, monkeypatch):
-    monkeypatch.setattr(overlay_mod, "VOLUME_EVENT", "volume_changed")
-    panels, task, sub = watch(couch.ctx, "volume_panel")
-    try:
-        couch.ctx.state.update("audio", {"volume": 60})  # no longer the source
+        couch.ctx.state.update("audio", {"volume": 40})  # a state patch alone: no panel
+        couch.press("back")
         await asyncio.sleep(0.05)
         assert panels == []
-        couch.ctx.bus.publish("volume_changed", {"volume": 61, "muted": False})
-        await until(lambda: panels)
-        assert panels == [{"output": "tv", "name": "TV speakers", "volume": 61, "muted": False}]
     finally:
         task.cancel()
         sub.close()
@@ -458,7 +433,7 @@ async def test_volume_event_replaces_the_stand_in(couch, monkeypatch):
 async def test_volume_over_kodi_without_service_couch_is_a_notification(couch):
     couch.kodi.hosting = False
     couch.front("plex")
-    couch.ctx.state.update("audio", {"volume": 30})
+    volume_changed(couch.ctx, volume=30, source="tv_remote")
     await until(lambda: couch.kodi.sent("GUI.ShowNotification"))
     assert couch.kodi.sent("GUI.ShowNotification")[0]["message"] == "TV speakers: 30"
 
