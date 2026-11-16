@@ -10,7 +10,11 @@
 PIDFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/couch-splash.pid"
 
 if [ -x /opt/couch/bin/couch-splash ]; then
-    /opt/couch/bin/couch-splash </dev/null &
-    echo $! >"$PIDFILE"
+    # Started from a subshell that exits at once, so the splash isn't a child of this shell:
+    # once it execs, Chromium would be its parent, and Chromium never reaps it (a zombie).
+    (
+        /opt/couch/bin/couch-splash </dev/null &
+        echo $! >"$PIDFILE"
+    )
 fi
 exec /opt/couch/bin/couch-browser

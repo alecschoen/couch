@@ -6,6 +6,7 @@ wire format, what it does on each event, and that it draws exactly the boot spla
 import importlib.machinery
 import importlib.util
 import struct
+import subprocess
 import zlib
 from pathlib import Path
 
@@ -247,3 +248,28 @@ def test_couch_session_start_runs_it_before_chromium():
     start = (ROOT / "system" / "couch-session-start").read_text()
     assert start.index("couch-splash") < start.index("exec /opt/couch/bin/couch-browser")
     assert "swayimg" not in start
+
+
+def test_the_splash_is_not_left_a_child_of_chromium(tmp_path):
+    """couch-session-start execs Chromium, which never reaps children it didn't start: on the
+    Pi the splash stayed a zombie under it. Started from a subshell, it goes to a reaper."""
+    stub = tmp_path / "start"
+    stub.write_text(
+        (ROOT / "system" / "couch-session-start")
+        .read_text()
+        .replace("[ -x /opt/couch/bin/couch-splash ]", "true")
+        .replace("/opt/couch/bin/couch-splash", "sleep 2")
+        .replace("exec /opt/couch/bin/couch-browser", "exec sleep 1")
+    )
+    proc = subprocess.Popen(["sh", str(stub)], env={"XDG_RUNTIME_DIR": str(tmp_path)})
+    try:
+        for _ in range(50):
+            pidfile = tmp_path / "couch-splash.pid"
+            if pidfile.exists() and pidfile.read_text().strip():
+                break
+            subprocess.run(["sleep", "0.02"], check=True)
+        pid = int(pidfile.read_text())
+        ppid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        assert ppid != proc.pid  # not the shell that becomes Chromium
+    finally:
+        proc.wait(timeout=5)
