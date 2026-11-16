@@ -14,6 +14,8 @@
 # modules-load.d file (for /dev/uinput), the couch user, and apt packages. It also turns on
 # PipeWire's user units for every user (they come enabled; this makes sure). Plex's Kodi
 # addons are downloaded at the versions and sha256s pinned in system/kodi/addons.toml.
+# Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
+# /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -36,6 +38,14 @@ AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
+# Overnight updates (#24): couch-update (couchd/updater.py) runs as root from the timer, or
+# from couchd's Check now through couch-update-now.service.
+UPDATE_UNITS=(couch-update.service couch-update-now.service couch-update.timer)
+UPDATE_TIMER=couch-update.timer
+UPDATE_STATE=/var/lib/couch-update
+APT_UPDATES_CONF=/etc/apt/apt.conf.d/52couch-updates
+# What install.sh needs from a checkout; copied to /opt/couch/source for a rollback.
+SOURCE_FILES=(install.sh pyproject.toml README.md couchd ui system)
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -47,6 +57,7 @@ PACKAGES=(
     python3-evdev                        # the remote's virtual keyboard (#8)
     fonts-noto-core
     rsync
+    unattended-upgrades                  # security updates, run by couch-update at night (#24)
 )
 
 changes=0
@@ -307,10 +318,57 @@ install_audio() {
     fi
 }
 
+# Overnight updates (#24). couch-update installs a release by running its install.sh, and
+# goes back by running the previous one's, which is this copy. /opt/couch/VERSION says which
+# release this is: the updater writes VERSION into a release, and a git checkout gets
+# `git describe`.
+install_updates() {
+    local src_dir=$PREFIX/source version="" f units=0
+    if [[ $(realpath "$SRC") != $(realpath -m "$src_dir") ]]; then
+        local out
+        out=$(cd "$SRC" && rsync -rlp --checksum --delete --exclude=__pycache__ \
+            --chmod=D755,F644 --itemize-changes --relative "${SOURCE_FILES[@]}" "$src_dir/")
+        [[ -z $out ]] || note "kept a copy of this version in $src_dir"
+    fi
+    if [[ -f $SRC/VERSION ]]; then
+        version=$(<"$SRC/VERSION")
+    elif command -v git >/dev/null && [[ -e $SRC/.git ]]; then
+        version=$(git -c safe.directory="$SRC" -C "$SRC" describe --tags --always --dirty \
+            2>/dev/null) || version=""
+    fi
+    for f in "$PREFIX/VERSION" "$src_dir/VERSION"; do
+        if [[ -z $version ]]; then
+            rm -f "$f"
+        elif [[ ! -f $f || $(<"$f") != "$version" ]]; then
+            echo "$version" >"$f"
+            [[ $f == "$PREFIX/VERSION" ]] && note "this is Couch $version"
+        fi
+    done
+    ensure_file "$SRC/system/apt-couch.conf" "$APT_UPDATES_CONF" 644 || true
+    ensure_file "$SRC/system/update.example.toml" "$ETC/update.example.toml" 644 || true
+    for f in "${UPDATE_UNITS[@]}"; do
+        ensure_file "$SRC/system/$f" "$UNIT_DIR/$f" 644 && units=1
+    done
+    ((units)) && systemctl daemon-reload
+    if ! systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+        systemctl -q enable --now "$UPDATE_TIMER"
+        note "enabled overnight updates ($UPDATE_TIMER)"
+    fi
+}
+
+uninstall_updates() {
+    local u
+    systemctl disable --now "$UPDATE_TIMER" 2>/dev/null || true
+    for u in "${UPDATE_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    rm -f "$APT_UPDATES_CONF" "$ETC/update.example.toml"
+    rm -rf "$UPDATE_STATE"
+}
+
 # --- uninstall ----------------------------------------------------------------------------
 
 uninstall() {
     local purge=$1 u
+    uninstall_updates
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
@@ -357,6 +415,8 @@ ensure_user
 say "Couch"
 install_couch
 install_bluetooth_audio
+say "Updates"
+install_updates
 
 echo
 if ((changes)); then

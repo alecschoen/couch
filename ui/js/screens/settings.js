@@ -26,7 +26,7 @@ const USES = {
   display: ["settings"],
   sound: ["settings", "audio"],
   remote: ["remote"],
-  updates: ["settings", "system"],
+  updates: ["settings", "system", "updates"],
   about: ["tv", "services", "system"],
   power: ["settings"],
 };
@@ -224,8 +224,9 @@ export function settingsScreen(params, app) {
       h(
         "div",
         { class: "settings" },
-        readout("Launcher", `Couch ${state().system?.version ?? ""}`.trim()),
-        readout("System", "Not checked yet"),
+        readout("Launcher", launcherVersion(state().updates)),
+        readout("Last check", lastCheck(state().updates), checkHint(state().updates)),
+        readout("System", systemUpdates(state().updates)),
         toggle({
           key: "updates.overnight",
           label: "Install updates overnight",
@@ -238,9 +239,12 @@ export function settingsScreen(params, app) {
           { class: "pills settings-actions" },
           pill({
             key: "check",
-            label: "Check now",
+            label: running(state().updates) ? RUNNING[state().updates.state] ?? "Checking…" : "Check now",
             primary: true,
-            onSelect: () => app.toasts.show("Updates aren't set up yet. They come in a later version."),
+            onSelect: () => {
+              if (running(state().updates)) return;
+              app.couch.command("updates.check").catch((e) => app.toasts.show(e.message, "error"));
+            },
           }),
         ),
       ),
@@ -504,6 +508,62 @@ export function settingsScreen(params, app) {
       app.focus.removeEventListener("change", onFocusChange);
     },
   };
+}
+
+// ---- Updates (#24): couchd's live state `updates` (couchd/updates.py)
+
+const RUNNING = {
+  checking: "Checking…",
+  downloading: "Downloading…",
+  installing: "Installing…",
+  "rolling-back": "Going back…",
+  system: "Updating the system…",
+};
+
+const running = (u) => Boolean(u && u.state && u.state !== "idle");
+
+function launcherVersion(u) {
+  if (!u) return "…";
+  return u.version ? `Couch ${u.version}` : "Couch (not from a release)";
+}
+
+function lastCheck(u) {
+  if (running(u)) return u.message ?? RUNNING[u.state] ?? "Checking…";
+  if (!u?.last_check) return "Not checked yet";
+  const when = ago(u.last_check);
+  const what = {
+    "up-to-date": "Up to date",
+    installed: `Updated to ${u.version}`,
+    "rolled-back": "Update didn't work",
+    broken: "Update didn't work",
+    failed: "Couldn't check",
+    waiting: "Waiting",
+  }[u.result];
+  return what ? `${what} · ${when}` : when;
+}
+
+// The sentence under Last check: why it waited, or what went wrong.
+function checkHint(u) {
+  if (!u || running(u)) return null;
+  if (u.result === "waiting" && u.waiting) return `Waiting because ${u.waiting}`;
+  if (["rolled-back", "broken", "failed"].includes(u.result)) return u.message ?? null;
+  if (u.result === "up-to-date" && u.message) return u.message;
+  return null;
+}
+
+function systemUpdates(u) {
+  const at = u?.system?.at;
+  return at ? `Security updates · ${ago(at)}` : "Security updates overnight";
+}
+
+function ago(unix) {
+  const s = Math.max(0, Date.now() / 1000 - unix);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} minutes ago`;
+  const d = new Date(unix * 1000);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? `today ${time}` : `${d.toLocaleDateString([], { weekday: "long" })} ${time}`;
 }
 
 // The display's refresh rate, from a second of animation frames, rounded to a usual rate.

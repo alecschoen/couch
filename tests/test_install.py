@@ -66,8 +66,50 @@ def test_polkit_rule_covers_only_our_units():
     assert set(re.findall(r'"([\w-]+\.service)"', rule)) == {
         "couch-session.service",
         "couch-kodi.service",
+        "couch-update-now.service",  # Check now (#24): start only
     }
     assert 'subject.user !== "couch"' in rule
+    assert 'unit === "couch-update-now.service" && verb === "start"' in rule
+
+
+def test_updates_are_installed():
+    """#24: couch-update's units, the apt drop-in, and a copy of the source to go back to."""
+    script = INSTALL.read_text()
+    units = re.search(r"^UPDATE_UNITS=\((.*)\)$", script, re.M).group(1).split()
+    assert units == ["couch-update.service", "couch-update-now.service", "couch-update.timer"]
+    for name in [*units, "apt-couch.conf", "update.example.toml"]:
+        assert (ROOT / "system" / name).is_file(), name
+    files = re.search(r"^SOURCE_FILES=\((.*)\)$", script, re.M).group(1).split()
+    for name in files:
+        assert (ROOT / name).exists(), name
+    assert "unattended-upgrades" in script
+    assert re.search(r"^install_updates$", script, re.M)
+    assert re.search(r"^    uninstall_updates$", script, re.M)
+    for unit in ("couch-update.service", "couch-update-now.service"):
+        text = (ROOT / "system" / unit).read_text()
+        # the system Python: install.sh rebuilds couchd's venv while it runs
+        assert "ExecStart=/usr/bin/python3 -I /opt/couch/couchd/updater.py" in text
+        assert "StateDirectory=couch-update" in text
+    assert not re.search(
+        r"^\[Install\]", (ROOT / "system" / "couch-update-now.service").read_text(), re.M
+    )
+    apt = (ROOT / "system" / "apt-couch.conf").read_text()
+    assert 'APT::Periodic::Unattended-Upgrade "0";' in apt  # couch-update runs it, when idle
+
+
+def test_updater_uses_the_standard_library_only():
+    import ast
+
+    tree = ast.parse((ROOT / "couchd" / "updater.py").read_text())
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            names.add((node.module or "").split(".")[0])
+    import sys
+
+    assert names - {"__future__"} <= sys.stdlib_module_names, names - sys.stdlib_module_names
 
 
 def test_polkit_rule_allows_only_reboot_and_power_off():

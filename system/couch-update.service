@@ -1,0 +1,14 @@
+[Unit]
+Description=Couch overnight updates (Couch releases, then system updates)
+Documentation=https://github.com/alecschoen/couch/blob/main/couchd/updater.py
+After=network-online.target couchd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The system Python, not couchd's venv: install.sh rebuilds the venv while this runs.
+ExecStart=/usr/bin/python3 -I /opt/couch/couchd/updater.py nightly
+StateDirectory=couch-update
+StateDirectoryMode=0755
+Nice=10
+IOSchedulingClass=idle
