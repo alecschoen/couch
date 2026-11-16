@@ -402,20 +402,20 @@ def test_plex_exit_quits_kodi(svc):
     kodi.home = True
     assert at(100) is None
     assert at.watch.leaving  # Home drops "Opening" straight away
-    assert at(101) is None
-    assert at(102) == "Plex exited"
+    assert at(100.2) is None
+    assert at(100.6) == "Plex exited"
 
 
-def test_plex_restarting_itself_is_not_an_exit(svc):
+def test_a_blink_of_started_is_not_an_exit(svc):
     _, kodi, at = svc
     kodi.started = kodi.active = True
     kodi.home = False
     at(1)
-    kodi.started = False  # signing out restarts PM4K
+    kodi.started = False  # a blink between PM4K's own windows
     assert at(2) is None
     assert at.watch.leaving
     kodi.started = True
-    assert at(3) is None
+    assert at(2.3) is None
     assert not at.watch.leaving
     assert at(10) is None
 

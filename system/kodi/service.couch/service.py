@@ -10,8 +10,9 @@ How PM4K behaves, from its source (1.3.19):
 - Back on its home asks "Are you ready to exit Plex?": Exit / Minimize / Cancel.
   Exit closes PM4K and leaves Kodi on its Home: `started` clears.
   Minimize clears `is_active` and shows Kodi's Home with PM4K still loaded.
-- Signing out and switching users happen inside it. Some settings changes restart it:
-  `started` blinks off and on again.
+- Signing out and switching users happen inside it. Only its optional "Restart PM4K" on
+  wake (off by default) restarts it: `started` clears, and the new instance takes 2-3 s
+  to set it again. Couch takes that as an exit and goes back to the launcher.
 
 So: quit Kodi once `started` has been gone for a moment, or once Kodi's Home has been in
 front with PM4K inactive for a moment. Kodi's Home is the Opening screen (skin.couch), and
@@ -23,7 +24,7 @@ The decisions live in Watch, which knows nothing about Kodi, so tests can drive 
 import time
 
 START_TIMEOUT = 120.0  # the first start renders PM4K's templates, which is slow on a Pi
-EXIT_GRACE = 2.0  # PM4K restarting itself clears `started` briefly
+EXIT_GRACE = 0.5  # `started` clears in PM4K's finally:, its atexit runs after
 HOME_GRACE = 1.0
 TICK = 0.2
 
