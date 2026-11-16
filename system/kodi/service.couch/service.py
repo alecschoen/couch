@@ -19,8 +19,17 @@ front with PM4K inactive for a moment. Kodi's Home is the Opening screen (skin.c
 `couch.closing` tells it to drop "Opening" as soon as PM4K looks to be leaving.
 
 The decisions live in Watch, which knows nothing about Kodi, so tests can drive it.
+
+It also draws couchd's overlays over Plex (#18): the quick menu and the volume panel.
+couchd sends their state with JSON-RPC `JSONRPC.NotifyAll` (sender "couch", message
+"overlay"), and Overlay turns it into Window(home) properties `couch.*`. skin.couch's
+Custom_1190_CouchOverlay.xml draws them: a dialog that opens and closes on its own visible
+condition, so it never has focus and never takes a key from Plex. couchd keeps the remote
+from Plex itself while the menu is open. `couch.overlay` says this is running; couchd checks
+it before it asks Kodi to show the menu, and otherwise opens it on the launcher.
 """
 
+import json
 import time
 
 START_TIMEOUT = 120.0  # the first start renders PM4K's templates, which is slow on a Pi
@@ -30,6 +39,10 @@ TICK = 0.2
 
 HOME = 10000
 PLEX = "script.plexmod"
+SENDER = "couch"
+OVERLAY = "Other.overlay"  # NotifyAll's message, as Kodi hands it to onNotification
+MENU_ITEMS = ("home", "sound", "volume", "bluetooth")
+VOLUME_MS = 2400  # unless couchd says otherwise
 
 
 class Watch:
@@ -79,6 +92,61 @@ class Watch:
         return None
 
 
+class Overlay:
+    """couchd's overlay state -> Window(home) properties. `set(key, value)` sets one."""
+
+    def __init__(self, set, clock=time.monotonic):
+        self.set = set
+        self.clock = clock
+        self.volume_until = None
+
+    def up(self, on):
+        self.set("couch.overlay", "1" if on else "")
+        if not on:
+            self.menu(None)
+            self.volume(None)
+
+    def handle(self, data):
+        if not isinstance(data, dict):
+            return
+        if "menu" in data:
+            self.menu(data["menu"])
+        if "volume" in data:
+            self.volume(data["volume"], data.get("ms", VOLUME_MS))
+
+    def menu(self, menu):
+        if not isinstance(menu, dict) or not menu.get("open"):
+            self.set("couch.menu", "")
+            return
+        self.set("couch.evening", "" if menu.get("evening") is False else "1")
+        self.set("couch.menu.title", str(menu.get("title", "")))
+        self.set("couch.menu.focus", str(menu.get("focus", "")))
+        for item in menu.get("items", ()):
+            if isinstance(item, dict) and item.get("id") in MENU_ITEMS:
+                self.set(f"couch.menu.{item['id']}.label", str(item.get("label", "")))
+                self.set(f"couch.menu.{item['id']}.value", str(item.get("value", "")))
+        self.set("couch.menu", "1")
+
+    def volume(self, panel, ms=VOLUME_MS):
+        if not isinstance(panel, dict):
+            self.volume_until = None
+            self.set("couch.volume", "")
+            return
+        level = max(0, min(100, int(panel.get("volume") or 0)))
+        muted = bool(panel.get("muted"))
+        self.set("couch.volume.name", str(panel.get("name", "")))
+        self.set("couch.volume.value", "Muted" if muted else str(level))
+        # The skin draws the bar in steps of 5 (Kodi can't size a control from a property).
+        self.set("couch.volume.step", "0" if muted else str(5 * round(level / 5)))
+        self.set("couch.volume", "1")
+        self.volume_until = self.clock() + ms / 1000
+
+    def tick(self):
+        """The volume panel goes once it has been still for a while."""
+        if self.volume_until is not None and self.clock() >= self.volume_until:
+            self.volume(None)
+
+
 class Kodi:
     def __init__(self):
         import xbmc
@@ -86,7 +154,17 @@ class Kodi:
 
         self.xbmc = xbmc
         self.home = xbmcgui.Window(HOME)
-        self.monitor = xbmc.Monitor()
+        self.overlay = Overlay(self.home.setProperty)
+
+        class Monitor(xbmc.Monitor):
+            def onNotification(monitor, sender, method, data):
+                if sender == SENDER and method == OVERLAY:
+                    try:
+                        self.overlay.handle(json.loads(data))
+                    except ValueError:
+                        self.log("couldn't read couchd's overlay")
+
+        self.monitor = Monitor()
 
     def log(self, message):
         self.xbmc.log(f"service.couch: {message}", self.xbmc.LOGINFO)
@@ -114,18 +192,22 @@ class Kodi:
 def main():
     kodi = Kodi()
     kodi.log("opening Plex")
+    kodi.overlay.up(True)
     kodi.start_plex()
     watch = Watch(kodi)
     closing = False
     while not kodi.monitor.waitForAbort(TICK):
+        kodi.overlay.tick()
         reason = watch.tick()
         if watch.leaving != closing:
             closing = watch.leaving
             kodi.closing(closing)
         if reason:
             kodi.log(f"{reason}; quitting Kodi so Couch comes back")
+            kodi.overlay.up(False)
             kodi.quit()
             return
+    kodi.overlay.up(False)
 
 
 if __name__ == "__main__":

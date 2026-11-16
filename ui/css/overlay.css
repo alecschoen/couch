@@ -1,0 +1,126 @@
+/* The overlays over every app (#18): quick menu, volume panel, and the corner they share
+   with toasts. Drawn by js/overlay-view.js, in the launcher and, through couchd, inside a
+   shadow root on YouTube's page; there it sits on top of tokens.css and components.css,
+   with :root read as the shadow host. The design: "Screen · Quick menu and toast". */
+
+/* Toasts and the volume panel, top right. In the launcher they go in .toasts instead. */
+.overlay-corner {
+  position: absolute;
+  top: 66px;
+  right: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s-2);
+}
+
+/* ---- Quick menu: a .sheet in the app's palette, four cards. couchd says which is focused;
+   the focused card is wide and inverted, like a focused .card. */
+.qm {
+  gap: var(--s-5);
+}
+
+.qm__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.qm__title {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+}
+
+.qm__hint {
+  font-size: var(--text-xs);
+  opacity: var(--a-muted);
+}
+
+.qm__cards {
+  display: flex;
+  gap: var(--s-4);
+}
+
+.qm-card {
+  box-sizing: border-box;
+  width: 345px;
+  height: 192px;
+  padding: 27px 30px;
+  border-radius: var(--radius-card);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  /* Width changes at once (layout), the fill fades (paint): nothing per-frame on the Pi. */
+  transition: background-color var(--dur-quick), color var(--dur-quick), border-color var(--dur-quick);
+}
+
+.qm-card.is-focused {
+  width: var(--card-w-focus);
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+.qm-card__label {
+  font-size: var(--text-xs);
+  opacity: var(--a-muted);
+}
+
+.qm-card__value {
+  font-family: var(--font-display);
+  font-size: var(--text-row);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Volume panel: the output's name, the number, a bar. */
+.volume-panel {
+  box-sizing: border-box;
+  width: 540px;
+  padding: 27px 36px;
+  border-radius: var(--radius-card);
+  background-color: var(--palette-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.volume-panel__top {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--text-base);
+}
+
+.volume-panel__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.volume-panel__value {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.volume-panel__track {
+  height: 12px;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, currentColor 25%, transparent);
+  overflow: hidden;
+}
+
+/* scaleX, not width: transform only, as everywhere else. */
+.volume-panel__fill {
+  height: 100%;
+  border-radius: 6px;
+  background-color: currentColor;
+  transform-origin: left center;
+  transition: transform 160ms var(--ease-out);
+}

@@ -7,7 +7,8 @@
 //   app.start("home");
 //
 // Keys meant for an app in front of the launcher (`app` isn't "launcher") are ignored, except
-// Home, which also takes the launcher back to its first screen.
+// Home, which also takes the launcher back to its first screen. So are keys couchd's quick
+// menu took (`overlay: true`): couchd moves the menu itself (overlay.js, couchd/overlay.py).
 //
 // Keys, in order, until something takes them:
 //   0. the idle clock (idle.js): a key that wakes it does nothing else
@@ -20,6 +21,7 @@ import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { IdleClock } from "./idle.js";
 import { useKeyboardAsRemote } from "./keys.js";
+import { useOverlays } from "./overlay.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
@@ -53,13 +55,15 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   };
 
   app.couch.addEventListener("key", (e) => {
-    const { key, app: target } = e.detail;
+    const { key, app: target, overlay } = e.detail;
+    if (overlay) return;
     if (target && target !== "launcher" && key !== "home") return;
     // A press that wakes the idle clock does only that.
     const taken = app.idle.wake(e.detail) || app.handleKey(key, e.detail);
     app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
-  app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
+  app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level, e.detail.icon));
+  useOverlays(app);
   announceUpdates(app); // "Updated to vX" once the launcher is on the TV (#24)
   app.couch.addEventListener("state", (e) => {
     const mode = e.detail.state.system?.mode;

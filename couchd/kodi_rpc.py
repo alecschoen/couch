@@ -11,6 +11,7 @@ out by id.
 """
 
 import asyncio
+import codecs
 import contextlib
 import json
 import logging
@@ -74,12 +75,13 @@ class KodiRpc:
 
 async def _read_reply(reader: asyncio.StreamReader, request_id: int) -> dict[str, Any]:
     decoder = json.JSONDecoder()
+    text = codecs.getincrementaldecoder("utf-8")(errors="replace")  # a chunk can split a char
     buffer = ""
     while True:
         chunk = await reader.read(65536)
         if not chunk:
             raise KodiRpcError("Kodi closed the connection")
-        buffer += chunk.decode(errors="replace")
+        buffer += text.decode(chunk)
         while buffer:
             buffer = buffer.lstrip()
             try:
