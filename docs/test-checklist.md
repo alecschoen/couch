@@ -74,8 +74,8 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 
       Note: Red still switches the sound while the test runs. Switch it back with Red if
       you need to.
-- [ ] **C4** Updates: shows "Couch" and a version, and the overnight switch. **(pending merge)**
-      Check now looks for an update and says what it found.
+- [ ] **C4** Updates: Launcher, Last check, System and Overnight rows, and a Check now button
+      (more in K).
 - [ ] **C5** About: Name on the TV is Couch, Device is the Raspberry Pi 4, Network says Ethernet
       and an address, and TV connection says the TV is on.
 - [ ] **C6** Power: press OK once on Restart. Expected: it changes to "Press OK again to
@@ -206,13 +206,20 @@ default).
       Couch with no buttons pressed, never while something plays. Leave it off unless you want
       it; it's too slow to test here.
 
-## K. Updates (2 min) (pending merge)
+## K. Updates (3 min)
 
-- [ ] **K1** Settings › Updates: the switch "Install updates overnight" is on.
-- [ ] **K2** Check now. Expected: until the Pi can read releases (see "Updates" under "With a
-      laptop"), it says updates aren't set up yet, and why. Once it can, it says whether
-      there's an update. If one installs (now or overnight), the next time Home opens it says
-      "Updated to …".
+Overnight updates (#24) are off until you turn them on, and the Pi can't read releases yet
+(see "Updates" under "With a laptop"). This checks the screen before that.
+
+- [ ] **K1** Settings › Updates. Expected: Launcher says "Couch (not from a release)" (nothing
+      is released yet), System says "Off until overnight updates are turned on", and Overnight
+      says "Not turned on yet" with "Check now still works" under it. No switch yet.
+- [ ] **K2** Check now. Expected: the button says what it's doing for a moment, then Last check
+      says "Not set up yet · just now", with the reason under it (no token, so Couch can't read
+      its releases). Nothing else changes.
+- [ ] **K3** After X1–X3 (any day): Check now says "Up to date", or installs the release, and
+      the next time Home is on screen it says "Updated to …". Overnight is then a switch,
+      "Install updates overnight", on.
 
 ## L. Restart, turn off, power cut (8 min)
 
@@ -250,21 +257,39 @@ give it to Claude: it fills in the "?" rows of the Sony notes (Home, Options, Gu
 rewind and fast forward, previous and next, Prog + and −, Input, holds and repeats).
 `cec-ctl --monitor-all` shows the same raw codes live, if you'd rather watch.
 
-### Updates (10 min) (pending merge)
+### Updates (15 min)
 
-Overnight updates (#24) are off until three things are decided and done. The steps are in
-system/README.md, "Release access".
+Overnight updates (#24) need three things from you first. The details are in
+system/README.md, under "Updates" and "Release access". Until then Couch installs nothing by
+itself, and Settings › Updates says "Not turned on yet".
 
-- [ ] **X1** Decide how the Pi reads releases from the private repo. Recommended: a
-      fine-grained personal access token for this repo only, Contents read-only, saved on the
-      Pi as `/etc/couch/github-token` (it expires; Settings › Updates says so when it has).
-      The other choices (a deploy key, a public mirror of the release files, or a public repo)
-      are in PR #54.
-- [ ] **X2** Make the first release: a GitHub release (not a draft or prerelease) tagged
-      `v0.1.0` or similar. Nothing is tagged yet. Then Settings › Updates › Check now.
-- [ ] **X3** Turn on nightly updates and security updates: add `nightly = true` to
-      `/etc/couch/update.toml` and re-run install.sh. Decide whether to keep the weekly full
-      upgrade and the reboot when one is needed (both on by default, same file).
+- [ ] **X1** Release access. The repo is private, so the Pi needs a token to read releases.
+      Recommended: on GitHub, Settings › Developer settings › Fine-grained tokens › Generate,
+      for this repo only, with Contents: Read-only and nothing else, and an expiry you'll
+      notice. Save it on the Pi:
+
+      ```bash
+      sudo sh -c 'umask 077; cat > /etc/couch/github-token'
+      ```
+
+      Paste it, Enter, Ctrl-D. Then Settings › Updates › Check now. Expected: "Up to date",
+      with "No releases yet" under it, instead of "Not set up yet". (The other ways, a deploy key, a public mirror of the release files or a public
+      repo, are in PR #54.)
+- [ ] **X2** Make the first release: a GitHub release tagged `vX.Y.Z` (for example `v0.1.0`),
+      not a draft or prerelease. Nothing is tagged yet. Check now again: it installs it, and
+      Home says "Updated to v0.1.0" the next time it's on screen.
+- [ ] **X3** Turn on overnight updates (Couch's releases, plus Debian's security updates):
+
+      ```bash
+      echo 'nightly = true' | sudo tee -a /etc/couch/update.toml
+      sudo /opt/couch/source/install.sh
+      ```
+
+      Expected: Settings › Updates shows the "Install updates overnight" switch, on, and
+      System says "Security updates overnight".
+- [ ] **X4** Decide whether to keep the weekly full upgrade (`full_upgrade_days`, which also
+      updates Chromium) and the reboot at night when one is needed (`reboot`). Both are on
+      by default, in the same `/etc/couch/update.toml`. Leave them unless you'd rather not.
 
 ### Power cuts (45 min)
 
@@ -278,19 +303,19 @@ file, not that Plex was still signed in. So after **each** pull, check:
 - a setting you changed is still changed;
 - Plex opens signed in, with no plex.tv/link code.
 
-- [ ] **X4** 8 pulls with YouTube playing.
-- [ ] **X5** 4 on the launcher, within 2 s of changing a setting (before it's saved).
-- [ ] **X6** 4 with Plex playing.
-- [ ] **X7** 2 within 10 s of power-on, during the boot.
-- [ ] **X8** 2 while a Bluetooth speaker is connected.
-- [ ] **X9** After all 20, from the laptop:
+- [ ] **X5** 8 pulls with YouTube playing.
+- [ ] **X6** 4 on the launcher, within 2 s of changing a setting (before it's saved).
+- [ ] **X7** 4 with Plex playing.
+- [ ] **X8** 2 within 10 s of power-on, during the boot.
+- [ ] **X9** 2 while a Bluetooth speaker is connected.
+- [ ] **X10** After all 20, from the laptop:
 
       ```bash
       ssh couch.local 'journalctl -k -b | grep -iE "ext4|fat|mmc"'
       ```
 
       Expected: only the normal journal recovery lines.
-- [ ] **X10** (If curious.) How much a boot writes to the card:
+- [ ] **X11** (If curious.) How much a boot writes to the card:
 
       ```bash
       ssh couch.local "awk '{print \$7 * 512 / 1e6 \" MB written since boot\"}' /sys/block/mmcblk0/stat"
@@ -324,6 +349,6 @@ decides what the remote's buttons do.
 | Quick menu, messages, volume panel | #18 (pending) |
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
-| Updates | #24, PR #54 (pending) |
+| Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
 | Wi-Fi option | #31, PR #57 (pending) |

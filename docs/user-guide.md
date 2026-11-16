@@ -79,7 +79,9 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 - **Sound**: where the sound goes, a volume limit, and whether the TV remote's volume
   buttons work for headphones and Bluetooth.
 - **Remote**: what the buttons do, and a test that shows what each button sends.
-- **Updates**: Couch updates itself overnight, only when nothing is playing.
+- **Updates**: what version Couch is, and Check now. Once overnight updates are set up
+  (a one-time job on a computer), Couch updates itself at night, only when nothing is
+  playing, and tells you on Home the next morning.
 - **About**: the network and the TV connection.
 - **Power**: Restart, and Turn off. Press OK twice; the first press only asks.
 
