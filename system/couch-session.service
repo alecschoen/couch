@@ -15,9 +15,10 @@ User=couch
 # device and input through logind and the couch user gets its PipeWire.
 PAMName=login
 TTYPath=/dev/tty1
-TTYReset=yes
+# No TTYReset or TTYVTDisallocate: both clear the screen, and at boot that's the kernel's
+# Couch splash (#4), which should stay until cage draws. Nothing else writes text to tty1
+# (the console is on tty3), and cage sets the VT up through logind itself.
 TTYVHangup=yes
-TTYVTDisallocate=yes
 StandardInput=tty-fail
 StandardOutput=journal
 StandardError=journal

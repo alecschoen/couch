@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+"""Change the Pi's boot files (cmdline.txt and config.txt) for Couch, and undo it exactly.
+
+    couch-bootfiles apply OWNER [--set TOKEN]... [--drop TOKEN]... [--config FILE]
+    couch-bootfiles revert OWNER
+    couch-bootfiles show
+
+Every change belongs to an OWNER, a short name such as `boot` (#4, the silent boot). Others
+that need boot settings, such as #25, use their own owner, so each can be undone on its own.
+
+cmdline.txt (one line of space-separated tokens):
+- `--set TOKEN` makes TOKEN present. A token with the same key is replaced in place, and the
+  old one is restored on revert. The key is the part before `=`; for `console=` it's the
+  whole token (there can be several consoles), and for `video=` it runs up to the `:`.
+- `--drop TOKEN` removes TOKEN; revert puts it back where it was.
+Only these edits are recorded, in `couch-boot.json` next to the files. Everything else on the
+line is left alone, and a token that was already there before Couch is never removed.
+
+config.txt: `--config FILE` puts FILE's lines in a block of their own at the end of
+config.txt, between `# >>> couch:OWNER` and `# <<< couch:OWNER`. Later lines win in
+config.txt, so the block overrides the stock settings above it. Revert deletes the block.
+
+The first change to each file keeps a copy of the file as it was (`cmdline.txt.couch-orig`).
+If the Pi won't boot, put the card in a PC and copy those over the originals. When the
+last owner is reverted and the file matches the copy again, the copy is deleted.
+
+Prints one line per file it changes and nothing when everything already matches. Python's
+standard library only: install.sh runs this before couchd's virtualenv exists.
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+STATE = "couch-boot.json"
+ORIG = ".couch-orig"
+
+
+def find_boot() -> Path:
+    for d in ("/boot/firmware", "/boot"):
+        if (Path(d) / "cmdline.txt").is_file():
+            return Path(d)
+    raise SystemExit("couch-bootfiles: no cmdline.txt in /boot/firmware or /boot; use --boot")
+
+
+def key(token: str) -> str:
+    if token.startswith("console=") or "=" not in token:
+        return token
+    if token.startswith("video="):
+        return token.split(":", 1)[0]
+    return token.split("=", 1)[0]
+
+
+# --- cmdline.txt ------------------------------------------------------------------------
+
+
+def cmdline_revert(tokens: list[str], ops: list[dict]) -> list[str]:
+    """Undo `ops` (as recorded by cmdline_apply), newest first."""
+    tokens = list(tokens)
+    for op in reversed(ops):
+        if "set" in op:
+            if op["set"] in tokens:
+                i = tokens.index(op["set"])
+                if op.get("was"):
+                    tokens[i] = op["was"]
+                else:
+                    del tokens[i]
+        elif "drop" in op and op["drop"] not in tokens:
+            tokens.insert(min(op["at"], len(tokens)), op["drop"])
+    return tokens
+
+
+def cmdline_apply(tokens: list[str], sets: list[str], drops: list[str]):
+    """Returns (new tokens, ops to record). Drops first, then sets, in the order given."""
+    tokens, ops = list(tokens), []
+    for t in drops:
+        if t in tokens:
+            i = tokens.index(t)
+            del tokens[i]
+            ops.append({"drop": t, "at": i})
+    for t in sets:
+        if t in tokens:
+            continue  # already there before Couch, so it isn't ours to remove
+        same = [i for i, old in enumerate(tokens) if key(old) == key(t)]
+        if same:
+            i = same[0]
+            ops.append({"set": t, "was": tokens[i]})
+            tokens[i] = t
+            for j in reversed(same[1:]):  # duplicates of the key: keep only ours
+                ops.append({"drop": tokens[j], "at": j})
+                del tokens[j]
+        else:
+            tokens.append(t)
+            ops.append({"set": t, "was": None})
+    return tokens, ops
+
+
+def check_cmdline(before: list[str], after: list[str]) -> None:
+    lost = [t for t in before if t.startswith(("root=", "rootfstype=")) and t not in after]
+    if lost or not after:
+        raise SystemExit(f"couch-bootfiles: refusing to write a cmdline.txt without {lost}")
+
+
+# --- config.txt -------------------------------------------------------------------------
+
+
+def markers(owner: str) -> tuple[str, str]:
+    return (
+        f"# >>> couch:{owner} (written by Couch's install.sh; --uninstall removes it)",
+        f"# <<< couch:{owner}",
+    )
+
+
+def config_without(text: str, owner: str) -> tuple[str, list[str] | None]:
+    """The config without OWNER's block, and the block's body (None if there wasn't one)."""
+    start, end = markers(owner)
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if ln.startswith(f"# >>> couch:{owner} ")]
+    if not starts:
+        return text, None
+    i = starts[0]
+    try:
+        j = lines.index(end, i + 1)
+    except ValueError:
+        raise SystemExit(f"couch-bootfiles: config.txt has `{start[:20]}…` without `{end}`")
+    body = lines[i + 1 : j]
+    # Also drop the blank line we put in front of the block.
+    if i > 0 and lines[i - 1] == "":
+        i -= 1
+    rest = lines[:i] + lines[j + 1 :]
+    return "\n".join(rest) + ("\n" if rest else ""), body
+
+
+def config_with(text: str, owner: str, body: list[str]) -> str:
+    start, end = markers(owner)
+    rest, old = config_without(text, owner)
+    if old == body:
+        return text  # leave it where it is
+    if rest and not rest.endswith("\n"):
+        rest += "\n"
+    return rest + "\n" + "\n".join([start, *body, end]) + "\n"
+
+
+# --- files ------------------------------------------------------------------------------
+
+
+def write(path: Path, text: str) -> None:
+    """Replace `path` with `text` without ever leaving it half-written."""
+    tmp = path.with_name(f".{path.name}.couch-tmp")
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def keep_original(path: Path) -> None:
+    orig = path.with_name(path.name + ORIG)
+    if not orig.exists():
+        write(orig, path.read_text())
+
+
+def drop_original(path: Path, out: list[str]) -> None:
+    orig = path.with_name(path.name + ORIG)
+    if not orig.exists():
+        return
+    if orig.read_text() == path.read_text():
+        orig.unlink()
+    else:
+        out.append(f"kept {orig}: {path.name} has other changes since")
+
+
+class Boot:
+    def __init__(self, boot: Path):
+        self.dir = boot
+        self.cmdline = boot / "cmdline.txt"
+        self.config = boot / "config.txt"
+        self.state_path = boot / STATE
+        self.state = {"cmdline": {}, "config": []}
+        if self.state_path.exists():
+            self.state.update(json.loads(self.state_path.read_text()))
+
+    def tokens(self) -> list[str]:
+        return self.cmdline.read_text().split()
+
+    def save_state(self) -> None:
+        if self.state["cmdline"] or self.state["config"]:
+            text = json.dumps(self.state, indent=2, sort_keys=True) + "\n"
+            if not self.state_path.exists() or self.state_path.read_text() != text:
+                write(self.state_path, text)
+        elif self.state_path.exists():
+            self.state_path.unlink()
+
+    def set_cmdline(self, owner: str, sets: list[str], drops: list[str], out: list[str]):
+        now = self.tokens()
+        old_ops = self.state["cmdline"].get(owner, [])
+        base = cmdline_revert(now, old_ops)
+        new, ops = cmdline_apply(base, sets, drops)
+        check_cmdline(now, new)
+        if new != now:
+            keep_original(self.cmdline)
+            write(self.cmdline, " ".join(new) + "\n")
+            out.append(f"{self.cmdline}: {' '.join(new)}")
+        if ops:
+            self.state["cmdline"][owner] = ops
+        else:
+            self.state["cmdline"].pop(owner, None)
+        if not self.state["cmdline"] and new != now:
+            drop_original(self.cmdline, out)
+
+    def set_config(self, owner: str, body: list[str] | None, out: list[str]):
+        text = self.config.read_text()
+        new = config_with(text, owner, body) if body else config_without(text, owner)[0]
+        owners = [o for o in self.state["config"] if o != owner or body]
+        if body and owner not in owners:
+            owners.append(owner)
+        self.state["config"] = owners
+        if new != text:
+            keep_original(self.config)
+            write(self.config, new)
+            out.append(f"{self.config}: {'wrote' if body else 'removed'} the couch:{owner} block")
+            if not owners:
+                drop_original(self.config, out)
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="couch-bootfiles", description=__doc__.split("\n")[0])
+    p.add_argument("--boot", type=Path, help="boot partition (default /boot/firmware)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("apply", help="make OWNER's changes (and undo any it no longer makes)")
+    a.add_argument("owner")
+    a.add_argument("--set", action="append", default=[], metavar="TOKEN")
+    a.add_argument("--drop", action="append", default=[], metavar="TOKEN")
+    a.add_argument("--config", type=Path, metavar="FILE", help="lines for config.txt")
+    r = sub.add_parser("revert", help="undo everything OWNER changed")
+    r.add_argument("owner")
+    sub.add_parser("show", help="print what each owner changed")
+    args = p.parse_args(argv)
+
+    owner = getattr(args, "owner", None)
+    if owner is not None and not owner.replace("-", "").isalnum():
+        p.error(f"owner must be letters, digits and dashes: {owner!r}")
+
+    boot = Boot(args.boot or find_boot())
+    out: list[str] = []
+    if args.cmd == "show":
+        print(json.dumps(boot.state, indent=2, sort_keys=True))
+        return 0
+    if args.cmd == "apply":
+        body = None
+        if args.config:
+            body = [ln.rstrip() for ln in args.config.read_text().splitlines()]
+            body = [ln for ln in body if ln] or None
+        boot.set_cmdline(args.owner, args.set, args.drop, out)
+        boot.set_config(args.owner, body, out)
+    else:
+        boot.set_cmdline(args.owner, [], [], out)
+        boot.set_config(args.owner, None, out)
+    boot.save_state()
+    for line in out:
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
