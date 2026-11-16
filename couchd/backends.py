@@ -5,8 +5,8 @@ Services never touch hardware directly; they talk to one of these. A backend cal
 to standby), and the service re-reads it and updates live state. Live state only publishes
 the keys that actually differ, so a spurious `changed()` costs nothing.
 
-Real backends land with their issues: CEC (#7), audio (#10), Bluetooth (#12). The fakes are
-in `couchd/fakes.py`.
+Real backends land with their issues: CEC (#7), audio (#10), Bluetooth (#12, couchd/bluez.py).
+The fakes are in `couchd/fakes.py`.
 """
 
 from abc import ABC, abstractmethod

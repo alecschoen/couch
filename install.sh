@@ -27,7 +27,7 @@ PACKAGES=(
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio
     bluez
-    python3-venv python3-aiohttp python3-hatchling python3-editables
+    python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     fonts-noto-core
     rsync
 )

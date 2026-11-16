@@ -25,7 +25,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
 | `tv` | `power`: `on`, `standby` or `unknown` |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id), `volume` (0–100), `muted` |
-| `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
+| `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
 
 A section for the current app arrives with #13.
 
@@ -73,8 +73,18 @@ The text `ping` gets `pong`.
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |
-| `bluetooth.scan` | `on` (bool) |
-| `bluetooth.pair`, `.connect`, `.disconnect`, `.forget` | `address` |
+| `bluetooth.scan` | `on` (bool). Scanning stops by itself after 2 minutes; send it again to keep going |
+| `bluetooth.pair` | `address`. Pairs and trusts; an audio device is then connected too, so one press does it |
+| `bluetooth.connect`, `.disconnect`, `.forget` | `address` |
+| `bluetooth.set_auto_reconnect` | `on` (bool). Saved; on by default |
+
+When an audio device connects, sound moves to it as soon as its output shows up in `audio`
+(that is an `audio.set_output`, so it is saved and toasted like one). When it disconnects
+there is a toast, and sound goes back to the output it was on before, unless another output
+was picked in between. The last audio device connected is remembered: with
+`auto_reconnect` on, couchd keeps trying to reach it whenever no audio device is connected,
+at boot and after it drops out of range (backing off to once a minute, and not while
+scanning). `bluetooth.disconnect` and `bluetooth.forget` make it stop.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 
