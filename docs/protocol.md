@@ -24,7 +24,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `system` | `version`, `mode` (`device` or `dev`) |
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
-| `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id), `volume` (0–100), `muted` |
+| `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
 
 | `apps` | see below |
@@ -56,6 +56,11 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 - `browser`: `connected` or `disconnected` (DevTools link to Chromium; it's
   `disconnected` while Kodi has the screen).
 
+Output ids are stable across reboots: `tv` (HDMI), `jack` (the 3.5 mm jack), `usb:<card>`,
+and `bluetooth:<address>`, the same address as in the `bluetooth` section. A second HDMI or
+analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); an output with
+`available: false` is listed but can't be picked.
+
 **`toast`**: a short notice to show on screen.
 
 ```json
@@ -72,7 +77,9 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 
 Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `back` `home`
 `play` `pause` `play_pause` `stop` `rewind` `fast_forward` `red` `green` `yellow` `blue` and
-`0`–`9`. Screens react only to these messages, never to raw keyboard events. A keyboard
+`0`–`9`. Screens react only to these messages, never to raw keyboard events.
+couchd acts on `red` itself, wherever you are, YouTube included: it moves the sound to the
+next available output. Screens shouldn't give `red` another meaning. A keyboard
 (in dev mode, or plugged into the Pi) is turned into `remote.press` commands by
 `ui/js/keys.js`, so it takes the same path through couchd as the TV remote.
 
@@ -101,6 +108,7 @@ The text `ping` gets `pong`.
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
+| `audio.cycle_output` | Next available output, as the Red button does |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |
 | `bluetooth.scan` | `on` (bool) |
@@ -111,6 +119,10 @@ The text `ping` gets `pong`.
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
+
+couchd keeps sound on the output picked last. When that output goes away (a speaker out of
+range) sound moves to the TV, and when it comes back the sound follows. Volume is remembered
+per output. Every change of output, whatever caused it, shows a "Sound now on X" toast.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 
