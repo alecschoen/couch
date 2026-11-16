@@ -78,6 +78,11 @@ def test_kodi_runs_in_front_of_the_waiting_session():
     # the console goes to tty2 before Kodi opens the screen, and back to tty1 however it ends
     assert "ExecStartPre=+/usr/bin/chvt 2" in kodi
     assert "ExecStopPost=+/usr/bin/chvt 1" in kodi
+    # and no login prompt on tty2 to fight Kodi for it
+    script = (ROOT / "install.sh").read_text()
+    assert "KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)" in script
+    assert 'systemctl -q mask "$u"' in script
+    assert 'systemctl -q unmask "${KODI_VT_GETTYS[@]}"' in script
     # the launcher comes back however Kodi ends, couchd or not
     assert "OnSuccess=couch-session.service" in kodi
     assert "OnFailure=couch-session.service" in kodi

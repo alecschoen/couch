@@ -25,7 +25,9 @@ TTYPath=/dev/tty2
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
-StandardInput=tty-fail
+# tty-force: should a login prompt have got to tty2 first, Kodi still gets it (install.sh
+# masks them).
+StandardInput=tty-force
 StandardOutput=journal
 StandardError=journal
 UtmpIdentifier=tty2

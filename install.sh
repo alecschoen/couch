@@ -39,6 +39,7 @@ UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
 # Installed but not enabled: couchd starts Kodi when Plex is launched.
 STATIC_UNITS=(couch-kodi.service)
+KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
 NO_POINTER_RULE=/etc/udev/rules.d/70-couch-no-pointer.rules
@@ -337,6 +338,16 @@ install_couch() {
         if ensure_file "$SRC/system/$u" "$UNIT_DIR/$u" 644; then units=1; fi
     done
     ((units)) && systemctl daemon-reload
+    # tty2 is Kodi's (couch-kodi.service). logind starts a login prompt on a console as soon
+    # as it's switched to, and one on tty2 fights Kodi for the tty and leaves the screen in a
+    # state cage can't take back. So none there.
+    for u in "${KODI_VT_GETTYS[@]}"; do
+        if [[ $(systemctl is-enabled "$u" 2>/dev/null) != masked ]]; then
+            systemctl -q mask "$u"
+            systemctl -q stop "$u" 2>/dev/null || true
+            note "masked $u"
+        fi
+    done
     for u in "${UNITS[@]}"; do
         if ! systemctl -q is-enabled "$u" 2>/dev/null; then
             systemctl -q enable "$u"
@@ -663,6 +674,7 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    systemctl -q unmask "${KODI_VT_GETTYS[@]}" 2>/dev/null || true
     rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$NO_POINTER_RULE" "$UINPUT_MODULE_CONF"
     rm -f "$WIFI_RULE" "$WIFI_BOOT_UNIT" "$RFKILL_DROPIN"
     rmdir "$(dirname "$RFKILL_DROPIN")" 2>/dev/null || true
