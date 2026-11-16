@@ -1,8 +1,7 @@
 // A stand-in for a screen that hasn't landed yet, so Home's cards have somewhere to go.
-// Bluetooth (#16) and Settings (#17) replace their registrations in index.html; this file goes
-// once neither uses it.
+// Settings (#17) replaces its registration in index.html; this file goes once nothing uses it.
 //
-//   router.register("bluetooth", stubScreen({ title: "Bluetooth", palette: "bt" }));
+//   router.register("settings", stubScreen({ title: "Settings", palette: "settings" }));
 
 import { h } from "../components.js";
 

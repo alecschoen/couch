@@ -31,9 +31,10 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.toasts = new Toasts($(toasts));
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
 
-  app.handleKey = (key) => {
-    if (app.focus.scopeKey(key)) return;
-    if (app.router.handleKey(key)) return;
+  // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
+  app.handleKey = (key, detail = { key }) => {
+    if (app.focus.scopeKey(key, detail)) return;
+    if (app.router.handleKey(key, detail)) return;
     if (ARROWS.has(key)) app.focus.move(key);
     else if (key === "select") app.focus.activate();
     else if (key === "back") app.router.back();
@@ -41,7 +42,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   };
 
   app.couch.addEventListener("key", (e) => {
-    app.handleKey(e.detail.key);
+    app.handleKey(e.detail.key, e.detail);
     app.dispatchEvent(new CustomEvent("key", { detail: e.detail }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
