@@ -16,6 +16,7 @@ from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
 from couchd.startup import StartupService
+from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
 from couchd.uinput import UinputKeyboard
 
@@ -34,6 +35,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             AudioService(ctx, audio),
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
+            SystemService(ctx, FakeSystem()),
         ]
     tv = CecTv()
     return [
@@ -43,6 +45,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         AudioService(ctx, PipewireAudio()),
         BluetoothService(ctx, BluezBluetooth()),
         *_apps(ctx, dev=False),
+        SystemService(ctx, LinuxSystem()),
     ]
 
 

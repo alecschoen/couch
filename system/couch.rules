@@ -13,3 +13,18 @@ polkit.addRule(function (action, subject) {
     }
     return polkit.Result.NOT_HANDLED;
 });
+
+// Settings > Power: Restart and Turn off. "-multiple-sessions" because an ssh login is
+// usually around too. Inhibitors are still honoured.
+polkit.addRule(function (action, subject) {
+    var power = [
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+    ];
+    if (subject.user === "couch" && power.indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

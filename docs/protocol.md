@@ -27,9 +27,9 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
-
 | `apps` | see below |
-| `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true) |
+| `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never) |
+| `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
 
@@ -157,6 +157,11 @@ The text `ping` gets `pong`.
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
 | `apps.dev.crash` | Dev mode only: `app`. couchd acts as if its tab (or the pretend Kodi) crashed |
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
+| `settings.set` | `key`, `value`. Validated and saved; returns `{key: value}`. See [Settings](#settings) |
+| `settings.reset` | `key`. Back to its default |
+| `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
+| `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
+| `system.restart`, `system.power_off` | Reboot or shut down the Pi, after a "Restarting" / "Turning off" toast. On a shutdown the TV goes to standby too if `tv.standby_on_poweroff` is on |
 
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of
 range) sound moves to the TV, and when it comes back the sound follows. Volume is remembered
@@ -174,6 +179,34 @@ A command exists only while its service runs. `GET /api/commands` lists the curr
 
 If a client falls more than 256 messages behind, couchd closes it with code 1013 and it
 should reconnect.
+
+## Settings
+
+User settings are one flat map of `area.name` keys, in the live state section `settings`,
+saved in `/var/lib/couch/settings.json` (atomic writes). Change one with `settings.set`; the
+change comes back to every client as a `settings` patch, so a screen just renders from state.
+A value of the wrong type or out of range is refused with an error and nothing changes.
+
+| Key | Type | Default | |
+| --- | --- | --- | --- |
+| `display.evening` | `sunset`, `always`, `off` | `always` | Evening colours. *sunset* = 18:00–07:00 for now |
+| `display.motion` | `auto`, `reduced`, `full` | `auto` | Reduce motion; *auto* follows the system |
+| `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the clock; 0 = never |
+| `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
+| `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack and Bluetooth (not acted on yet) |
+| `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
+| `updates.overnight` | bool | true | Install updates overnight (#24; not acted on yet) |
+
+```json
+{"type": "command", "id": 9, "name": "settings.set", "args": {"key": "display.evening", "value": "sunset"}}
+{"type": "result", "id": 9, "ok": true, "data": {"display.evening": "sunset"}}
+{"type": "state", "full": false, "data": {"settings": {"display.evening": "sunset"}}}
+```
+
+`bluetooth.set_auto_reconnect` and `tv.set_standby_on_poweroff` are the same as setting those
+keys. To add a setting, add it to `SCHEMA` in `couchd/settings.py`; services read it with
+`ctx.settings.get(key)` and follow changes with `ctx.settings.on_change(fn)`.
 
 ## REST
 

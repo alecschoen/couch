@@ -19,6 +19,7 @@ import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { useKeyboardAsRemote } from "./keys.js";
 import { Router } from "./router.js";
+import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
 
 const ARROWS = new Set(["up", "down", "left", "right"]);
@@ -28,6 +29,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   const app = new EventTarget();
 
   app.couch = new Couch();
+  settings.bind(app.couch); // settings live in couchd; see settings.js
   app.theme = new Theme($(flood));
   app.focus = new FocusEngine(document.body);
   app.layer = $(layer);
@@ -35,20 +37,22 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
 
   // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
+  // True if a scope or the screen took the key (the app's "key" event says so as `taken`).
   app.handleKey = (key, detail = { key }) => {
-    if (app.focus.scopeKey(key, detail)) return;
-    if (app.router.handleKey(key, detail)) return;
+    if (app.focus.scopeKey(key, detail)) return true;
+    if (app.router.handleKey(key, detail)) return true;
     if (ARROWS.has(key)) app.focus.move(key);
     else if (key === "select") app.focus.activate();
     else if (key === "back") app.router.back();
     else if (key === "home") app.router.home();
+    return false;
   };
 
   app.couch.addEventListener("key", (e) => {
     const { key, app: target } = e.detail;
     if (target && target !== "launcher" && key !== "home") return;
-    app.handleKey(key, e.detail);
-    app.dispatchEvent(new CustomEvent("key", { detail: e.detail }));
+    const taken = app.handleKey(key, e.detail);
+    app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
   app.couch.addEventListener("state", (e) => {

@@ -18,7 +18,7 @@ export class Theme {
     this.root = root;
     this.palette = null;
     this._applyEvening();
-    settings.addEventListener("change", (e) => e.detail.key === "evening" && this._eveningChanged());
+    settings.addEventListener("change", (e) => e.detail.key === "display.evening" && this._eveningChanged());
     // Recheck "after sunset" every minute.
     setInterval(() => this._eveningChanged(), 60_000);
   }
