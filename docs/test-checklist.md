@@ -22,10 +22,12 @@ the Pi yet.
 - [ ] **A1** Plug the Pi in and start the stopwatch. Expected: the TV wakes up by itself and
       switches to the Pi.
 - [ ] **A2** Watch the screen. Expected: black, then the Couch logo on dark grey. No rainbow
-      square, no text, no blinking cursor at any point.
+      square, no text, no blinking cursor and no mouse pointer at any point.
 - [ ] **A3** Expected: a progress bar and "Turning on the TV" fade in under the logo. The logo
       doesn't move or flash while that happens.
-- [ ] **A4** Expected: Home appears within about 15 s of plugging in. Write down the time: ____ s.
+- [ ] **A4** Expected: Home appears within about 15 s of plugging in, with no white flash just
+      before it. Write down the time: ____ s, and how long the screen is black between the
+      logo and Home, if it is: ____ s.
 - [ ] **A5** Expected: nothing is cut off at the edges. The clock at top left and "Sound: …" at
       top right have space around them.
 
@@ -74,11 +76,15 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       you need to.
 - [ ] **C4** Updates: shows "Couch" and a version, and the overnight switch. **(pending merge)**
       Check now looks for an update and says what it found.
-- [ ] **C5** About: Name on the TV is Couch, Device is the Raspberry Pi 4, Network shows the Wi-Fi
-      or cable in use and an address, and TV connection says the TV is on.
+- [ ] **C5** About: Name on the TV is Couch, Device is the Raspberry Pi 4, Network says Ethernet
+      and an address, and TV connection says the TV is on.
 - [ ] **C6** Power: press OK once on Restart. Expected: it changes to "Press OK again to
       restart". Wait 4 s without pressing. Expected: it goes back to Restart.
 - [ ] **C7** Compare the screen with the design, especially the Display and Power panels.
+- [ ] **C8** Network **(pending merge)**: Connection says Ethernet, and Wi-Fi is off ("Off. Couch
+      uses the network cable."). Couch is meant to be on the cable, so Wi-Fi stays off unless
+      you want it. To try it: OK turns it on, and it joins a network the Pi already knows
+      within a few seconds; OK again turns it off. Leave it off.
 
 ## D. Bluetooth (5 min)
 
@@ -87,14 +93,17 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 - [ ] **D2** Put the speaker in pairing mode. Expected: it shows up under Nearby within about
       10 s, as "OK to pair".
 - [ ] **D3** OK on it. Expected: "Pairing", then it moves to Your devices as "Connected · sound
-      plays here", and a "Sound now on …" message. "Sound:" top right names it.
+      plays here", and a "Sound now on …" message. "Sound:" top right names it. Play something
+      short (or wait for E) and listen: the sound really comes from it.
 - [ ] **D4** Hold OK on that device for about a second. Expected: Options opens with
       Disconnect and Forget. Return closes it.
 - [ ] **D5** Press Return to go Home. Expected: the Bluetooth card's line says the speaker is connected.
 - [ ] **D6** Turn the speaker off. Expected: within a few seconds, "Sound now on TV speakers".
 - [ ] **D7** Turn it back on and wait up to a minute. Expected: it reconnects by itself and
       the sound moves back to it ("Sound now on …").
-- [ ] **D8** Leave the speaker on for E. (The sound keeps going there.)
+- [ ] **D8** If you have headphones as well as a speaker: pair them too, from scratch, the same
+      way (D2–D3), and listen. Then Red back to the speaker.
+- [ ] **D9** Leave the speaker on for E. (The sound keeps going there.)
 
 ## E. YouTube (6 min)
 
@@ -143,14 +152,16 @@ default).
 ## G. Plex (5 min)
 
 - [ ] **G1** OK on Plex. Expected: a gold Opening screen, then Plex. Watch the moment Plex takes
-      over: the "Plex" title and the bar shouldn't jump. Kodi's own menus never show.
+      over: the "Plex" title and the bar shouldn't jump. Kodi's own menus and home screen (plain
+      Kodi) never show, here or anywhere below.
 - [ ] **G2** Arrows, OK and Return move around Plex as you'd expect.
 - [ ] **G3** Play a movie for a minute. Expected: picture and sound are fine (sound on whichever
       output is current).
 - [ ] **G4** Press Blue. **(pending merge)** Expected: the quick menu, or Couch's Home with the
       menu open if Plex can't show it.
 - [ ] **G5** Stop, then Return until Plex asks "Are you ready to exit Plex?". Choose Exit.
-      Expected: back on Couch's Home after a brief Couch logo (about half a second).
+      Expected: back on Couch's Home after a brief Couch logo (about half a second). It should
+      read as a calm hand-over, not a flicker.
 - [ ] **G6** (If there's time.) Open Plex again, then choose Minimize in that question.
       Expected: also back on Home.
 - [ ] **G7** Open Plex again and hold Return for about a second. Expected: Couch's Home.
@@ -166,7 +177,7 @@ default).
 
 ## I. When things go wrong (4 min)
 
-- [ ] **I1** Turn off the Wi-Fi router (or unplug the Pi's network cable). Wait a minute, then
+- [ ] **I1** Unplug the Pi's network cable (or turn off the internet router). Wait a minute, then
       OK on YouTube. Expected: "YouTube needs the internet" on a grey screen, with Try again
       and Go home.
 - [ ] **I2** Turn the router back on, wait for it, then Try again. Expected: YouTube opens.
@@ -198,10 +209,12 @@ default).
 ## K. Updates (2 min) (pending merge)
 
 - [ ] **K1** Settings › Updates: the switch "Install updates overnight" is on.
-- [ ] **K2** Check now. Expected: it says whether there's an update. If one installs (now or
-      overnight), the next time Home opens it says "Updated to …".
+- [ ] **K2** Check now. Expected: until the Pi can read releases (see "Updates" under "With a
+      laptop"), it says updates aren't set up yet, and why. Once it can, it says whether
+      there's an update. If one installs (now or overnight), the next time Home opens it says
+      "Updated to …".
 
-## L. Restart, turn off, power cut (6 min)
+## L. Restart, turn off, power cut (8 min)
 
 - [ ] **L1** Settings › Power › Restart, OK twice. Expected: the Couch logo stays up while it
       shuts down (no text), then the boot from A2–A4 again.
@@ -209,13 +222,20 @@ default).
 - [ ] **L3** Open Plex. Expected: still signed in, no plex.tv/link code.
 - [ ] **L4** Settings: the things you changed in C are still as you left them.
 - [ ] **L5** Pull the Pi's power while YouTube plays. Plug it back in. Expected: it boots normally
-      to Home. **(pending merge)** Do this three times; every boot is clean.
-- [ ] **L6** Settings › Power › "Turn the TV off too" on. Then Turn off, OK twice. Expected: the
-      Couch logo, then the Pi's green light stops, and the TV goes to standby.
-- [ ] **L7** Unplug and replug the Pi to bring it back. Turn "Turn the TV off too" back off if
+      to Home, with no "Restore pages?" bubble anywhere. **(pending merge)** Do this three
+      times; every boot is clean. (The full 20-pull run is under "With a laptop".)
+- [ ] **L6** Settings › Power › Turn off, OK twice, with "Turn the TV off too" off. Expected: the
+      Couch logo stays up while it shuts down, the Pi's green light stops, and the TV stays on.
+- [ ] **L7** Unplug and replug the Pi. Then Settings › Power › "Turn the TV off too" on, and Turn
+      off again. Expected: the same, and then the TV goes to standby.
+- [ ] **L8** Unplug and replug the Pi to bring it back. Turn "Turn the TV off too" back off if
       you don't want it.
 
-## Extra, with a laptop (10 min, optional)
+## With a laptop (optional, any time)
+
+These need a terminal or GitHub, not just the remote.
+
+### Sony buttons (10 min)
 
 The Sony remote's buttons that nobody has recorded yet (#9). With the TV showing Couch, on
 the Pi from a checkout of Couch:
@@ -228,6 +248,46 @@ sudo ./scripts/cec-button-survey.sh --volume
 It asks for each button in turn. Paste the `summary.md` table it writes into the issue, or
 give it to Claude: it fills in the "?" rows of the Sony notes (Home, Options, Guide, i+,
 rewind and fast forward, previous and next, Prog + and −, Input, holds and repeats).
+`cec-ctl --monitor-all` shows the same raw codes live, if you'd rather watch.
+
+### Updates (10 min) (pending merge)
+
+Overnight updates (#24) are off until three things are decided and done. The steps are in
+system/README.md, "Release access".
+
+- [ ] **X1** Decide how the Pi reads releases from the private repo. Recommended: a
+      fine-grained personal access token for this repo only, Contents read-only, saved on the
+      Pi as `/etc/couch/github-token` (it expires; Settings › Updates says so when it has).
+      The other choices (a deploy key, a public mirror of the release files, or a public repo)
+      are in PR #54.
+- [ ] **X2** Make the first release: a GitHub release (not a draft or prerelease) tagged
+      `v0.1.0` or similar. Nothing is tagged yet. Then Settings › Updates › Check now.
+- [ ] **X3** Turn on nightly updates and security updates: add `nightly = true` to
+      `/etc/couch/update.toml` and re-run install.sh. Decide whether to keep the weekly full
+      upgrade and the reboot when one is needed (both on by default, same file).
+
+### Power cuts (45 min) (pending merge)
+
+The full test for SD card protection (#25): 20 plug pulls during use. After each, the
+launcher comes back by itself, YouTube is still signed in, a setting you changed is still
+changed, Plex opens signed in, and no "Restore pages?" bubble shows.
+
+- [ ] **X4** 8 pulls with YouTube playing.
+- [ ] **X5** 4 on the launcher, within 2 s of changing a setting.
+- [ ] **X6** 4 with Plex playing.
+- [ ] **X7** 2 within 10 s of power-on, during the boot.
+- [ ] **X8** 2 while a Bluetooth speaker is connected.
+- [ ] **X9** After all 20, from the laptop:
+
+      ```bash
+      ssh couch.local 'journalctl -k -b | grep -iE "ext4|fat|mmc"'
+      ```
+
+      Expected: only the normal journal recovery lines.
+
+### Later, on your own
+
+- Plex: if you like, set up Plex's user select or automatic sign-in in Plex's own settings.
 
 ## When you're done
 
@@ -251,5 +311,6 @@ decides what the remote's buttons do.
 | Quick menu, messages, volume panel | #18 (pending) |
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
-| Updates | #24 (pending) |
-| Power cuts | #25 (pending) |
+| Updates | #24, PR #54 (pending) |
+| Power cuts | #25, PR #51 (pending) |
+| Wi-Fi option | #31, PR #57 (pending) |
