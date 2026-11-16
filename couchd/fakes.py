@@ -1,7 +1,7 @@
 """Fake hardware for `couchd --dev`: a TV, three kinds of audio output, Bluetooth devices
-that turn up while scanning, and a virtual keyboard that only logs. They behave like the
-real thing closely enough to build every screen: things take a moment, connecting a speaker
-adds an output, one speaker always fails to pair.
+that turn up while scanning, a Wi-Fi radio, and a virtual keyboard that only logs. They
+behave like the real thing closely enough to build every screen: things take a moment,
+connecting a speaker adds an output, one speaker always fails to pair.
 
 `speed` scales every delay; tests use 0.
 """
@@ -19,6 +19,8 @@ from couchd.backends import (
     Output,
     TvBackend,
     TvPower,
+    WifiBackend,
+    WifiStatus,
 )
 from couchd.cec_tv import VOLUME_COMMANDS
 from couchd.uinput import key_name
@@ -255,3 +257,53 @@ class FakeBluetooth(BluetoothBackend):
         self._devices[address] = device
         self.changed()
         return device
+
+
+class FakeWifi(WifiBackend):
+    """A Wi-Fi radio that knows one network. Turned on, it finds it and connects."""
+
+    NETWORK = "Living room"
+
+    def __init__(self, *, enabled: bool = False, speed: float = 1.0) -> None:
+        super().__init__()
+        self._delays = _Delays(speed)
+        self._status = WifiStatus(available=True, enabled=False)
+        self._joining: asyncio.Task | None = None
+        if enabled:
+            self._status = self._connected()
+
+    def status(self) -> WifiStatus:
+        return self._status
+
+    async def set_enabled(self, on: bool) -> None:
+        if on == self._status.enabled:
+            return
+        if self._joining is not None:
+            self._joining.cancel()
+            self._joining = None
+        if on:
+            self._update(WifiStatus(available=True, enabled=True, connection="disconnected"))
+            self._joining = asyncio.create_task(self._join())
+        else:
+            self._update(WifiStatus(available=True, enabled=False))
+
+    async def stop(self) -> None:
+        if self._joining is not None:
+            self._joining.cancel()
+            self._joining = None
+
+    async def _join(self) -> None:
+        await self._delays.sleep(0.8)
+        self._update(replace(self._status, connection="connecting", ssid=self.NETWORK))
+        await self._delays.sleep(1.2)
+        self._update(self._connected())
+        self._joining = None
+
+    def _connected(self) -> WifiStatus:
+        return WifiStatus(
+            available=True, enabled=True, connection="connected", ssid=self.NETWORK, signal=72
+        )
+
+    def _update(self, status: WifiStatus) -> None:
+        self._status = status
+        self.changed()

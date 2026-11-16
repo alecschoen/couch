@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Keep Wi-Fi off from early in the boot when it was off: couch-wifi-boot (#31)
+
+couchd switches Wi-Fi with NetworkManager (Settings > Network). NetworkManager remembers
+"off" in its state file and soft-blocks the radio (rfkill), but at the next boot it only
+remembers: it doesn't block the radio again. systemd-rfkill would, but on the Pi it does
+that while the Wi-Fi chip is still starting, and then hangs until its 90 s timeout and
+fails. So Couch tells systemd-rfkill to leave Wi-Fi alone (system/systemd-rfkill-couch.conf)
+and this blocks the radio instead, once wlan0 exists and the chip is up:
+couch-wifi-boot.service runs it when wlan0 appears (system/70-couch-wifi.rules).
+
+It only ever blocks. When Wi-Fi is on, the kernel leaves the radio unblocked and
+NetworkManager uses it. It never fails the boot: problems are printed and it exits 0.
+
+Python's standard library only.
+"""
+
+import configparser
+import sys
+from pathlib import Path
+
+NM_STATE = Path("/var/lib/NetworkManager/NetworkManager.state")
+RFKILL = Path("/sys/class/rfkill")
+
+
+def wifi_off(state: Path = NM_STATE) -> bool:
+    """NetworkManager's remembered choice: [main] WirelessEnabled=false."""
+    parser = configparser.ConfigParser()
+    try:
+        parser.read_string(state.read_text())
+    except (OSError, configparser.Error):
+        return False  # no state yet: NetworkManager's default is on
+    return parser.get("main", "WirelessEnabled", fallback="true").strip().lower() == "false"
+
+
+def block_wlan(rfkill: Path = RFKILL) -> list[str]:
+    """Soft-block every Wi-Fi radio that isn't already. Returns the ones it blocked."""
+    blocked = []
+    for radio in sorted(rfkill.glob("rfkill*")):
+        try:
+            if (radio / "type").read_text().strip() != "wlan":
+                continue
+            if (radio / "soft").read_text().strip() == "1":
+                continue
+            (radio / "soft").write_text("1")
+            blocked.append(radio.name)
+        except OSError as e:
+            print(f"couch-wifi-boot: {radio.name}: {e}", file=sys.stderr)
+    return blocked
+
+
+def main() -> int:
+    if not wifi_off(NM_STATE):
+        print("couch-wifi-boot: Wi-Fi is on; nothing to do")
+        return 0
+    blocked = block_wlan(RFKILL)
+    if blocked:
+        print(f"couch-wifi-boot: Wi-Fi is off; blocked {', '.join(blocked)}")
+    else:
+        print("couch-wifi-boot: Wi-Fi is off and already blocked")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as e:  # never fail the boot over this
+        print(f"couch-wifi-boot: {e}", file=sys.stderr)
+        sys.exit(0)

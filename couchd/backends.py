@@ -6,8 +6,8 @@ to standby), and the service re-reads it and updates live state. Live state only
 the keys that actually differ, so a spurious `changed()` costs nothing.
 
 Real backends land with their issues: CEC (`couchd/cec_tv.py`, #7), audio (#10), Bluetooth
-(`couchd/bluez.py`, #12), the virtual keyboard (`couchd/uinput.py`, #8). The fakes are in
-`couchd/fakes.py`.
+(`couchd/bluez.py`, #12), the virtual keyboard (`couchd/uinput.py`, #8), Wi-Fi
+(`couchd/networkmanager.py`, #31). The fakes are in `couchd/fakes.py`.
 """
 
 from abc import ABC, abstractmethod
@@ -210,3 +210,30 @@ class BluetoothBackend(Backend):
 
     @abstractmethod
     async def forget(self, address: str) -> None: ...
+
+
+# --- Wi-Fi ---------------------------------------------------------------------------------
+
+WifiConnection = Literal["off", "disconnected", "connecting", "connected"]
+
+
+@dataclass(frozen=True)
+class WifiStatus:
+    available: bool  # there is a Wi-Fi radio to switch (and NetworkManager is running)
+    enabled: bool  # the radio is on
+    connection: WifiConnection = "off"
+    ssid: str | None = None  # while connected (or connecting)
+    signal: int | None = None  # 0-100, while connected
+    primary: bool = False  # Couch's network traffic goes over Wi-Fi (the default route)
+
+
+class WifiBackend(Backend):
+    """The Wi-Fi radio. Joining networks is NetworkManager's: a network it already knows
+    reconnects by itself once the radio is on."""
+
+    @abstractmethod
+    def status(self) -> WifiStatus: ...
+
+    @abstractmethod
+    async def set_enabled(self, on: bool) -> None:
+        """Turn the radio on or off. Raises BackendError if that's refused."""

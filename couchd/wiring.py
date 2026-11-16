@@ -11,10 +11,11 @@ from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.evening import EveningService
-from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
+from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv, FakeWifi
 from couchd.idle import IdleService
 from couchd.kodi_rpc import KodiRpc
 from couchd.network import FakeConnectivity, NetConnectivity
+from couchd.networkmanager import NmWifi
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
@@ -23,6 +24,7 @@ from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
 from couchd.tv_volume import TvVolumeService
 from couchd.uinput import UinputKeyboard
+from couchd.wifi import WifiService
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             sound,
             TvVolumeService(ctx, tv, sound),
             BluetoothService(ctx, bluetooth),
+            WifiService(ctx, FakeWifi()),
             *_apps(ctx, dev=True),
             SystemService(ctx, FakeSystem()),
         ]
@@ -52,6 +55,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         sound,
         TvVolumeService(ctx, tv, sound),
         BluetoothService(ctx, BluezBluetooth()),
+        WifiService(ctx, NmWifi()),
         *_apps(ctx, dev=False),
         SystemService(ctx, LinuxSystem()),
     ]

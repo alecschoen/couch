@@ -36,6 +36,10 @@ def test_every_system_file_it_installs_exists():
         "60-couch-uinput.rules",
         "70-couch-no-pointer.rules",
         "couch-uinput.conf",
+        "couch-wifi-boot",
+        "couch-wifi-boot.service",
+        "70-couch-wifi.rules",
+        "systemd-rfkill-couch.conf",
     } <= named
     for name in named:
         path = ROOT / "system" / name
