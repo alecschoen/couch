@@ -1,4 +1,4 @@
-"""The TV (over HDMI-CEC) and the remote's buttons."""
+"""The TV, over HDMI-CEC. Its remote's buttons are couchd/remote.py's."""
 
 import asyncio
 import contextlib
@@ -6,8 +6,7 @@ import logging
 from typing import Any
 
 from couchd.backends import BackendError, TvBackend
-from couchd.commands import CommandError, arg
-from couchd.keys import REMOTE_KEYS
+from couchd.commands import arg
 from couchd.services import Context, Service
 from couchd.systemd import powering_off
 
@@ -81,7 +80,7 @@ class TvService(Service):
         if self._power == "on" and power == "standby":
             # Turning the TV off mid-film shouldn't leave the film running behind it.
             log.info("TV went to standby, pausing")
-            self.backend.key_pressed("pause")
+            self.backend.key_tapped("pause")
         self._power = power
         self.ctx.state.update(
             "tv",
@@ -101,38 +100,3 @@ class TvService(Service):
     async def _set_standby_on_poweroff(self, args: dict[str, Any]) -> None:
         # Kept for older callers; the same as settings.set tv.standby_on_poweroff.
         self.ctx.settings.set(STANDBY_ON_POWEROFF, arg(args, "on", bool))
-
-
-class RemoteService(Service):
-    """Turns remote buttons into `key` messages for the UI.
-
-    Buttons come from the TV backend (CEC), or from `remote.press`, which is how the dev-mode
-    keyboard and a USB keyboard on the Pi act as the remote. Per-app routing and Back-hold =
-    Home arrive with #8.
-    """
-
-    name = "remote"
-
-    def __init__(self, ctx: Context, tv: TvBackend | None = None) -> None:
-        self.ctx = ctx
-        self.tv = tv
-
-    async def start(self) -> None:
-        if self.tv is not None:
-            self.tv.on_key(self.press)
-        self.ctx.commands.add("remote.press", self._press_command)
-
-    async def stop(self) -> None:
-        self.ctx.commands.remove_prefix("remote.")
-
-    def press(self, key: str) -> None:
-        if key not in REMOTE_KEYS:
-            log.warning("unknown remote key ignored", extra={"key": key})
-            return
-        self.ctx.bus.publish("key", {"key": key})
-
-    async def _press_command(self, args: dict[str, Any]) -> None:
-        key = arg(args, "key", str)
-        if key not in REMOTE_KEYS:
-            raise CommandError(f"unknown key {key!r}")
-        self.press(key)

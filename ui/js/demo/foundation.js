@@ -6,10 +6,10 @@ import { openQuickMenu } from "./quickmenu.js";
 
 const CARDS = [
   { id: "console", name: "Console", palette: "settings", blurb: "The TV, sound and Bluetooth, live from couchd" },
+  { id: "bluetooth", name: "Bluetooth", palette: "bt", blurb: "Pair and connect speakers and headphones" },
   { id: "kit", name: "Components", palette: "bt", blurb: "Lists, switches, settings, toasts and progress" },
   { id: "type", name: "Type", palette: "plex", blurb: "Space Grotesk and Inter, at TV sizes" },
   { id: "menu", name: "Quick menu", palette: "yt", blurb: "A sheet over the screen. Blue opens it anywhere" },
-  { id: "settings", name: "Settings", palette: "settings", blurb: "Display, sound, remote, updates and power" },
 ];
 
 export function outputName(state) {

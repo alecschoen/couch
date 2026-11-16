@@ -1,0 +1,3 @@
+# couchd types the TV remote's buttons into Chromium and Kodi on a virtual keyboard (#8).
+# It runs as `couch`, which is in `input`; out of the box /dev/uinput is root's alone.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

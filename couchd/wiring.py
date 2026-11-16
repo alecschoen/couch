@@ -9,12 +9,14 @@ from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
-from couchd.fakes import FakeAudio, FakeBluetooth, FakeTv
+from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
 from couchd.idle import IdleService
 from couchd.pipewire import PipewireAudio
+from couchd.remote import RemoteService
 from couchd.services import Context, Service
 from couchd.system import FakeSystem, LinuxSystem, SystemService
-from couchd.tv import RemoteService, TvService
+from couchd.tv import TvService
+from couchd.uinput import UinputKeyboard
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         bluetooth = FakeBluetooth(audio)
         return [
             TvService(ctx, tv),
-            RemoteService(ctx, tv),
+            RemoteService(ctx, tv, FakeKeyboard()),
             AudioService(ctx, audio),
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
@@ -35,7 +37,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
     tv = CecTv()
     return [
         TvService(ctx, tv),
-        RemoteService(ctx, tv),
+        RemoteService(ctx, tv, UinputKeyboard()),
         AudioService(ctx, PipewireAudio()),
         BluetoothService(ctx, BluezBluetooth()),
         *_apps(ctx, dev=False),

@@ -6,9 +6,12 @@
 //   app.router.register("home", homeScreen);
 //   app.start("home");
 //
+// Keys meant for an app in front of the launcher (`app` isn't "launcher") are ignored, except
+// Home, which also takes the launcher back to its first screen.
+//
 // Keys, in order, until something takes them:
 //   1. the innermost focus scope (an open sheet: Back closes it)
-//   2. the top screen's onKey(key, data); data is the whole key message
+//   2. the top screen's onKey()
 //   3. arrows move focus, OK clicks, Back goes back, Home goes to the first screen
 
 import { Couch } from "./couch.js";
@@ -16,7 +19,6 @@ import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { useKeyboardAsRemote } from "./keys.js";
 import { Router } from "./router.js";
-import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
 
 const ARROWS = new Set(["up", "down", "left", "right"]);
@@ -26,17 +28,17 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   const app = new EventTarget();
 
   app.couch = new Couch();
-  settings.bind(app.couch);
   app.theme = new Theme($(flood));
   app.focus = new FocusEngine(document.body);
   app.layer = $(layer);
   app.toasts = new Toasts($(toasts));
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
 
+  // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
   // True if a scope or the screen took the key (the app's "key" event says so as `taken`).
-  app.handleKey = (key, data = { key }) => {
-    if (app.focus.scopeKey(key)) return true;
-    if (app.router.handleKey(key, data)) return true;
+  app.handleKey = (key, detail = { key }) => {
+    if (app.focus.scopeKey(key, detail)) return true;
+    if (app.router.handleKey(key, detail)) return true;
     if (ARROWS.has(key)) app.focus.move(key);
     else if (key === "select") app.focus.activate();
     else if (key === "back") app.router.back();
@@ -45,7 +47,9 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   };
 
   app.couch.addEventListener("key", (e) => {
-    const taken = app.handleKey(e.detail.key, e.detail);
+    const { key, app: target } = e.detail;
+    if (target && target !== "launcher" && key !== "home") return;
+    const taken = app.handleKey(key, e.detail);
     app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));

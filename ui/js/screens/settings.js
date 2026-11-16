@@ -337,7 +337,7 @@ export function settingsScreen(params, app) {
     return [
       h("span", { class: "remote-test__key" }, lastKey.name),
       lastKey.code != null && h("span", { class: "remote-test__code num" }, String(lastKey.code)),
-      h("span", { class: "remote-test__hint" }, lastKey.name === "Back" ? "Back again to stop" : "Back twice to stop"),
+      h("span", { class: "remote-test__hint" }, lastKey.name.startsWith("Back") ? "Back again to stop" : "Back twice to stop"),
     ];
   }
 
@@ -368,7 +368,8 @@ export function settingsScreen(params, app) {
       return;
     }
     testing.lastBack = key === "back" ? now : 0;
-    lastKey = { name: KEY_NAMES[key] ?? key, code: data?.code ?? null };
+    const how = data?.hold ? " (held)" : data?.repeat ? " (repeat)" : "";
+    lastKey = { name: (KEY_NAMES[key] ?? key) + how, code: data?.code ?? null };
     bumpTestTimer();
     draw();
   }

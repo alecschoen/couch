@@ -32,9 +32,13 @@ def test_every_system_file_it_installs_exists():
         "couch-kodi.service",
         "couch-kodi",
         "couch.rules",
+        "kodi",
+        "60-couch-uinput.rules",
+        "couch-uinput.conf",
     } <= named
     for name in named:
-        assert (ROOT / "system" / name).is_file(), name
+        path = ROOT / "system" / name
+        assert path.is_dir() if name == "kodi" else path.is_file(), name
 
 
 def test_session_runs_the_installed_browser_wrapper():
@@ -81,3 +85,13 @@ def test_browser_listens_for_devtools_on_loopback_only():
     assert '--remote-debugging-port="${COUCH_CDP_PORT:-9222}"' in wrapper
     assert "--remote-debugging-address=127.0.0.1" in wrapper
     assert "--remote-allow-origins" not in wrapper  # pages must not reach DevTools
+
+
+def test_uinput_is_for_group_input_only():
+    rule = (ROOT / "system" / "60-couch-uinput.rules").read_text()
+    assert 'KERNEL=="uinput"' in rule
+    assert 'GROUP="input"' in rule
+    assert 'MODE="0660"' in rule
+    script = INSTALL.read_text()
+    assert "python3-evdev" in script
+    assert re.search(r"^COUCH_GROUPS=\(.*\binput\b.*\)$", script, re.M)

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Couch: Kodi's Home, which nobody should ever see as Kodi. skin.couch is Estuary with this
+  file swapped in (couchd/kodi_profile.py builds it). Kodi shows Home between its splash and
+  Plex opening, and again for a moment while it quits, so Home is the "Opening Plex" screen:
+  the same picture as the splash (system/kodi/make_art.py), with the bar moving.
+
+  service.couch sets Window(home).Property(couch.closing) just before it quits Kodi; the bar
+  and "Opening" go away then, so closing doesn't say "Opening".
+
+  No controls: arrows and Enter do nothing here. Back on Home does nothing in Kodi either.
+-->
+<window>
+	<backgroundcolor>0xFFB57D09</backgroundcolor>
+	<controls>
+		<control type="image">
+			<left>0</left>
+			<top>0</top>
+			<width>1920</width>
+			<height>1080</height>
+			<texture>plex.png</texture>
+		</control>
+		<control type="group">
+			<visible>String.IsEmpty(Window(home).Property(couch.closing))</visible>
+			<control type="image">
+				<left>0</left>
+				<top>0</top>
+				<width>1920</width>
+				<height>1080</height>
+				<texture>opening.png</texture>
+			</control>
+			<!-- No clipping in Kodi, so the bar slides back and forth inside its track. -->
+			<control type="image">
+				<left>108</left>
+				<top>951</top>
+				<width>108</width>
+				<height>6</height>
+				<texture>bar.png</texture>
+				<animation effect="slide" start="0,0" end="162,0" time="650" tween="cubic" easing="inout" pulse="true" condition="true">Conditional</animation>
+			</control>
+		</control>
+	</controls>
+</window>

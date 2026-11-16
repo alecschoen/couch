@@ -352,34 +352,39 @@ def test_routes_to(path, ours, expected):
 # --- remote buttons --------------------------------------------------------------------------
 
 
+def _record(tv):
+    events = []
+    tv.on_key(lambda action, key: events.append((action, key)))
+    return events
+
+
 @pytest.mark.parametrize(
-    ("payload", "key"),
+    ("payload", "event"),
     [
-        ((cec.USER_CONTROL_PRESSED, 0x00), "select"),
-        ((cec.USER_CONTROL_PRESSED, 0x01), "up"),
-        ((cec.USER_CONTROL_PRESSED, 0x0D), "back"),
-        ((cec.USER_CONTROL_PRESSED, 0x25), "5"),
-        ((cec.USER_CONTROL_PRESSED, 0x46), "pause"),
-        ((cec.USER_CONTROL_PRESSED, 0x72), "red"),
-        ((cec.PLAY, 0x24), "play"),
-        ((cec.DECK_CONTROL, 3), "stop"),
+        ((cec.USER_CONTROL_PRESSED, 0x00), ("press", "select")),
+        ((cec.USER_CONTROL_PRESSED, 0x01), ("press", "up")),
+        ((cec.USER_CONTROL_PRESSED, 0x0D), ("press", "back")),
+        ((cec.USER_CONTROL_PRESSED, 0x25), ("press", "5")),
+        ((cec.USER_CONTROL_PRESSED, 0x46), ("press", "pause")),
+        ((cec.USER_CONTROL_PRESSED, 0x72), ("press", "red")),
+        ((cec.USER_CONTROL_RELEASED,), ("release", None)),
+        ((cec.PLAY, 0x24), ("tap", "play")),
+        ((cec.DECK_CONTROL, 3), ("tap", "stop")),
     ],
 )
-async def test_remote_buttons_become_keys(tv, adapter, payload, key):
-    keys = []
-    tv.on_key(keys.append)
+async def test_remote_buttons_become_keys(tv, adapter, payload, event):
+    events = _record(tv)
     adapter.from_tv(US, *payload)
     await settle()
-    assert keys == [key]
+    assert events == [event]
     assert adapter.sent == []
 
 
-async def test_unmapped_button_is_ignored_but_marks_us_active(tv, adapter):
-    keys = []
-    tv.on_key(keys.append)
+async def test_unmapped_button_releases_the_last_one_and_marks_us_active(tv, adapter):
+    events = _record(tv)
     adapter.from_tv(US, cec.USER_CONTROL_PRESSED, 0x6B)  # Power Toggle
     await settle()
-    assert keys == []
+    assert events == [("release", None)]
     assert tv.active()
 
 
@@ -413,11 +418,10 @@ async def test_service_wakes_the_tv_on_start(ctx, adapter):
 
 async def test_tv_standby_presses_pause(ctx, adapter):
     service = await _service(ctx, adapter)
-    keys = []
-    service.backend.on_key(keys.append)
+    events = _record(service.backend)
     adapter.from_tv(cec.BROADCAST, cec.STANDBY)
     await settle()
-    assert keys == ["pause"]
+    assert events == [("tap", "pause")]
     assert ctx.state.get("tv")["power"] == "standby"
     await service.stop()
 
