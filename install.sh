@@ -76,6 +76,20 @@ ensure_tree() {
     note "updated $2 ($(wc -l <<<"$out") files)"
 }
 
+# Raspberry Pi OS starts with the radios soft-blocked (rfkill). Couch needs Bluetooth, so
+# unblock it; systemd-rfkill keeps that across reboots. Wi-Fi is left alone.
+# Returns 0 if it unblocked anything.
+unblock_bluetooth() {
+    local r changed=1
+    for r in /sys/class/rfkill/rfkill*; do
+        [[ -r $r/type && $(<"$r/type") == bluetooth && $(<"$r/soft") == 1 ]] || continue
+        echo 0 >"$r/soft"
+        changed=0
+    done
+    ((changed)) || note "unblocked Bluetooth (rfkill)"
+    return $changed
+}
+
 # --- install ------------------------------------------------------------------------------
 
 find_source() {
@@ -174,6 +188,9 @@ install_couch() {
             note "enabled $u"
         fi
     done
+
+    # couchd powers the radio when it starts, so restart it if the radio was blocked.
+    unblock_bluetooth && code=1
 
     # Restart only what changed; start what isn't running.
     if ((code)) || ! systemctl -q is-active couchd.service; then

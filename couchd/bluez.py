@@ -247,12 +247,23 @@ class BluezBluetooth(BluetoothBackend):
         self._adapter = path
         log.info("using Bluetooth adapter", extra={"adapter": path})
         try:
-            if not self._objects[path][ADAPTER].get("Powered"):
-                await self._set(path, ADAPTER, "Powered", "b", True)
+            await self._power_on()
             if self._scan_wanted:
                 await self._start_discovery()
         except BackendError as e:
             log.warning("Bluetooth adapter isn't ready", extra={"error": str(e)})
+
+    async def _power_on(self) -> None:
+        """Switch the radio on if it isn't. Tried again before every scan, pair and connect,
+        so a radio that was blocked (rfkill) at startup works once it is unblocked."""
+        if self._adapter is None:
+            raise BackendError("Bluetooth isn't available")
+        if self._objects.get(self._adapter, {}).get(ADAPTER, {}).get("Powered"):
+            return
+        try:
+            await self._set(self._adapter, ADAPTER, "Powered", "b", True)
+        except BackendError as e:
+            raise BackendError("Bluetooth is switched off") from e
 
     def _on_presence(self, running: bool) -> None:
         if running:
@@ -351,6 +362,7 @@ class BluezBluetooth(BluetoothBackend):
         if self._adapter is None:
             return
         try:
+            await self._power_on()
             await self._start_discovery()
         except BackendError:
             self._scan_wanted = False
@@ -409,6 +421,7 @@ class BluezBluetooth(BluetoothBackend):
         path, props = self._find(address)
         name = _name(props)
         if not props.get("Paired"):
+            await self._power_on()
             self.agent.expect(path)
             try:
                 async with self._quiet():
@@ -429,6 +442,7 @@ class BluezBluetooth(BluetoothBackend):
             raise BackendError(f"{name} isn't paired")
         if props.get("Connected"):
             return
+        await self._power_on()
         async with self._quiet():
             await self._device_call(path, "Connect", name, "connect", max_wait=CONNECT_TIMEOUT)
 
@@ -473,6 +487,7 @@ class BluezBluetooth(BluetoothBackend):
                 path, PROPERTIES, "Set", "ssv", [interface, prop, Variant(sig, value)]
             )
         except (BluezError, TimeoutError) as e:
+            log.warning("couldn't set property", extra={"property": prop, "error": str(e)})
             raise BackendError(f"Bluetooth refused to set {prop}") from e
 
 

@@ -98,6 +98,25 @@ async def test_adapter_plugged_in_later_is_used():
     await backend.stop()
 
 
+async def test_a_blocked_radio_is_switched_on_once_it_can_be():
+    bluez = FakeBluez()
+    bluez.fail[(HCI0, "Set")] = BluezError("org.bluez.Error.Failed")  # rfkill soft block
+    bluez.add_device(SPEAKER, "Soundbar", Paired=True)
+    backend = BluezBluetooth(bluez)
+    await backend.start()  # still starts
+    with pytest.raises(BackendError, match="Bluetooth is switched off"):
+        await backend.start_scan()
+    assert not backend.scanning()
+    with pytest.raises(BackendError, match="switched off"):
+        await backend.connect(SPEAKER)
+
+    del bluez.fail[(HCI0, "Set")]  # unblocked
+    await backend.start_scan()
+    assert bluez.objects[HCI0][ADAPTER]["Powered"] is True
+    assert bluez.discovering
+    await backend.stop()
+
+
 async def test_bluetoothd_restart_reregisters_and_resumes_scanning(rig):
     bluez, backend = rig
     await backend.start_scan()
