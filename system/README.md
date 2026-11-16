@@ -17,6 +17,11 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage/Chrom
 - `couch-update.service`, `couch-update.timer`, `couch-update-now.service`: overnight updates (#24), see below
 - `update.example.toml`: couch-update's settings, installed as `/etc/couch/update.example.toml`
 - `apt-couch.conf`: installed as `/etc/apt/apt.conf.d/52couch-updates`. apt still refreshes its lists by itself, but security updates are installed by couch-update at night, not by `apt-daily-upgrade`, so they never land during a film
+- Power cuts (#25, see [docs/sd-card.md](../docs/sd-card.md#power-cuts)). `install.sh --revert-sd` removes all of these:
+  - `journald-couch.conf`: installed as `/etc/systemd/journald.conf.d/50-couch.conf`. The journal stays in RAM (`Storage=volatile`).
+  - `var-cache-couch.mount` and `couch-cache.conf`: a 256 MB tmpfs on `/var/cache/couch`, and its `chromium` and `kodi` directories (`/etc/tmpfiles.d/couch-cache.conf`). `couch-browser` and `couch-kodi` keep their caches there when it exists.
+  - `couch-tmp.conf`: turns on systemd's `tmp.mount` on a system where `/tmp` isn't in RAM yet. Trixie doesn't need it.
+  - `couch-fstab`: adds `noatime` to `/` and `/boot/firmware` in `/etc/fstab`, and undoes exactly that, like `couch-bootfiles` (owner `sd-card`; original in `/etc/fstab.couch-orig`; `couch-fstab show`). It refuses any edit beyond the options column, and any edit that `findmnt --verify` likes less.
 - `wireplumber-couch.conf`: installed as `/etc/wireplumber/wireplumber.conf.d/50-couch.conf`. couchd picks the output and moves every stream itself, so WirePlumber is told not to send apps back to the output they last used.
 
 ## Sound

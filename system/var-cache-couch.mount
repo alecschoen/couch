@@ -1,0 +1,22 @@
+# Couch (#25): Chromium's and Kodi's caches in RAM. They're rewritten all the time while
+# something plays, nothing in them has to survive a reboot, and on the SD card they'd only
+# wear it and be half-written after a power cut. couch-browser and couch-kodi use these
+# directories when they exist (system/couch-cache.conf makes them at boot) and fall back to
+# the profiles otherwise. Sign-ins and settings stay in /var/lib/couch, on the card.
+[Unit]
+Description=Couch's caches in RAM (Chromium, Kodi's temp)
+Documentation=https://github.com/alecschoen/couch/blob/main/docs/sd-card.md
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+After=swap.target
+
+[Mount]
+What=tmpfs
+Where=/var/cache/couch
+Type=tmpfs
+# A ceiling, not a reservation: tmpfs takes only what's in it.
+Options=mode=0755,size=256M,nosuid,nodev
+
+[Install]
+WantedBy=local-fs.target
