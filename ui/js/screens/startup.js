@@ -2,10 +2,11 @@
 // services and wakes the TV (live state `startup`). screens/system.js puts it up and takes it
 // down.
 //
-// The boot splash (#4) hands over to this screen, so its first frame must look like the
-// splash plus the bar: the night ground, and the stacked lockup at exactly the splash's
-// position and size (ui/brand/splash.svg: 340 × 255 px at 790, 412). It appears without the
-// usual slide-in, and nothing on it waits for couchd.
+// The boot splash (#4) hands over to this screen, so its first frame must be the splash: the
+// night ground, and the stacked lockup at exactly the splash's position and size
+// (ui/brand/splash.svg: 340 × 255 px at 790, 412). The bar and the line are placed absolutely
+// under it and fade in. It appears without the usual slide-in, and nothing on it waits for
+// couchd.
 
 import { LOCKUP_STACKED } from "../brand.js";
 import { h } from "../components.js";

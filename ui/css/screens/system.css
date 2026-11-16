@@ -50,6 +50,21 @@
   opacity: var(--a-faint);
 }
 
+/* The first frame is the splash alone; the bar and the line fade in under it. */
+.startup__progress.progress,
+.startup__label {
+  animation: startup-in 600ms var(--ease-out) 300ms both;
+}
+
+@keyframes startup-in {
+  from { opacity: 0; }
+}
+
+:root[data-motion="reduced"] .startup__progress.progress,
+:root[data-motion="reduced"] .startup__label {
+  animation: none;
+}
+
 /* ---- Opening: the app's name, big, bottom left. */
 .screen.opening,
 .screen.error {
