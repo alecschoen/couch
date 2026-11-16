@@ -8,7 +8,8 @@ browser session stops, Kodi starts, and when Kodi exits the browser session come
 Rules:
 - `home` always ends on the launcher, from anywhere, and the remote's Home key does it too.
   So does a Chromium app asking to leave (YouTube's Back from its top level).
-  The Pause key (also sent when the TV goes to standby) pauses the Chromium app in front.
+  The Pause key (also sent when the TV goes to standby) pauses the app in front: a Chromium
+  app over DevTools, Kodi over its JSON-RPC (couchd/kodi_rpc.py).
 - An app going to the background has its media paused. Its tab stays open, so bringing it
   back to the front is instant.
 - Opening an app shows the launcher's Opening screen (#19) until the app is ready to look
@@ -42,6 +43,7 @@ from couchd.backends import BackendError
 from couchd.chromium import CdpError, Chromium, PageSetup
 from couchd.commands import CommandError, arg
 from couchd.display import Display, FakeDisplay
+from couchd.kodi_rpc import KodiRpc
 from couchd.network import Connectivity, FakeConnectivity
 from couchd.services import Context, Service
 
@@ -124,6 +126,7 @@ class AppService(Service):
         apps: tuple[App, ...] = DEFAULT_APPS,
         launcher_url: str | None = None,
         connectivity: Connectivity | None = None,
+        kodi_rpc: KodiRpc | None = None,
         opening_delay: float = OPENING_DELAY,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -136,6 +139,7 @@ class AppService(Service):
         self.launcher = next(a for a in apps if a.kind == "launcher")
         self._launcher_url = launcher_url
         self.connectivity = connectivity  # None: don't check before opening
+        self.kodi_rpc = kodi_rpc  # None: Pause doesn't reach Kodi (dev mode has no Kodi)
         self.opening_delay = opening_delay
         self._clock = clock
         self.crashes = CrashLimiter(clock=clock)
@@ -590,8 +594,8 @@ class AppService(Service):
     # --- keys --------------------------------------------------------------------------
 
     async def _watch_keys(self) -> None:
-        """Home goes home. Pause pauses the Chromium app in front (the TV sends it when it
-        goes to standby). Full key routing into apps is #8; Kodi gets its keys there."""
+        """Home goes home. Pause pauses the app in front (the TV sends it when it goes to
+        standby). Other keys reach apps through couchd/remote.py."""
         with self.ctx.bus.subscribe() as sub:
             async for message in sub:
                 data = message.get("data")
@@ -606,11 +610,14 @@ class AppService(Service):
                     log.warning("key failed", extra={"key": data.get("key"), "error": str(e)})
 
     async def pause(self) -> None:
-        """Pause media in the Chromium app in front, if one is."""
+        """Pause media in the app in front: a Chromium app's tab, or Kodi."""
         async with self._lock:
             app = self.apps[self._foreground]
             if app.kind == "chromium" and app.id in self._pages:
                 await self.chromium.evaluate(self._pages[app.id], PAUSE_MEDIA)
+                log.info("paused", extra={"app": app.id})
+            elif app.kind == "kodi" and self._kodi == app.id and self.kodi_rpc is not None:
+                await self.kodi_rpc.pause()
 
     # --- state ---------------------------------------------------------------------------
 

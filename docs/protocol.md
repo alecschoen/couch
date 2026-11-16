@@ -28,7 +28,8 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
 | `apps` | see below |
-| `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never) |
+| `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
+| `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
 | `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
@@ -37,6 +38,18 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 services and waking the TV over CEC. `done` turns true once every service has started (or
 failed) and the TV says it's on. The TV gets 15 s to say so, and after 30 s startup is
 done regardless, so nothing holds Home back for long. After a couchd restart it starts over.
+
+`idle` drives the idle clock. When it turns true the launcher covers itself with a dark
+clock and date that drifts every 3 minutes; dimming and the clock are the same step, set by
+`display.dim_after`. Only the launcher goes idle, never while an app is in front. Activity is
+any `key`, a change of `apps.foreground`, the TV being turned back on, or `idle.activity`.
+The `key` that wakes the clock is sent before the `idle: false` patch, so the launcher drops
+that press instead of acting on it. With `tv.off_when_idle` on, the TV is put in standby once
+the launcher has had no activity for `tv_off_after` (2 hours), once each time.
+
+`evening` is the sun where the Pi is, worked out offline from its timezone (tzdata's
+coordinates for the zone; `timedatectl set-timezone` changes it), rechecked every minute.
+With `display.evening` on `sunset` the launcher uses its deep colours while `dark` is true.
 
 `apps` says what's on screen:
 
@@ -109,7 +122,10 @@ quick menu (below), and `green` and `yellow` are kept for later. Screens shouldn
 into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
 the TV remote.
 
-When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops.
+When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops: the
+`pause` key pauses a Chromium app in front over DevTools (every `video` and `audio` on the
+page) and Kodi over its JSON-RPC (127.0.0.1:9090, `Player.PlayPause` with `play: false`), as
+well as being typed into the app.
 
 **`quick_menu`**: the Blue button was pressed; show the quick menu (#18). `app` is the app
 in front.
@@ -154,6 +170,7 @@ The text `ping` gets `pong`.
 | `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
+| `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
 | `apps.dev.crash` | Dev mode only: `app`. couchd acts as if its tab (or the pretend Kodi) crashed |
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
@@ -189,12 +206,13 @@ A value of the wrong type or out of range is refused with an error and nothing c
 
 | Key | Type | Default | |
 | --- | --- | --- | --- |
-| `display.evening` | `sunset`, `always`, `off` | `always` | Evening colours. *sunset* = 18:00–07:00 for now |
+| `display.evening` | `sunset`, `always`, `off` | `sunset` | Evening colours. *sunset* follows `evening.dark` |
 | `display.motion` | `auto`, `reduced`, `full` | `auto` | Reduce motion; *auto* follows the system |
-| `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the clock; 0 = never |
+| `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the idle clock; 0 = never |
 | `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack and Bluetooth (not acted on yet) |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
 | `updates.overnight` | bool | true | Install updates overnight (#24; not acted on yet) |
 

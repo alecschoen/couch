@@ -11,16 +11,20 @@
 // has the right colours before the socket is up.
 //
 // "evening" and "motion" still work as short names for display.evening and display.motion.
+// `settings.sun` is couchd's live state `evening` (sunset, sunrise, is it dark); a "change"
+// event with key "sun" says it moved.
 
 const CACHE_KEY = "couch.settings";
+const SUN_KEY = "couch.sun";
 
 export const DEFAULTS = {
-  "display.evening": "always",
+  "display.evening": "sunset",
   "display.motion": "auto",
   "display.dim_after": 300,
   "audio.volume_limit": 100,
   "audio.tv_remote_volume": true,
   "bluetooth.auto_reconnect": true,
+  "tv.off_when_idle": false,
   "tv.standby_on_poweroff": false,
   "updates.overnight": true,
 };
@@ -56,8 +60,10 @@ CHOICES.motion = CHOICES["display.motion"];
 class Settings extends EventTarget {
   constructor() {
     super();
-    this._values = { ...DEFAULTS, ...pick(load()) };
+    this._values = { ...DEFAULTS, ...pick(load(CACHE_KEY)) };
     this._couch = null;
+    // couchd's live state `evening` (couchd/evening.py): is the sun down, today's times.
+    this.sun = load(SUN_KEY);
   }
 
   get(key) {
@@ -80,16 +86,26 @@ class Settings extends EventTarget {
 
   bind(couch) {
     this._couch = couch;
-    const take = (state) => state?.settings && this._apply(state.settings);
+    const take = (state) => {
+      if (state?.settings) this._apply(state.settings);
+      if (state?.evening) this._applySun(couch.state.evening);
+    };
     couch.addEventListener("state", (e) => take(e.detail.patch ?? e.detail.state));
     take(couch.state);
+  }
+
+  _applySun(sun) {
+    if (JSON.stringify(sun) === JSON.stringify(this.sun)) return;
+    this.sun = { ...sun };
+    save(SUN_KEY, this.sun);
+    this.dispatchEvent(new CustomEvent("change", { detail: { key: "sun", value: this.sun } }));
   }
 
   _apply(values) {
     const changed = Object.entries(values).filter(([k, v]) => this._values[k] !== v);
     if (!changed.length) return;
     for (const [k, v] of changed) this._values[k] = v;
-    save(this._values);
+    save(CACHE_KEY, this._values);
     for (const [key, value] of changed) {
       this.dispatchEvent(new CustomEvent("change", { detail: { key, value } }));
     }
@@ -100,17 +116,17 @@ function pick(cached) {
   return Object.fromEntries(Object.entries(cached ?? {}).filter(([k]) => k in DEFAULTS));
 }
 
-function load() {
+function load(key) {
   try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY)) ?? {};
+    return JSON.parse(localStorage.getItem(key)) ?? {};
   } catch {
     return {};
   }
 }
 
-function save(values) {
+function save(key, values) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(values));
+    localStorage.setItem(key, JSON.stringify(values));
   } catch {
     // Only the cache; couchd has the real copy.
   }
@@ -132,14 +148,16 @@ settings.addEventListener("change", (e) => e.detail.key === "display.motion" && 
 systemReduced.addEventListener("change", applyMotion);
 applyMotion();
 
-// ---- Evening colours. "After sunset" uses fixed hours until couchd knows where it is.
+// ---- Evening colours. "After sunset" follows couchd's `evening.dark` (sunset and sunrise
+// where the Pi's timezone is, couchd/evening.py); fixed hours until couchd has said.
 
 export const EVENING_STARTS = 18; // 18:00
 export const EVENING_ENDS = 7; // 07:00
 
-export function isEvening(mode = settings.get("display.evening"), now = new Date()) {
+export function isEvening(mode = settings.get("display.evening"), now = new Date(), sun = settings.sun) {
   if (mode === "always") return true;
   if (mode === "off") return false;
+  if (typeof sun?.dark === "boolean") return sun.dark;
   const hour = now.getHours();
   return hour >= EVENING_STARTS || hour < EVENING_ENDS;
 }

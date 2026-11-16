@@ -1,6 +1,7 @@
 """Which services run, with which backends. The only place that knows dev from device."""
 
 import logging
+import os
 
 from couchd.apps import AppService
 from couchd.audio import AudioService
@@ -9,8 +10,10 @@ from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
+from couchd.evening import EveningService
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
 from couchd.idle import IdleService
+from couchd.kodi_rpc import KodiRpc
 from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
@@ -54,4 +57,21 @@ def _apps(ctx: Context, *, dev: bool) -> list[Service]:
     app opens, the internet and the Plex server are checked (#19)."""
     display = FakeDisplay() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
-    return [AppService(ctx, display, Chromium(), connectivity=net), IdleService(ctx)]
+    kodi = None if dev else KodiRpc()
+    return [
+        AppService(ctx, display, Chromium(), connectivity=net, kodi_rpc=kodi),
+        IdleService(ctx, idle_after=_idle_after()),
+        EveningService(ctx),
+    ]
+
+
+def _idle_after() -> float | None:
+    """`COUCH_IDLE_AFTER=10 ./scripts/dev.sh` brings the idle clock up after 10 s (#20)."""
+    raw = os.environ.get("COUCH_IDLE_AFTER")
+    if not raw:
+        return None
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        log.warning("COUCH_IDLE_AFTER isn't a number, ignored", extra={"value": raw})
+        return None
