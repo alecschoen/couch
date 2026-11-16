@@ -537,6 +537,7 @@ function lastCheck(u) {
     "rolled-back": "Update didn't work",
     broken: "Update didn't work",
     failed: "Couldn't check",
+    "no-access": "Not set up yet",
     waiting: "Waiting",
   }[u.result];
   return what ? `${what} · ${when}` : when;
@@ -546,6 +547,10 @@ function lastCheck(u) {
 function checkHint(u) {
   if (!u || running(u)) return null;
   if (u.result === "waiting" && u.waiting) return `Waiting because ${u.waiting}`;
+  if (u.result === "no-access") {
+    const why = u.message ?? "Couch can't read its releases";
+    return `${why}. Security updates still run. See Release access in system/README.md.`;
+  }
   if (["rolled-back", "broken", "failed"].includes(u.result)) return u.message ?? null;
   if (u.result === "up-to-date" && u.message) return u.message;
   return null;

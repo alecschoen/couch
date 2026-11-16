@@ -10,7 +10,8 @@ Live state section `updates`:
 - `version`: the installed release (/opt/couch/VERSION), or null for an install from a checkout
 - `state`: "idle", "checking", "downloading", "installing", "rolling-back" or "system"
 - `result`: the last run's: "installed", "up-to-date", "rolled-back", "broken", "failed",
-  "waiting", or null before the first; `message`: a sentence about it, or null
+  "no-access" (no token for the private repo: not set up yet), "waiting", or null before
+  the first; `message`: a sentence about it, or null
 - `last_check`: unix time of the last check, or null; `latest`: the newest release seen
 - `waiting`: why the last run waited ("something is playing"), or null
 - `system`: the last system update, `{"at", "security": bool, "full": bool, "full_at"}`, or null

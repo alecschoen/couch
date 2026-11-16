@@ -64,6 +64,24 @@ sudo python3 /opt/couch/couchd/updater.py now --force  # reinstall the latest, e
 journalctl -u couch-update -u couch-update-now
 ```
 
+### Release access
+
+The repo is private, so the Pi needs a token to read its releases. Until there is one,
+Settings › Updates says "Not set up yet" and nothing is installed (security updates still
+run). The token goes in `/etc/couch/github-token`, readable by root only (couch-update refuses
+it otherwise), and is sent only to `api.github.com`, `github.com` and `codeload.github.com`,
+never along a redirect:
+
+1. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Repository
+   access: only this repo. Permissions: Contents: Read-only (Metadata: Read-only comes with
+   it). Nothing else. Pick an expiry you'll notice, or none.
+2. On the Pi:
+   `sudo sh -c 'umask 077; cat > /etc/couch/github-token'`, paste it, Enter, Ctrl-D.
+3. Settings › Updates › Check now: it should say "Up to date" (or install the latest).
+
+"The token in … can't see the repo" or "GitHub didn't accept the token" means it expired,
+was revoked, or doesn't cover this repo.
+
 To try it without a GitHub release, point `source` at anything serving the same JSON, e.g.
 `python3 -m http.server` in a folder with a `latest.json` (`{"tag_name": "v0.2.0",
 "tarball_url": "http://…/couch.tar.gz"}`) and a tarball from `git archive --prefix=couch/

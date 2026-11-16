@@ -87,6 +87,11 @@ class UpdateError(RuntimeError):
     """Something an update can't get past; the message is for people (Settings shows it)."""
 
 
+class NoAccess(UpdateError):
+    """The Pi can't read the releases: no token for the private repo, or a token GitHub
+    refuses. Settings says "Not set up"; see the release-access options in system/README.md."""
+
+
 def load_config(path: Path = CONFIG_FILE) -> Config:
     if not path.exists():
         return DEFAULTS
@@ -240,14 +245,31 @@ def fetch_release(cfg: Config) -> Release | None:
     except urllib.error.HTTPError as e:
         if e.code == 404:
             # GitHub says 404 both for "no releases yet" and "you can't see this repo".
-            hint = "" if read_token(cfg) else " (private repo: no token in " + cfg.token_file + ")"
-            raise UpdateError(f"no release found at {cfg.source}{hint}") from None
+            if not _can_see_repo(cfg):
+                if read_token(cfg):
+                    raise NoAccess(f"The token in {cfg.token_file} can't see the repo") from None
+                raise NoAccess(
+                    f"Couch's releases need a GitHub token in {cfg.token_file}"
+                ) from None
+            return None  # the repo is there, with no release yet
         if e.code in (401, 403):
-            raise UpdateError(f"not allowed to read releases ({e.code}); check the token") from None
-        raise UpdateError(f"release source answered {e.code}") from None
+            raise NoAccess(f"GitHub didn't accept the token in {cfg.token_file}") from None
+        raise UpdateError(f"The release source answered {e.code}") from None
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise UpdateError(f"can't reach the release source: {e}") from None
     return release_from_json(data)
+
+
+def _can_see_repo(cfg: Config) -> bool:
+    """For a GitHub releases URL: whether the repo itself answers. Other sources: True."""
+    m = re.match(r"^(https://api\.github\.com/repos/[^/]+/[^/]+)/releases", cfg.source)
+    if not m:
+        return True
+    try:
+        with _open(m.group(1), cfg, accept="application/vnd.github+json"):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
 
 
 def download(release: Release, cfg: Config, dest: Path) -> Path:
@@ -462,6 +484,10 @@ class Updater:
         current = self.installed_version()
         try:
             release = fetch_release(self.cfg)
+        except NoAccess as e:
+            self.say(str(e))
+            self.status.set(result="no-access", message=str(e), latest=None)
+            return "no-access"
         except UpdateError as e:
             self.say(str(e))
             self.status.set(result="failed", message=str(e))
@@ -605,6 +631,7 @@ class Updater:
         if reason := self._busy(True):
             self.say(f"system updates: not now: {reason}")
             return
+        couch_message = self.status.data.get("message")  # the Couch result's; put back after
         self.status.set(state="system", message="Installing security updates")
         code = self.sys.run(["unattended-upgrade"], timeout=3600, log=self.log)
         result: dict[str, Any] = {"security": code == 0, "at": self.sys.now()}
@@ -629,7 +656,7 @@ class Updater:
                         log=self.log,
                     )
         result.setdefault("full_at", last_full)
-        self.status.set(system=result, message=None)
+        self.status.set(system=result, message=couch_message)
 
     def reboot_if_idle(self) -> None:
         if reason := self._busy(True):
@@ -677,7 +704,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     result = updater.run(nightly=args.mode == "nightly", force=args.force)
     print(result)
-    return 0 if result in ("installed", "up-to-date", "skipped", "waiting", "busy") else 1
+    ok = ("installed", "up-to-date", "skipped", "waiting", "busy", "no-access")
+    return 0 if result in ok else 1
 
 
 if __name__ == "__main__":

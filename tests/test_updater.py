@@ -460,10 +460,77 @@ def test_outside_the_window(tmp_path, server, box):
     assert system.ran == []
 
 
-def test_no_access(tmp_path, server, box):
-    u, _ = box  # nothing published: 404, like a private repo without a token
-    assert u.run(nightly=False) == "failed"
-    assert "no-token" in u.status.data["message"]
+def test_nothing_published_yet(tmp_path, server, box):
+    u, system = box  # not GitHub: a 404 just means there's no release yet
+    assert u.run(nightly=False) == "up-to-date"
+    assert u.status.data["message"] == "No releases yet"
+    assert not any(argv[0] == "bash" for argv in system.ran)
+
+
+def test_night_system_updates_keep_the_couch_message(tmp_path, box, monkeypatch):
+    u, _ = box
+    u.cfg = updater.replace(u.cfg, source="https://api.github.com/repos/o/r/releases/latest")
+
+    def github(url, cfg, *, accept, timeout=30.0):
+        raise updater.urllib.error.HTTPError(url, 401, "Bad credentials", {}, None)
+
+    monkeypatch.setattr(updater, "_open", github)
+    assert u.run(nightly=True) == "no-access"
+    assert u.status.data["system"]["security"]
+    assert "didn't accept the token" in u.status.data["message"]
+
+
+def test_private_repo_without_a_token_is_not_set_up(tmp_path, box, monkeypatch):
+    u, system = box
+    u.cfg = updater.replace(u.cfg, source="https://api.github.com/repos/o/r/releases/latest")
+    seen = []
+
+    def github(url, cfg, *, accept, timeout=30.0):
+        seen.append(url)
+        raise updater.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(updater, "_open", github)
+    assert u.run(nightly=True) == "no-access"
+    assert u.status.data["result"] == "no-access"
+    assert "need a GitHub token" in u.status.data["message"]
+    assert seen == [
+        "https://api.github.com/repos/o/r/releases/latest",
+        "https://api.github.com/repos/o/r",
+    ]
+    assert not any(argv[0] == "bash" for argv in system.ran)
+
+
+def test_a_repo_with_no_releases_yet(tmp_path, box, monkeypatch):
+    u, _ = box
+    u.cfg = updater.replace(u.cfg, source="https://api.github.com/repos/o/r/releases/latest")
+
+    class Ok:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def github(url, cfg, *, accept, timeout=30.0):
+        if url.endswith("/releases/latest"):
+            raise updater.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return Ok()
+
+    monkeypatch.setattr(updater, "_open", github)
+    assert u.run(nightly=False) == "up-to-date"
+    assert u.status.data["message"] == "No releases yet"
+
+
+def test_a_refused_token_is_not_set_up(tmp_path, box, monkeypatch):
+    u, _ = box
+    u.cfg = updater.replace(u.cfg, source="https://api.github.com/repos/o/r/releases/latest")
+
+    def github(url, cfg, *, accept, timeout=30.0):
+        raise updater.urllib.error.HTTPError(url, 401, "Bad credentials", {}, None)
+
+    monkeypatch.setattr(updater, "_open", github)
+    assert u.run(nightly=False) == "no-access"
+    assert "didn't accept the token" in u.status.data["message"]
 
 
 def test_file_source(tmp_path, box):

@@ -93,7 +93,9 @@ service, does the work and couchd reads its status file:
 - `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
 - `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
   its health check and the previous install is back), `broken` (going back failed too),
-  `failed` (couldn't check: no network, no access to the releases), `waiting` (something was
+  `no-access` (not set up: the Pi can't read the releases of the private repo, no token in
+  `/etc/couch/github-token` or one GitHub refuses), `failed` (couldn't check: no network, a
+  broken download), `waiting` (something was
   playing; `waiting` says what), or null before the first run. `message` says more.
 - `announce`: an update the UI hasn't told anyone about yet. `ui/js/updates.js` shows it as
   a toast ("Updated to v0.2.0", or "Couldn't update to v0.3.0. Couch stayed on v0.2.0") the
