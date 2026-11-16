@@ -81,6 +81,12 @@ To update, pull and run it again. It only changes what's different, and restarts
 
 Logs: `journalctl -u couchd -u couch-session`.
 
+It also sets up a silent boot: from power-on the TV goes from black to the Couch splash, then the launcher. There's no rainbow square and no text. It edits `cmdline.txt` and `config.txt`, and `--uninstall` undoes that; see [system/README.md](system/README.md#boot). This takes effect from the next boot, so reboot once after the first install.
+
+### The TV
+
+Couch draws to the edge of the screen, so turn off the TV's overscan. On the Sony Bravia, with the Pi's input showing, set Screen → Display Area to **Full Pixel**. Without it the TV crops the edges of the launcher.
+
 ## Configuration
 
 On the Pi, couchd reads `/etc/couch/config.toml`. The file is optional, and every key has a default; see [system/config.example.toml](system/config.example.toml). Saved state, such as the preferred audio output, lives in `/var/lib/couch/state.json`. Check a config with `couchd --check-config`. If the file is broken, couchd logs the error and starts with defaults, so the TV still comes up.
