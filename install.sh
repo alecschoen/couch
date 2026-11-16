@@ -42,7 +42,7 @@ PACKAGES=(
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
     bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
-    polkitd                              # lets couchd switch the screen to Kodi and back
+    polkitd                              # lets couchd switch to Kodi and back, and reboot
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     python3-evdev                        # the remote's virtual keyboard (#8)
     fonts-noto-core

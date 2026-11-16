@@ -16,6 +16,7 @@ css/
   home.css            Home's layout
   components.css      cards, pills, segmented controls, rows, tabs, setting lines,
                       switches, progress, toasts, sheet, key hints
+  settings.css        the Settings screen's own pieces (steppers, remote test, power)
 fonts/                woff2 files and their licences
 js/
   couch.js            couchd client: state, commands, toasts, key events; reconnects
@@ -25,10 +26,10 @@ js/
   focus.js            spatial focus engine (arrows move between focusables)
   theme.js            palette flood transitions, evening colours
   motion.js           animate() that respects Reduce motion; durations come from tokens.css
-  settings.js         Evening colors and Reduce motion (in localStorage for now)
+  settings.js         user settings, kept by couchd (docs/protocol.md), and their hooks
   components.js       h(), icons and the component builders
   screens/            the launcher's screens, one module each: home.js (the first screen),
-                      bluetooth.js, and stub.js standing in for Settings until it lands
+                      bluetooth.js, settings.js
   demo/               the foundation demo: home cards, Components, Type, Console, quick menu
 ```
 
@@ -64,7 +65,7 @@ app.router.register("bluetooth", (params, app) => ({
 app.router.go("bluetooth");
 ```
 
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press.
+Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press. The app then fires its own `key` event with `taken: true` if a scope or screen took the key, so global handlers (Blue for the quick menu) can stand aside.
 
 ## Motion
 

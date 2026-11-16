@@ -117,3 +117,8 @@ def test_home_cards_match_the_design_and_launch_real_apps():
     launched = set(re.findall(r"""\bapp:\s*["']([\w-]+)["']""", home))
     assert launched == {"youtube", "plex"}
     assert launched <= apps
+
+
+def test_the_app_binds_settings_to_couchd():
+    # Without this, ui/js/settings.js only changes its local copy and nothing is saved.
+    assert re.search(r"settings\.bind\(app\.couch\)", (UI / "js" / "app.js").read_text())

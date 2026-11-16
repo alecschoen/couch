@@ -70,6 +70,16 @@ def test_polkit_rule_covers_only_our_units():
     assert 'subject.user !== "couch"' in rule
 
 
+def test_polkit_rule_allows_only_reboot_and_power_off():
+    rule = (ROOT / "system" / "couch.rules").read_text()
+    assert set(re.findall(r'"(org\.freedesktop\.login1\.[\w-]+)"', rule)) == {
+        "org.freedesktop.login1.reboot",
+        "org.freedesktop.login1.reboot-multiple-sessions",
+        "org.freedesktop.login1.power-off",
+        "org.freedesktop.login1.power-off-multiple-sessions",
+    }
+
+
 def test_browser_listens_for_devtools_on_loopback_only():
     wrapper = (ROOT / "system" / "couch-browser").read_text()
     assert '--remote-debugging-port="${COUCH_CDP_PORT:-9222}"' in wrapper

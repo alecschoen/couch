@@ -7,7 +7,7 @@ import pytest
 
 from couchd.audio import SAVED_OUTPUT, AudioService
 from couchd.backends import BackendError
-from couchd.bluetooth import SAVED_AUTO_RECONNECT, SAVED_LAST, BluetoothService, _output_matches
+from couchd.bluetooth import AUTO_RECONNECT, SAVED_LAST, BluetoothService, _output_matches
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.fakes import ALREADY_PAIRED, NEARBY, FakeAudio, FakeBluetooth
@@ -264,7 +264,7 @@ async def test_forget_stops_reconnecting(ctx):
 
 async def test_auto_reconnect_setting(ctx):
     ctx.saved.set(SAVED_LAST, KITCHEN.address)
-    ctx.saved.set(SAVED_AUTO_RECONNECT, False)
+    ctx.settings.set(AUTO_RECONNECT, False)
     async with Rig(ctx, FlakyBluetooth) as rig:
         assert rig.bt()["auto_reconnect"] is False
         await settle(0.05)
@@ -276,7 +276,7 @@ async def test_auto_reconnect_setting(ctx):
 
 async def test_no_reconnecting_while_scanning(ctx):
     ctx.saved.set(SAVED_LAST, KITCHEN.address)
-    ctx.saved.set(SAVED_AUTO_RECONNECT, False)
+    ctx.settings.set(AUTO_RECONNECT, False)
     async with Rig(ctx, FlakyBluetooth) as rig:
         await rig.run("bluetooth.scan", on=True)
         await rig.run("bluetooth.set_auto_reconnect", on=True)
@@ -288,7 +288,7 @@ async def test_no_reconnecting_while_scanning(ctx):
 
 async def test_another_speaker_connected_means_no_reconnect(ctx):
     ctx.saved.set(SAVED_LAST, KITCHEN.address)
-    ctx.saved.set(SAVED_AUTO_RECONNECT, False)
+    ctx.settings.set(AUTO_RECONNECT, False)
     async with Rig(ctx, FlakyBluetooth) as rig:
         await rig.run("bluetooth.scan", on=True)
         rig.bluetooth._devices[SPEAKER.address] = SPEAKER
