@@ -12,7 +12,9 @@
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the three units in
 # /etc/systemd/system, one polkit rule, one WirePlumber drop-in, the couch user, and apt
 # packages. It also turns on PipeWire's user units for every user (they come enabled; this
-# makes sure).
+# makes sure). For the silent boot it edits cmdline.txt and config.txt through
+# couch-bootfiles, which keeps the originals and undoes its edits on --uninstall. It also puts
+# the splash in the initramfs: /lib/firmware/couch-splash.tga and one initramfs hook.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -33,6 +35,21 @@ AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
+# Silent boot (#4). couch-bootfiles makes these edits to cmdline.txt and config.txt as the
+# owner "boot", and `revert boot` undoes exactly them. Other boot settings get an owner of
+# their own (see the top of system/couch-bootfiles).
+BOOTFILES=$PREFIX/bin/couch-bootfiles
+BOOT_CMDLINE=(
+    quiet loglevel=0                  # no kernel or systemd text
+    vt.global_cursor_default=0        # no cursor
+    consoleblank=0
+    console=tty3                      # the console leaves the TV's tty1 (Ctrl+Alt+F3 has it)
+    fullscreen_logo=1 fullscreen_logo_name=couch-splash.tga # the kernel draws the splash
+)
+# Not logo.nologo: it would hide the fullscreen logo too, which replaces the penguins anyway.
+BOOT_CMDLINE_DROP=(console=tty1)
+SPLASH_TGA=/lib/firmware/couch-splash.tga
+INITRAMFS_HOOK=/etc/initramfs-tools/hooks/couch-splash
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -47,6 +64,7 @@ PACKAGES=(
 
 changes=0
 USER_CHANGED=0
+REBOOT=0
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 note() { changes=$((changes + 1)); echo "  $*"; }
 die() { echo "error: $*" >&2; exit 1; }
@@ -260,10 +278,55 @@ install_audio() {
     fi
 }
 
+# The silent boot (#4). The firmware shows nothing (no rainbow square). The kernel draws the
+# Couch splash as soon as there's a framebuffer and prints nothing on the TV. The splash stays
+# until cage takes the screen for the launcher. All of this takes effect at the next boot.
+install_boot() {
+    ensure_file "$SRC/system/couch-bootfiles" "$BOOTFILES" 755 || true
+    if command -v update-initramfs >/dev/null; then
+        # The splash has to be in the initramfs: the firmware's framebuffer, which the kernel
+        # draws it on, comes up before the root filesystem does.
+        local initramfs=0
+        ensure_file "$SRC/ui/brand/splash.tga" "$SPLASH_TGA" 644 && initramfs=1
+        ensure_file "$SRC/system/initramfs-splash" "$INITRAMFS_HOOK" 755 && initramfs=1
+        if ((initramfs)); then
+            update-initramfs -u -k all >/dev/null
+            note "rebuilt the initramfs with the splash"
+            REBOOT=1
+        fi
+    fi
+    local args=() t out line
+    for t in "${BOOT_CMDLINE[@]}"; do args+=(--set "$t"); done
+    for t in "${BOOT_CMDLINE_DROP[@]}"; do args+=(--drop "$t"); done
+    out=$("$BOOTFILES" apply boot --config "$SRC/system/boot-config.txt" "${args[@]}")
+    [[ -n $out ]] || return 0
+    while IFS= read -r line; do note "$line"; done <<<"$out"
+    REBOOT=1
+}
+
 # --- uninstall ----------------------------------------------------------------------------
+
+# Undo the silent boot: couch-bootfiles puts back what it changed in cmdline.txt and
+# config.txt, then the splash leaves the initramfs.
+uninstall_boot() {
+    local tool=$BOOTFILES
+    [[ -x $tool ]] || tool=$(dirname "${BASH_SOURCE[0]:-$0}")/system/couch-bootfiles
+    if [[ -x $tool ]]; then
+        "$tool" revert boot
+    elif [[ -e /boot/firmware/couch-boot.json ]]; then
+        echo "warning: couch-bootfiles is missing, so cmdline.txt and config.txt keep Couch's" \
+            "boot settings. The originals are the .couch-orig files next to them." >&2
+    fi
+    if [[ -e $INITRAMFS_HOOK || -e $SPLASH_TGA ]]; then
+        rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
+        update-initramfs -u -k all >/dev/null
+        echo "Took the splash out of the initramfs."
+    fi
+}
 
 uninstall() {
     local purge=$1 u
+    uninstall_boot
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
@@ -285,6 +348,7 @@ uninstall() {
     # Give tty1 its login prompt back.
     systemctl start getty@tty1.service 2>/dev/null || true
     echo "Apt packages stay installed: ${PACKAGES[*]}"
+    echo "The boot settings are back as they were, from the next boot."
 }
 
 # --- main ---------------------------------------------------------------------------------
@@ -310,10 +374,13 @@ ensure_user
 say "Couch"
 install_couch
 install_bluetooth_audio
+say "Boot"
+install_boot
 
 echo
 if ((changes)); then
     say "Done: $changes changes. The launcher is on the TV."
+    if ((REBOOT)); then echo "The new boot screen shows from the next boot: sudo reboot"; fi
 else
     say "Nothing to change; Couch is up to date."
 fi
