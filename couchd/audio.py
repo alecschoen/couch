@@ -217,6 +217,7 @@ class AudioService(Service):
                         and isinstance(data, dict)
                         and data.get("key") == CYCLE_KEY
                         and not data.get("repeat")
+                        and not data.get("raw")  # a screen has the keys (remote.raw_keys)
                     ):
                         await self._cycle_from_remote()
 

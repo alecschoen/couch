@@ -5,6 +5,7 @@ import itertools
 
 import pytest
 
+from couchd import remote as remote_module
 from couchd import uinput
 from couchd.apps import AppService
 from couchd.audio import AudioService
@@ -57,7 +58,7 @@ def keys(sub):
         message = sub._queue.get_nowait()
         if message["type"] == "key":
             d = message["data"]
-            flags = tuple(f for f in ("repeat", "hold", "overlay") if d.get(f))
+            flags = tuple(f for f in ("repeat", "hold", "overlay", "raw") if d.get(f))
             out.append((d["key"], d["app"], *flags))
     return out
 
@@ -155,6 +156,52 @@ async def test_a_taken_key_isnt_typed_into_kodi_either(ctx, remote):
     remote.tv.key_pressed("select")
     remote.tv.key_released()
     assert remote.keyboard.typed == []
+
+
+# --- a screen claims the raw keys (Settings' remote test) -------------------------------
+
+
+async def test_a_screen_with_the_raw_keys_gets_blue_instead_of_the_overlay(ctx, remote):
+    remote.overlay = taker = Taker("blue")
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    await ctx.commands.run("remote.raw_keys", {"on": True})
+    remote.tv.key_tapped("blue")
+    remote.tv.key_tapped("red")
+    assert taker.seen == []
+    assert keys(sub) == [("blue", "launcher", "raw"), ("red", "launcher", "raw")]
+    await ctx.commands.run("remote.raw_keys", {"on": False})
+    remote.tv.key_tapped("blue")
+    assert taker.seen == [("blue", False, False)]
+    assert keys(sub) == [("blue", "launcher", "overlay")]
+
+
+async def test_the_raw_keys_are_only_the_launchers(ctx, remote):
+    remote.overlay = Taker("blue")
+    await ctx.commands.run("remote.raw_keys", {"on": True})
+    in_front(ctx, "youtube")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_tapped("blue")
+    assert keys(sub) == [("blue", "youtube", "overlay")]
+
+
+async def test_a_claim_on_the_raw_keys_lapses(ctx, remote, monkeypatch):
+    monkeypatch.setattr(remote_module, "RAW_KEYS_FOR", 0.1)
+    in_front(ctx, "launcher")
+    await ctx.commands.run("remote.raw_keys", {"on": True})
+    await asyncio.sleep(0.06)
+    remote.tv.key_tapped("red")  # a key keeps it alive
+    await asyncio.sleep(0.06)
+    assert remote.raw_keys
+    await asyncio.sleep(0.06)
+    assert not remote.raw_keys
+
+
+async def test_raw_keys_checks_its_args(ctx, remote):
+    with pytest.raises(CommandError):
+        await ctx.commands.run("remote.raw_keys", {})
+    with pytest.raises(CommandError):
+        await ctx.commands.run("remote.raw_keys", {"on": "yes"})
 
 
 async def test_keyboard_presses_stay_in_the_launcher(ctx, remote):

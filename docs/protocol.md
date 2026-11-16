@@ -133,7 +133,11 @@ with `hold: true` (only once, and nothing on release).
 Some keys are couchd's, wherever you are, and are never typed into apps: `home` goes back
 to the launcher, `red` moves the sound to the next available output, `blue` opens the
 quick menu (see [Overlays](#overlays)), and `green` and `yellow` are kept for later. Screens shouldn't give
-`red` or `blue` another meaning. A keyboard (in dev mode, or plugged into the Pi) is turned
+`red` or `blue` another meaning, except while they've claimed the raw keys: then couchd's
+colour keys stand down (`remote.raw_keys`, for Settings' remote test). Their `key` messages
+say `raw: true`, Red doesn't move the sound and Blue doesn't open the quick menu, so the
+screen gets them like any other key; `home` still goes home. The claim is the launcher's
+only, and lapses 15 s after it was made or after the last key. A keyboard (in dev mode, or plugged into the Pi) is turned
 into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
 the TV remote.
 
@@ -183,6 +187,7 @@ The text `ping` gets `pong`.
 | --- | --- |
 | `remote.press` | `key`; `keyboard`, `hold` (bools, optional). Like a quick press of that button on the remote; `hold` makes it a long press (OK and Back only). With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
 | `remote.hold` | `key`, `seconds` (up to 15). Holds the button down that long, as if on the remote, for trying key repeat with curl |
+| `remote.raw_keys` | `on` (bool). A launcher screen claims (or gives back) the remote's raw keys: couchd's colour keys stand down while it has them (see `key` above). Lapses 15 s after the claim or the last key |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `tv.simulate` | `frame`: CEC bytes in hex, e.g. `"05:44:41"` (TV to Audio System: Volume Up) and `"05:45"` (released). Handled as if the TV had sent it; replies go out on the bus for real. For testing: cec-ctl can't send to the adapter's own address. The dev-mode TV only takes the volume buttons |
