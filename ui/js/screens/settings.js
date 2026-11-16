@@ -481,6 +481,16 @@ export function settingsScreen(params, app) {
       focused.step(key === "right" ? 1 : -1);
       return true;
     }
+    // The panel's first and last rows are its edges. Without this, Down from the last row
+    // lands on a category further down the list, and Up from the first on one above.
+    if ((key === "up" || key === "down") && inPanel()) {
+      const next = app.focus.peek(key);
+      if (next && !panel.contains(next)) {
+        app.focus.bump(key);
+        return true;
+      }
+      return false;
+    }
     if (key === "back" && inPanel()) {
       app.focus.focus(tabs.querySelector(`[data-focus-key="tab:${current}"]`));
       return true;
