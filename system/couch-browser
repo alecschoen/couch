@@ -1,6 +1,8 @@
 #!/bin/sh
 # Chromium for the Couch session; cage (couch-session.service) runs this as the couch user.
-# YouTube's decode flags and user agent come with #21, the DevTools hookup with #13.
+# YouTube's decode flags and user agent come with #21.
+# couchd drives the tabs over DevTools on 127.0.0.1 only (couchd/chromium.py). Chromium
+# refuses DevTools WebSockets from web pages (they send an Origin), so pages can't use it.
 exec /usr/bin/chromium \
     --ozone-platform=wayland \
     --kiosk \
@@ -14,4 +16,6 @@ exec /usr/bin/chromium \
     --password-store=basic \
     --autoplay-policy=no-user-gesture-required \
     --hide-scrollbars \
+    --remote-debugging-port="${COUCH_CDP_PORT:-9222}" \
+    --remote-debugging-address=127.0.0.1 \
     "http://127.0.0.1:${COUCH_PORT:-8765}/"

@@ -1,7 +1,11 @@
-"""Dev mode only: open the launcher in a Chromium app window at the TV's resolution.
+"""Dev mode only: open the launcher in a Chromium window at the TV's resolution.
 
 Chromium, because that's what the Pi runs, so layout and video behave the same. Set
 COUCH_BROWSER to use a specific binary. Without Chromium we just log the URL.
+
+It's an ordinary tabbed window, not an `--app` one: couchd opens apps as tabs over DevTools
+and switches between them, as on the Pi, and an app window would put each in a window of
+its own instead.
 """
 
 import asyncio
@@ -10,6 +14,8 @@ import logging
 import os
 import shutil
 from pathlib import Path
+
+from couchd.chromium import cdp_port
 
 log = logging.getLogger(__name__)
 
@@ -33,13 +39,16 @@ def find_browser() -> str | None:
 
 def browser_args(url: str, profile: Path) -> list[str]:
     return [
-        f"--app={url}",
         f"--window-size={WIDTH},{HEIGHT}",
         "--window-position=0,0",
         f"--user-data-dir={profile}",
         "--no-first-run",
         "--no-default-browser-check",
         "--autoplay-policy=no-user-gesture-required",
+        # couchd drives tabs over DevTools, as on the Pi (couchd/chromium.py).
+        f"--remote-debugging-port={cdp_port()}",
+        "--remote-debugging-address=127.0.0.1",
+        url,
     ]
 
 

@@ -147,17 +147,29 @@ async def test_pairing_a_phone_doesnt_connect_it(ctx):
         assert ctx.saved.get(SAVED_LAST) is None
 
 
-async def test_disconnect_toasts_and_leaves_the_choice_to_audio(ctx, toasts):
+async def test_a_drop_with_sound_on_it_is_one_toast_from_audio(ctx, toasts, monkeypatch):
+    monkeypatch.setattr("couchd.audio.ANNOUNCE_DELAY", 0.01)
     ctx.saved.set(SAVED_OUTPUT, "jack")
     async with Rig(ctx) as rig:
         await rig.run("bluetooth.connect", address=KITCHEN.address)
         await until(lambda: rig.sound() == out(KITCHEN))
         toasts()
         await rig.run("bluetooth.disconnect", address=KITCHEN.address)
-        await settle(0.05)
-        assert toasts()[0] == f"{KITCHEN.name} disconnected"  # audio may add its own
+        await settle(0.1)
+        assert toasts() == ["Sound now on TV speakers"]  # AudioService's, not a second one
         # Still the chosen output, so the audio service can bring sound back to it.
         assert ctx.saved.get(SAVED_OUTPUT) == out(KITCHEN)
+
+
+async def test_a_drop_with_sound_elsewhere_gets_our_toast(ctx, toasts):
+    async with Rig(ctx) as rig:
+        await rig.run("bluetooth.connect", address=KITCHEN.address)
+        await until(lambda: rig.sound() == out(KITCHEN))
+        await rig.run("audio.set_output", output="jack")
+        toasts()
+        await rig.run("bluetooth.disconnect", address=KITCHEN.address)
+        await settle(0.05)
+        assert toasts() == [f"{KITCHEN.name} disconnected"]
 
 
 async def test_a_later_choice_survives_the_disconnect(ctx):

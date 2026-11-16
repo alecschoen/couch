@@ -5,8 +5,9 @@ adds what the couch needs on top, the same for both:
 
 - `bluetooth.pair` pairs, trusts and then connects an audio device: one press on the remote.
 - When an audio device connects, sound moves to it once its output turns up in `audio`
-  (an `audio.set_output`, so it becomes the chosen output). When it drops there is a toast;
-  where the sound goes then is AudioService's rule, not ours.
+  (an `audio.set_output`, so it becomes the chosen output). When it drops, where the sound
+  goes is AudioService's rule, not ours, and its "Sound now on X" toast says so. Only a
+  device the sound wasn't on gets a "X disconnected" toast, so one drop is one toast.
 - The last audio device is remembered. At boot, and whenever it isn't connected, couchd
   keeps trying to reach it (backing off to once a minute), so a speaker that is switched
   back on reconnects by itself. Disconnecting it on purpose or forgetting it stops that, and
@@ -21,6 +22,7 @@ from collections.abc import Coroutine, Sequence
 from dataclasses import asdict
 from typing import Any
 
+from couchd.audio import SAVED_OUTPUT
 from couchd.backends import BackendError, BluetoothBackend, Device
 from couchd.commands import CommandError, arg
 from couchd.services import Context, Service
@@ -125,7 +127,9 @@ class BluetoothService(Service):
 
     def _on_disconnected(self, device: Device) -> None:
         log.info("device disconnected", extra={"device": device.address})
-        if device.audio:
+        chosen = self.ctx.saved.get(SAVED_OUTPUT)
+        carried_sound = isinstance(chosen, str) and _output_matches(chosen, device.address)
+        if device.audio and not carried_sound:
             self.ctx.bus.toast(f"{device.name} disconnected")
 
     async def _switch_to(self, device: Device) -> None:
