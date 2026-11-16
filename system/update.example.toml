@@ -1,6 +1,12 @@
 # couch-update's settings (#24). Copy to /etc/couch/update.toml and uncomment what you
 # change. Every key is optional; these are the defaults.
 
+# Overnight updates: the timer's nightly run (Couch updates when nobody is using it,
+# security updates, a full upgrade once a week, a reboot if one is needed). Off until this
+# is true; then re-run install.sh, which enables couch-update.timer and installs
+# unattended-upgrades. Settings › Updates › Check now works either way.
+# nightly = false
+
 # Where releases come from: GitHub's API, or any URL (or file:// path) that serves the same
 # JSON, one release (releases/latest) or a list of them (releases). A release with an
 # asset named couch-*.tar.gz installs that; otherwise GitHub's source tarball for the tag.

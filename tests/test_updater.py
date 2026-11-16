@@ -307,6 +307,7 @@ def box(tmp_path, server):
         token_file=str(tmp_path / "no-token"),
         prefix=str(tmp_path / "opt"),
         work=str(tmp_path / "work"),
+        nightly=True,
         window_start="00:00",
         window_end="23:59",
         health_timeout=60,
@@ -610,3 +611,21 @@ def test_a_git_archive_of_this_checkout_is_a_release(tmp_path):
     assert (root / "VERSION").read_text() == "v9.9.9\n"
     for name in ("install.sh", "couchd/updater.py", "system/couch-update.service"):
         assert (root / name).exists(), name
+
+
+def test_night_runs_are_opt_in(tmp_path, box):
+    u, system = box
+    u.cfg = updater.replace(u.cfg, nightly=False)
+    assert u.run(nightly=True) == "skipped"
+    assert system.ran == []
+    assert u.status.data.get("last_check") is None
+    assert updater.DEFAULTS.nightly is False
+
+
+def test_enabled_reads_the_config(tmp_path):
+    toml = tmp_path / "update.toml"
+    assert updater.main(["enabled", "--config", str(toml)]) == 1
+    toml.write_text("nightly = true\n")
+    assert updater.main(["enabled", "--config", str(toml)]) == 0
+    toml.write_text("nightly = 1\n")
+    assert updater.main(["enabled", "--config", str(toml)]) == 2

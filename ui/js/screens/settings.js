@@ -227,13 +227,15 @@ export function settingsScreen(params, app) {
         readout("Launcher", launcherVersion(state().updates)),
         readout("Last check", lastCheck(state().updates), checkHint(state().updates)),
         readout("System", systemUpdates(state().updates)),
-        toggle({
-          key: "updates.overnight",
-          label: "Install updates overnight",
-          hint: "Only while nothing is playing",
-          on: settings.get("updates.overnight"),
-          onChange: (on) => change("updates.overnight", on),
-        }),
+        state().updates?.nightly === false
+          ? readout("Overnight", "Not turned on yet", "Check now still works. See Updates in system/README.md.")
+          : toggle({
+              key: "updates.overnight",
+              label: "Install updates overnight",
+              hint: "Only while nothing is playing",
+              on: settings.get("updates.overnight"),
+              onChange: (on) => change("updates.overnight", on),
+            }),
         h(
           "div",
           { class: "pills settings-actions" },
@@ -549,7 +551,8 @@ function checkHint(u) {
   if (u.result === "waiting" && u.waiting) return `Waiting because ${u.waiting}`;
   if (u.result === "no-access") {
     const why = u.message ?? "Couch can't read its releases";
-    return `${why}. Security updates still run. See Release access in system/README.md.`;
+    const still = u.nightly ? " Security updates still run." : "";
+    return `${why}.${still} See Release access in system/README.md.`;
   }
   if (["rolled-back", "broken", "failed"].includes(u.result)) return u.message ?? null;
   if (u.result === "up-to-date" && u.message) return u.message;
@@ -558,7 +561,8 @@ function checkHint(u) {
 
 function systemUpdates(u) {
   const at = u?.system?.at;
-  return at ? `Security updates · ${ago(at)}` : "Security updates overnight";
+  if (at) return `Security updates · ${ago(at)}`;
+  return u?.nightly === false ? "Off until overnight updates are turned on" : "Security updates overnight";
 }
 
 function ago(unix) {

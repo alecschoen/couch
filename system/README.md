@@ -39,6 +39,16 @@ idle) and nothing plays. Settings › Updates › Check now starts `couch-update
 (the polkit rule lets couchd start just that unit), which skips the night and idle rules but
 still won't run while something plays.
 
+The night runs are opt-in. Until `/etc/couch/update.toml` says `nightly = true` (and
+install.sh has run since), there's no timer, no unattended-upgrades, and nothing updates or
+reboots on its own; Settings says "Not turned on yet". Check now works either way. To turn
+them on, once the Pi can read the releases (see Release access below):
+
+```bash
+echo 'nightly = true' | sudo tee -a /etc/couch/update.toml
+sudo /opt/couch/source/install.sh   # or install.sh from a checkout: enables the timer
+```
+
 A run:
 1. asks couchd (`/api/state`) whether it may; couchd not answering counts as no
 2. reads the latest release (`source` in `/etc/couch/update.toml`, GitHub's API by default),

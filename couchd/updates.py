@@ -7,6 +7,7 @@ Check now (system/couch.rules allows that one unit). couch-update asks couchd's 
 whether something is playing before it touches anything.
 
 Live state section `updates`:
+- `nightly`: whether the night runs are turned on (`nightly = true` in update.toml)
 - `version`: the installed release (/opt/couch/VERSION), or null for an install from a checkout
 - `state`: "idle", "checking", "downloading", "installing", "rolling-back" or "system"
 - `result`: the last run's: "installed", "up-to-date", "rolled-back", "broken", "failed",
@@ -29,6 +30,7 @@ import contextlib
 import json
 import logging
 import time
+import tomllib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,7 @@ WORK = Path("/var/lib/couch-update")
 STATUS_FILE = WORK / "status.json"
 QUIET_FILE = WORK / "quiet-until"
 VERSION_FILE = Path("/opt/couch/VERSION")
+CONFIG_FILE = Path("/etc/couch/update.toml")
 NOW_UNIT = "couch-update-now.service"
 SAVED_ANNOUNCED = "updates.announced"
 POLL = 15.0  # seconds between looks at the status file
@@ -71,11 +74,28 @@ class UpdatesBackend(ABC):
     async def check_now(self) -> None:
         """Start a run. Raises BackendError if it can't."""
 
+    def nightly(self) -> bool:
+        """Whether couch-update's night runs are turned on."""
+        return False
+
 
 class SystemdUpdates(UpdatesBackend):
-    def __init__(self, status_file: Path = STATUS_FILE, version_file: Path = VERSION_FILE):
+    def __init__(
+        self,
+        status_file: Path = STATUS_FILE,
+        version_file: Path = VERSION_FILE,
+        config_file: Path = CONFIG_FILE,
+    ):
         self.status_file = status_file
         self.version_file = version_file
+        self.config_file = config_file
+
+    def nightly(self) -> bool:
+        try:
+            with self.config_file.open("rb") as f:
+                return tomllib.load(f).get("nightly") is True
+        except (OSError, tomllib.TOMLDecodeError):
+            return False
 
     def status(self) -> dict[str, Any]:
         try:
@@ -120,6 +140,9 @@ class FakeUpdates(UpdatesBackend):
 
     def version(self) -> str | None:
         return self._status.get("current")
+
+    def nightly(self) -> bool:
+        return True
 
     async def check_now(self) -> None:
         if self._task is None or self._task.done():
@@ -185,6 +208,7 @@ class UpdatesService(Service):
         if state == "idle" and time.monotonic() - self._kicked < KICK_GRACE:
             state = "checking"  # the unit hasn't written its first status yet
         section = {
+            "nightly": self.backend.nightly(),
             "version": self.backend.version(),
             "state": state,
             "result": status.get("result"),

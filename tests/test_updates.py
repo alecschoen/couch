@@ -30,6 +30,18 @@ def write(path, data):
     path.write_text(json.dumps(data))
 
 
+def test_nightly_is_opt_in(tmp_path):
+    toml = tmp_path / "update.toml"
+    backend = SystemdUpdates(tmp_path / "s", tmp_path / "v", toml)
+    assert not backend.nightly()
+    toml.write_text("nightly = true\n")
+    assert backend.nightly()
+    toml.write_text('nightly = "yes"\n')
+    assert not backend.nightly()
+    toml.write_text("nightly = [\n")
+    assert not backend.nightly()
+
+
 def test_quiet_start(tmp_path):
     f = tmp_path / "quiet-until"
     assert not quiet_start(f, now=100)
@@ -51,6 +63,7 @@ async def test_publishes_the_status_file(ctx, files):
     assert section["result"] == "up-to-date"
     assert section["latest"] == "v0.2.0"
     assert section["announce"] is None
+    assert section["nightly"] is False  # no update.toml
     await service.stop()
     assert not any(n.startswith("updates.") for n in ctx.commands.names())
 

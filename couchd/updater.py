@@ -9,6 +9,8 @@ under /opt/couch while this runs; Python has already read this one.
     couch-update status    # print the status file
 
 One run:
+The night runs only happen with `nightly = true` in /etc/couch/update.toml (off by default).
+
 1. Asks couchd (GET /api/state) whether it may: nothing playing, and for the nightly run the
    `updates.overnight` setting on and nobody using Couch. couchd not answering = no.
 2. Reads the latest release from the release source (GitHub's API by default, or any URL
@@ -66,6 +68,10 @@ class Config:
     prefix: str = "/opt/couch"
     work: str = "/var/lib/couch-update"
     settings_file: str = "/var/lib/couch/settings.json"
+    # The night runs (timer, security updates, reboots) are opt-in: off until someone sets
+    # `nightly = true` and re-runs install.sh, which then enables the timer and installs
+    # unattended-upgrades. Check now works either way.
+    nightly: bool = False
     # The nightly run only does anything between these local times (24 h, "HH:MM").
     window_start: str = "01:00"
     window_end: str = "05:45"
@@ -438,6 +444,9 @@ class Updater:
     def _run(self, *, nightly: bool, force: bool) -> str:
         now = self.sys.now()
         if nightly:
+            if not self.cfg.nightly:
+                self.say("nightly updates aren't turned on (nightly = true in update.toml)")
+                return "skipped"
             local = dt.datetime.fromtimestamp(now)
             if not in_window(local, self.cfg.window_start, self.cfg.window_end):
                 self.say("outside the night window")
@@ -686,7 +695,8 @@ def read_only_root(mounts: Path = Path("/proc/mounts")) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="couch-update", description=__doc__.split("\n")[0])
-    parser.add_argument("mode", choices=["nightly", "now", "status"])
+    # `enabled`: exit 0 if the night runs are turned on (install.sh asks this)
+    parser.add_argument("mode", choices=["nightly", "now", "status", "enabled"])
     parser.add_argument("--config", type=Path, default=CONFIG_FILE)
     parser.add_argument("--force", action="store_true", help="install the latest even if not newer")
     args = parser.parse_args(argv)
@@ -695,6 +705,8 @@ def main(argv: list[str] | None = None) -> int:
     except (UpdateError, tomllib.TOMLDecodeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    if args.mode == "enabled":
+        return 0 if cfg.nightly else 1
     updater = Updater(cfg)
     if args.mode == "status":
         print(json.dumps(updater.status.data, indent=2))

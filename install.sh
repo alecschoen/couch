@@ -22,6 +22,7 @@
 # (/etc/cloud/cloud-init.disabled).
 # Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
 # /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
+# The timer and unattended-upgrades only with `nightly = true` in /etc/couch/update.toml.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -83,7 +84,6 @@ PACKAGES=(
     python3-evdev                        # the remote's virtual keyboard (#8)
     fonts-noto-core
     rsync
-    unattended-upgrades                  # security updates, run by couch-update at night (#24)
 )
 
 changes=0
@@ -383,9 +383,25 @@ install_updates() {
         ensure_file "$SRC/system/$f" "$UNIT_DIR/$f" 644 && units=1
     done
     ((units)) && systemctl daemon-reload
-    if ! systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
-        systemctl -q enable --now "$UPDATE_TIMER"
-        note "enabled overnight updates ($UPDATE_TIMER)"
+    # The night runs are opt-in (`nightly = true` in update.toml): until then no timer and
+    # no unattended-upgrades. apt-couch.conf keeps apt's own daily run off either way.
+    local nightly=0 code=0
+    /usr/bin/python3 -I "$SRC/couchd/updater.py" enabled --config "$ETC/update.toml" \
+        || code=$?
+    case $code in
+        0) nightly=1 ;;
+        1) ;;
+        *) echo "  warning: $ETC/update.toml is broken; overnight updates stay off" >&2 ;;
+    esac
+    if ((nightly)); then
+        ensure_packages unattended-upgrades
+        if ! systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+            systemctl -q enable --now "$UPDATE_TIMER"
+            note "enabled overnight updates ($UPDATE_TIMER)"
+        fi
+    elif systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+        systemctl -q disable --now "$UPDATE_TIMER"
+        note "overnight updates are off ($UPDATE_TIMER disabled)"
     fi
 }
 

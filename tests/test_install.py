@@ -83,7 +83,10 @@ def test_updates_are_installed():
     files = re.search(r"^SOURCE_FILES=\((.*)\)$", script, re.M).group(1).split()
     for name in files:
         assert (ROOT / name).exists(), name
-    assert "unattended-upgrades" in script
+    # unattended-upgrades and the timer only once the night runs are turned on
+    assert "ensure_packages unattended-upgrades" in script
+    assert not re.search(r"^\s+unattended-upgrades\s", script, re.M)
+    assert '/usr/bin/python3 -I "$SRC/couchd/updater.py" enabled' in script
     assert re.search(r"^install_updates$", script, re.M)
     assert re.search(r"^    uninstall_updates$", script, re.M)
     for unit in ("couch-update.service", "couch-update-now.service"):
