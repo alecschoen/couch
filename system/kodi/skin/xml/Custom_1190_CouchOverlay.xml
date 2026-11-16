@@ -1,0 +1,526 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Couch: couchd's overlays over Plex (#18), the quick menu and the volume panel, as in the
+  design's "Screen · Quick menu and toast" (sizes x1.5, like the launcher's ui/css/overlay.css).
+  Toasts don't come here: couchd sends those as Kodi notifications (GUI.ShowNotification).
+
+  service.couch turns what couchd sends (JSON-RPC JSONRPC.NotifyAll, sender "couch") into
+  Window(home) properties:
+
+    couch.menu = 1                     the quick menu is open
+    couch.menu.title, couch.menu.focus  the app's name; the focused item's id
+    couch.menu.<id>.label / .value     id: home, sound, volume, bluetooth
+    couch.evening = 1                  deep colours (the evening palette)
+    couch.volume = 1                   the volume panel is up (service.couch drops it after 2.4 s)
+    couch.volume.name / .value / .step  the output, "60" or "Muted", the bar in steps of 5
+
+  A dialog that opens and closes on its own visible condition, with nothing focusable: it
+  never has focus, so Plex keeps every key. While the menu is open couchd keeps the remote's
+  keys from Kodi itself and moves the focus here through couch.menu.focus.
+
+  The volume bar is one image per step: Kodi can't size a control from a property.
+  couch-*.png are white shapes, tinted here (system/kodi/make_art.py makes them).
+-->
+<window type="dialog" id="1190">
+	<visible>!String.IsEmpty(Window(home).Property(couch.menu)) | !String.IsEmpty(Window(home).Property(couch.volume))</visible>
+	<zorder>3</zorder>
+	<controls>
+		<!-- The quick menu: a sheet in Plex's colour along the bottom. -->
+		<control type="group">
+			<visible>!String.IsEmpty(Window(home).Property(couch.menu))</visible>
+			<animation effect="slide" start="0,390" end="0,0" time="320" tween="cubic" easing="out">WindowOpen</animation>
+			<animation effect="slide" start="0,390" end="0,0" time="320" tween="cubic" easing="out">Visible</animation>
+			<animation effect="slide" start="0,0" end="0,390" time="320" tween="cubic" easing="in">Hidden</animation>
+			<left>0</left>
+			<top>690</top>
+			<control type="image">
+				<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+				<width>1920</width>
+				<height>390</height>
+				<texture colordiffuse="FFB57D09">couch-white.png</texture>
+			</control>
+			<control type="image">
+				<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+				<width>1920</width>
+				<height>390</height>
+				<texture colordiffuse="FFE5A00D">couch-white.png</texture>
+			</control>
+			<control type="label">
+				<left>84</left>
+				<top>51</top>
+				<width>1200</width>
+				<height>57</height>
+				<font>font45_title</font>
+				<textcolor>FF1F1600</textcolor>
+				<label>$INFO[Window(home).Property(couch.menu.title)]</label>
+			</control>
+			<control type="label">
+				<left>636</left>
+				<top>51</top>
+				<width>1200</width>
+				<height>57</height>
+				<align>right</align>
+				<font>font12</font>
+				<textcolor>D91F1600</textcolor>
+				<label>Back to close</label>
+			</control>
+			<control type="grouplist">
+				<left>84</left>
+				<top>138</top>
+				<width>1752</width>
+				<height>192</height>
+				<orientation>horizontal</orientation>
+				<itemgap>24</itemgap>
+				<control type="group">
+					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),home)</visible>
+					<width>450</width>
+					<height>192</height>
+					<control type="image"><width>450</width><height>192</height><texture border="30" colordiffuse="FF1F1600">couch-round.png</texture></control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9B57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.label)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9E5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.label)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.value)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),home)</visible>
+					<width>345</width>
+					<height>192</height>
+					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="label">
+						<left>30</left>
+						<top>27</top>
+						<width>285</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D91F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.label)]</label>
+					</control>
+					<control type="label">
+						<left>30</left>
+						<top>114</top>
+						<width>285</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FF1F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.home.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),sound)</visible>
+					<width>450</width>
+					<height>192</height>
+					<control type="image"><width>450</width><height>192</height><texture border="30" colordiffuse="FF1F1600">couch-round.png</texture></control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9B57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.label)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9E5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.label)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.value)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),sound)</visible>
+					<width>345</width>
+					<height>192</height>
+					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="label">
+						<left>30</left>
+						<top>27</top>
+						<width>285</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D91F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.label)]</label>
+					</control>
+					<control type="label">
+						<left>30</left>
+						<top>114</top>
+						<width>285</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FF1F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sound.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),volume)</visible>
+					<width>450</width>
+					<height>192</height>
+					<control type="image"><width>450</width><height>192</height><texture border="30" colordiffuse="FF1F1600">couch-round.png</texture></control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9B57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.label)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9E5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.label)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.value)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),volume)</visible>
+					<width>345</width>
+					<height>192</height>
+					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="label">
+						<left>30</left>
+						<top>27</top>
+						<width>285</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D91F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.label)]</label>
+					</control>
+					<control type="label">
+						<left>30</left>
+						<top>114</top>
+						<width>285</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FF1F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.volume.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),bluetooth)</visible>
+					<width>450</width>
+					<height>192</height>
+					<control type="image"><width>450</width><height>192</height><texture border="30" colordiffuse="FF1F1600">couch-round.png</texture></control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9B57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.label)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D9E5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.label)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.value)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>114</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),bluetooth)</visible>
+					<width>345</width>
+					<height>192</height>
+					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="label">
+						<left>30</left>
+						<top>27</top>
+						<width>285</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D91F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.label)]</label>
+					</control>
+					<control type="label">
+						<left>30</left>
+						<top>114</top>
+						<width>285</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FF1F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.bluetooth.value)]</label>
+					</control>
+				</control>
+			</control>
+		</control>
+
+		<!-- The volume panel: top right, where toasts go. -->
+		<control type="group">
+			<visible>!String.IsEmpty(Window(home).Property(couch.volume))</visible>
+			<animation effect="fade" start="0" end="100" time="200">Visible</animation>
+			<animation effect="fade" start="100" end="0" time="200">Hidden</animation>
+			<left>1296</left>
+			<top>66</top>
+			<control type="image">
+				<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+				<width>540</width>
+				<height>123</height>
+				<texture border="30" colordiffuse="FF134F64">couch-round.png</texture>
+			</control>
+			<control type="image">
+				<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+				<width>540</width>
+				<height>123</height>
+				<texture border="30" colordiffuse="FF1B6E8C">couch-round.png</texture>
+			</control>
+			<control type="label">
+				<left>36</left>
+				<top>27</top>
+				<width>330</width>
+				<height>39</height>
+				<font>font13</font>
+				<textcolor>FFFFFFFF</textcolor>
+				<label>$INFO[Window(home).Property(couch.volume.name)]</label>
+			</control>
+			<control type="label">
+				<left>366</left>
+				<top>27</top>
+				<width>138</width>
+				<height>39</height>
+				<align>right</align>
+				<font>font30_title</font>
+				<textcolor>FFFFFFFF</textcolor>
+				<label>$INFO[Window(home).Property(couch.volume.value)]</label>
+			</control>
+			<control type="group">
+				<left>36</left>
+				<top>84</top>
+				<control type="image">
+					<width>468</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="40FFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),5)</visible>
+					<width>23</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),10)</visible>
+					<width>47</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),15)</visible>
+					<width>70</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),20)</visible>
+					<width>94</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),25)</visible>
+					<width>117</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),30)</visible>
+					<width>140</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),35)</visible>
+					<width>164</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),40)</visible>
+					<width>187</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),45)</visible>
+					<width>211</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),50)</visible>
+					<width>234</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),55)</visible>
+					<width>257</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),60)</visible>
+					<width>281</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),65)</visible>
+					<width>304</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),70)</visible>
+					<width>328</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),75)</visible>
+					<width>351</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),80)</visible>
+					<width>374</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),85)</visible>
+					<width>398</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),90)</visible>
+					<width>421</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),95)</visible>
+					<width>445</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+				<control type="image">
+					<visible>String.IsEqual(Window(home).Property(couch.volume.step),100)</visible>
+					<width>468</width>
+					<height>12</height>
+					<texture border="6" colordiffuse="FFFFFFFF">couch-pill.png</texture>
+				</control>
+			</control>
+		</control>
+	</controls>
+</window>

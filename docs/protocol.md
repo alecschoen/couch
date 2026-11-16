@@ -30,6 +30,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
+| `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
@@ -101,8 +102,9 @@ service, does the work and couchd reads its status file:
                          "version": "v0.2.0", "kept": null}}
 ```
 
-- `version`: the installed release (`/opt/couch/VERSION`); null if Couch wasn't installed
-  from a release or a tagged checkout.
+- `version`: which Couch is installed (`/opt/couch/VERSION`): a release's tag (`v1.2.0`), or
+  for a git checkout `git describe` (`v1.2.0-3-gabc1234`, `dev-abc1234` before the first tag,
+  `-dirty` with local changes); null for a copy without git.
 - `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
 - `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
   its health check and the previous install is back), `broken` (going back failed too),
@@ -114,13 +116,26 @@ service, does the work and couchd reads its status file:
   a toast ("Updated to v0.2.0", or "Couldn't update to v0.3.0. Couch stayed on v0.2.0") the
   next time the launcher is on the TV, then sends `updates.announced`. Null after that.
 
-**`toast`**: a short notice to show on screen.
+**`toast`**: a short notice to show on screen, for 2.4 s.
 
 ```json
-{"type": "toast", "data": {"text": "Speaker connected", "level": "info"}}
+{"type": "toast", "data": {"text": "Speaker connected", "level": "info", "icon": "bluetooth"}}
 ```
 
-`level` is `info`, `warning` or `error`.
+`level` is `info`, `warning` or `error`. `icon` is optional: `speaker`, `bluetooth`, `check`,
+`info`, `update` or `muted`; without one, a toast gets `info` for a warning or an error,
+`speaker` for "Sound now on X", and `check` otherwise. couchd shows it over the app in front
+too (see [Overlays](#overlays)); the launcher shows it itself.
+
+**`volume_panel`**: show the volume panel, for 2.4 s after the last one. couchd sends it for
+each `volume_changed` while the quick menu is closed (see [Overlays](#overlays)).
+
+```json
+{"type": "volume_panel", "data": {"output": "tv", "name": "TV speakers", "volume": 60, "muted": false}}
+```
+
+**`open_screen`**: the quick menu's Home or Bluetooth was picked, and the launcher is in
+front again: show that screen (`home` or `bluetooth`) on top of Home.
 
 **`key`**: a remote button.
 
@@ -134,15 +149,20 @@ Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `b
 
 `app` is the app the key was for: the one in front (`apps.foreground`). Keys for any other
 app than the launcher were typed into that app on couchd's virtual keyboard; the launcher
-ignores them, except `home`. `repeat` is true for the repeats of a held arrow key: couchd
+ignores them, except `home`. `overlay: true` marks a key the quick menu took: it went to no
+app, and screens should ignore it. `repeat` is true for the repeats of a held arrow key: couchd
 repeats them itself, after 400 ms and then faster and faster. Back and OK are sent when
 they're released. Held for 800 ms, Back is `home` instead, and OK is a long press: `select`
 with `hold: true` (only once, and nothing on release).
 
 Some keys are couchd's, wherever you are, and are never typed into apps: `home` goes back
-to the launcher, `red` moves the sound to the next available output, `blue` asks for the
-quick menu (below), and `green` and `yellow` are kept for later. Screens shouldn't give
-`red` or `blue` another meaning. A keyboard (in dev mode, or plugged into the Pi) is turned
+to the launcher, `red` moves the sound to the next available output, `blue` opens the
+quick menu (see [Overlays](#overlays)), and `green` and `yellow` are kept for later. Screens shouldn't give
+`red` or `blue` another meaning, except while they've claimed the raw keys: then couchd's
+colour keys stand down (`remote.raw_keys`, for Settings' remote test). Their `key` messages
+say `raw: true`, Red doesn't move the sound and Blue doesn't open the quick menu, so the
+screen gets them like any other key; `home` still goes home. The claim is the launcher's
+only, and lapses 15 s after it was made or after the last key. A keyboard (in dev mode, or plugged into the Pi) is turned
 into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
 the TV remote.
 
@@ -150,13 +170,6 @@ When the TV goes to standby, couchd sends a `pause` key, so whatever is playing 
 `pause` key pauses a Chromium app in front over DevTools (every `video` and `audio` on the
 page) and Kodi over its JSON-RPC (127.0.0.1:9090, `Player.PlayPause` with `play: false`), as
 well as being typed into the app.
-
-**`quick_menu`**: the Blue button was pressed; show the quick menu (#18). `app` is the app
-in front.
-
-```json
-{"type": "quick_menu", "data": {"app": "youtube"}}
-```
 
 **`volume_changed`**: couchd changed the volume or mute, for the volume panel (#18).
 
@@ -199,6 +212,7 @@ The text `ping` gets `pong`.
 | --- | --- |
 | `remote.press` | `key`; `keyboard`, `hold` (bools, optional). Like a quick press of that button on the remote; `hold` makes it a long press (OK and Back only). With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
 | `remote.hold` | `key`, `seconds` (up to 15). Holds the button down that long, as if on the remote, for trying key repeat with curl |
+| `remote.raw_keys` | `on` (bool). A launcher screen claims (or gives back) the remote's raw keys: couchd's colour keys stand down while it has them (see `key` above). Lapses 15 s after the claim or the last key |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `tv.simulate` | `frame`: CEC bytes in hex, e.g. `"05:44:41"` (TV to Audio System: Volume Up) and `"05:45"` (released). Handled as if the TV had sent it; replies go out on the bus for real. For testing: cec-ctl can't send to the adapter's own address. The dev-mode TV only takes the volume buttons |
@@ -225,6 +239,8 @@ The text `ping` gets `pong`.
 | `settings.reset` | `key`. Back to its default |
 | `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
 | `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
+| `overlay.toast` | `text`; `level`, `icon` (optional, as in `toast`). Shows a toast over whatever is in front, like `ctx.bus.toast()` inside couchd |
+| `overlay.menu` | `open` (bool). Opens or closes the quick menu, as Blue and Back do |
 | `updates.check` | Settings > Updates > Check now: starts `couch-update-now.service`, which installs a newer release if there is one (not while something plays) |
 | `updates.announced` | `id` (from `updates.announce`). The toast was shown; saved |
 | `system.restart`, `system.power_off` | Reboot or shut down the Pi, after a "Restarting" / "Turning off" toast. On a shutdown the TV goes to standby too if `tv.standby_on_poweroff` is on |
@@ -255,6 +271,53 @@ which it is. The Pi 4 holds one CEC address at a time, so there Couch's address 
 for as long as sound is away from the TV. See docs/tv-sony-kdl40v55.md for the TV's side.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
+
+## Overlays
+
+The quick menu, toasts and the volume panel show over every app: the launcher, YouTube and
+Plex (#18, `couchd/overlay.py`). couchd decides what they show; each app draws it.
+
+**Quick menu.** Blue opens it, over the app in front, as a sheet in that app's colour:
+Home, Sound, Volume and Bluetooth. While it's open the remote is the menu's: Left and Right
+move between the cards, Up and Down on Volume change the volume by 5 (`audio.step_volume`:
+never above the limit, and up unmutes), OK picks (Home goes
+home, Sound moves to the next output, Volume mutes or unmutes, Bluetooth opens the
+Bluetooth screen), and Back or Blue close it. Home closes it and goes home. Other keys
+(play/pause, Red) work as always. It closes by itself after 30 s without a key, and when
+the app in front changes. `overlay.menu`:
+
+```json
+{"open": true, "app": "youtube", "host": "chromium", "title": "YouTube", "palette": "yt",
+ "evening": true, "focus": "volume", "items": [
+   {"id": "home", "label": "Go to", "value": "Home"},
+   {"id": "sound", "label": "Sound", "value": "TV speakers"},
+   {"id": "volume", "label": "Volume", "value": "− 60 +"},
+   {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"}]}
+```
+
+`host` says who draws it:
+
+- `launcher`: the launcher, from this state (`ui/js/overlay.js`).
+- `chromium`: YouTube. couchd injects the launcher's own overlay code
+  (`ui/js/overlay-view.js` with its CSS and fonts) into the page over DevTools, in a closed
+  shadow root that can't take focus or keys (`couchd/overlay_page.py`). It's part of the
+  tab's setup, so a reload or a navigation gets it again.
+- `kodi`: Plex. service.couch draws it through skin.couch
+  (`system/kodi/skin/xml/Custom_1190_CouchOverlay.xml`), from state couchd sends with Kodi's
+  JSON-RPC `JSONRPC.NotifyAll` on 127.0.0.1:9090 (`couchd/kodi.py`). The dialog has nothing
+  focusable, so it never takes a key from Plex. If service.couch isn't there to draw it (it
+  sets `Window(home).Property(couch.overlay)`), Blue goes back to the launcher and opens the
+  menu there: Plex stops, but the menu still works.
+
+**Toasts** go to the app in front as well as to the `toast` message: into YouTube's page,
+or to Kodi as its own notification (`GUI.ShowNotification`, 2.4 s). Any feature can show
+one: `ctx.bus.toast(text, level, icon=...)` inside couchd, the `overlay.toast` command, or
+`POST /api/toast`.
+
+**Volume panel**: the output's name and volume, top right, for each `volume_changed` (the
+TV remote's volume buttons, a command, the limit) and 2.4 s after the last one; couchd sends
+it on as `volume_panel`. Not while the quick menu is open: its Volume card shows the same.
+Over Plex without service.couch it's a Kodi notification.
 
 If a client falls more than 256 messages behind, couchd closes it with code 1013 and it
 should reconnect.
@@ -294,7 +357,7 @@ keys. To add a setting, add it to `SCHEMA` in `couchd/settings.py`; services rea
 | --- | --- | --- |
 | `GET` | `/api/state` | Same object as a full `state` snapshot's `data` |
 | `GET` | `/api/health` | `{"status": "ok" \| "degraded", "version", "services"}` |
-| `POST` | `/api/toast` | Body `{"text": "...", "level": "info"}` → 204; shows a toast |
+| `POST` | `/api/toast` | Body `{"text": "...", "level": "info", "icon": "check"}` (`level`, `icon` optional) → 204; shows a toast over whatever is in front |
 | `GET` | `/api/commands` | Names of the commands available right now |
 | `POST` | `/api/command/{name}` | Body = args (optional) → `{"ok": true, "data"}`, or 400 with `{"ok": false, "error"}` |
 

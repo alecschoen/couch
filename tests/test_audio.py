@@ -190,6 +190,13 @@ async def test_red_cycles_through_available_outputs(ctx, fake):
     ]
 
 
+async def test_red_stands_down_while_a_screen_has_the_raw_keys(ctx, fake):
+    before = ctx.state.get("audio")["current"]
+    ctx.bus.publish("key", {"key": "red", "raw": True})
+    await settle()
+    assert ctx.state.get("audio")["current"] == before
+
+
 async def test_red_skips_unavailable_outputs(ctx, fake):
     fake.backend._outputs[1] = Output("jack", "Headphone jack", "jack", available=False)
     sub = ctx.bus.subscribe()

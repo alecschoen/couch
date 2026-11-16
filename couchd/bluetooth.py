@@ -136,7 +136,7 @@ class BluetoothService(Service):
         chosen = self.ctx.saved.get(SAVED_OUTPUT)
         carried_sound = isinstance(chosen, str) and _output_matches(chosen, device.address)
         if device.audio and not carried_sound:
-            self.ctx.bus.toast(f"{device.name} disconnected")
+            self.ctx.bus.toast(f"{device.name} disconnected", icon="bluetooth")
 
     async def _switch_to(self, device: Device) -> None:
         output = await self._wait_for_output(device)

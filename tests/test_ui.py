@@ -122,3 +122,11 @@ def test_home_cards_match_the_design_and_launch_real_apps():
 def test_the_app_binds_settings_to_couchd():
     # Without this, ui/js/settings.js only changes its local copy and nothing is saved.
     assert re.search(r"settings\.bind\(app\.couch\)", (UI / "js" / "app.js").read_text())
+
+
+def test_the_quick_menu_opens_registered_screens():
+    # couchd's open_screen message names a screen; ui/js/overlay.js goes there.
+    source = (ROOT / "couchd" / "overlay.py").read_text()
+    named = set(re.findall(r'"open_screen", \{"screen": (\w+)\}', source))
+    assert named == {"screen"}  # still the one place it's sent
+    assert "bluetooth" in registered_screens()

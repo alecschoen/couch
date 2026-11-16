@@ -8,7 +8,8 @@ whether something is playing before it touches anything.
 
 Live state section `updates`:
 - `nightly`: whether the night runs are turned on (`nightly = true` in update.toml)
-- `version`: the installed release (/opt/couch/VERSION), or null for an install from a checkout
+- `version`: /opt/couch/VERSION: a release's tag, or `git describe` / "dev-<sha>" for a
+  checkout; null for a copy without git
 - `state`: "idle", "checking", "downloading", "installing", "rolling-back" or "system"
 - `result`: the last run's: "installed", "up-to-date", "rolled-back", "broken", "failed",
   "no-access" (no token for the private repo: not set up yet), "waiting", or null before
