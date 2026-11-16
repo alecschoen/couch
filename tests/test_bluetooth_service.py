@@ -139,7 +139,7 @@ async def test_disconnect_toasts_and_leaves_the_choice_to_audio(ctx, toasts):
         toasts()
         await rig.run("bluetooth.disconnect", address=KITCHEN.address)
         await settle(0.05)
-        assert toasts() == [f"{KITCHEN.name} disconnected"]
+        assert toasts()[0] == f"{KITCHEN.name} disconnected"  # audio may add its own
         # Still the chosen output, so the audio service can bring sound back to it.
         assert ctx.saved.get(SAVED_OUTPUT) == out(KITCHEN)
 
