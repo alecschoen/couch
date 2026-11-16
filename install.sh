@@ -27,6 +27,8 @@
 # Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
 # /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
 # The timer and unattended-upgrades only with `nightly = true` in /etc/couch/update.toml.
+# For Wi-Fi (#31) it adds a polkit rule, a drop-in for systemd-rfkill, and couch-wifi-boot
+# with its unit and udev rule; it never switches Wi-Fi itself.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -76,6 +78,9 @@ INITRAMFS_HOOK=/etc/initramfs-tools/hooks/couch-splash
 FBSPLASH_UNIT=$UNIT_DIR/couch-fbsplash.service
 FBSPLASH_RULE=/etc/udev/rules.d/70-couch-fbsplash.rules
 CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
+WIFI_BOOT_UNIT=$UNIT_DIR/couch-wifi-boot.service
+WIFI_RULE=/etc/udev/rules.d/70-couch-wifi.rules
+RFKILL_DROPIN=$UNIT_DIR/systemd-rfkill.service.d/couch.conf
 CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
 # Power cuts (#25, docs/sd-card.md). couch-fstab and couch-bootfiles make these edits as
 # the owner "sd-card"; `install.sh --revert-sd` undoes exactly them, and the files below.
@@ -149,7 +154,8 @@ ensure_tree() {
 }
 
 # Raspberry Pi OS starts with the radios soft-blocked (rfkill). Couch needs Bluetooth, so
-# unblock it; systemd-rfkill keeps that across reboots. Wi-Fi is left alone.
+# unblock it; systemd-rfkill keeps that across reboots. Wi-Fi is left alone: the
+# network.wifi setting drives it (install_wifi).
 # Returns 0 if it unblocked anything.
 unblock_bluetooth() {
     local r changed=1
@@ -160,6 +166,23 @@ unblock_bluetooth() {
     done
     ((changed)) || note "unblocked Bluetooth (rfkill)"
     return $changed
+}
+
+# Wi-Fi (#31). couchd switches it with NetworkManager from the network.wifi setting (off
+# unless turned on in Settings > Network); the polkit rule lets it. This only makes "off"
+# survive a reboot without a failed unit: systemd-rfkill leaves Wi-Fi alone (it hangs on
+# the Pi's chip at boot) and couch-wifi-boot blocks the radio once wlan0 is up, if
+# NetworkManager has it off. Nothing here switches Wi-Fi now. See system/README.md, "Wi-Fi".
+install_wifi() {
+    local reload=0
+    ensure_file "$SRC/system/couch-wifi-boot" "$PREFIX/bin/couch-wifi-boot" 755 || true
+    ensure_file "$SRC/system/systemd-rfkill-couch.conf" "$RFKILL_DROPIN" 644 && reload=1
+    ensure_file "$SRC/system/couch-wifi-boot.service" "$WIFI_BOOT_UNIT" 644 && reload=1
+    ((reload)) && systemctl daemon-reload
+    if ensure_file "$SRC/system/70-couch-wifi.rules" "$WIFI_RULE" 644; then
+        udevadm control --reload-rules
+    fi
+    return 0
 }
 
 # WirePlumber reads its config and looks for PipeWire's Bluetooth plugin only when it
@@ -297,6 +320,7 @@ install_couch() {
 
     install_audio
     install_uinput && code=1
+    install_wifi
 
     local u
     for u in "${UNITS[@]}"; do
@@ -636,6 +660,8 @@ uninstall() {
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
     rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$NO_POINTER_RULE" "$UINPUT_MODULE_CONF"
+    rm -f "$WIFI_RULE" "$WIFI_BOOT_UNIT" "$RFKILL_DROPIN"
+    rmdir "$(dirname "$RFKILL_DROPIN")" 2>/dev/null || true
     systemctl daemon-reload
     rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
@@ -663,7 +689,7 @@ case ${1:-} in
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 --revert-sd) uninstall_sd_card; echo "The SD card protection is off, fully from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system

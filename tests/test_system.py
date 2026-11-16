@@ -42,7 +42,7 @@ async def test_info(ctx):
     await service.start()
     info = await ctx.commands.run("system.info")
     assert info["name"] == "Couch"
-    assert info["network"]["kind"] == "wifi"
+    assert info["network"]["kind"] == "ethernet"
     await service.stop()
     assert "system.info" not in ctx.commands.names()
 

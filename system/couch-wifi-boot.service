@@ -1,0 +1,13 @@
+[Unit]
+Description=Couch: keep Wi-Fi off from the boot if it was off
+Documentation=https://github.com/alecschoen/couch
+# Started by system/70-couch-wifi.rules when wlan0 appears, about 10 s into the boot on a
+# Pi 4: early, so it can't wait for basic.target. See system/couch-wifi-boot.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/couch/bin/couch-wifi-boot
+TimeoutStartSec=30s

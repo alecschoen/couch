@@ -182,7 +182,7 @@ class FakeSystem(SystemBackend):
         return "Raspberry Pi 4 Model B (pretend)"
 
     async def network(self) -> dict[str, Any] | None:
-        return {"kind": "wifi", "name": "Living room", "address": "192.168.1.42"}
+        return {"kind": "ethernet", "name": None, "address": "192.168.1.42"}  # as on the Pi (#31)
 
     async def restart(self) -> None:
         self.calls.append("restart")

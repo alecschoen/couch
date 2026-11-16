@@ -15,6 +15,7 @@ import { CHOICES, settings } from "../settings.js";
 const CATEGORIES = [
   ["display", "Display"],
   ["sound", "Sound"],
+  ["network", "Network"],
   ["remote", "Remote"],
   ["updates", "Updates"],
   ["about", "About"],
@@ -25,6 +26,7 @@ const CATEGORIES = [
 const USES = {
   display: ["settings"],
   sound: ["settings", "audio"],
+  network: ["settings", "wifi"],
   remote: ["remote"],
   updates: ["settings", "system", "updates"],
   about: ["tv", "services", "system"],
@@ -91,7 +93,7 @@ export function settingsScreen(params, app) {
     }
     current = id;
     for (const t of tabs.children) t.classList.toggle("is-selected", t.dataset.focusKey === `tab:${id}`);
-    if (id === "about") fetchInfo();
+    if (id === "about" || id === "network") fetchInfo();
     draw();
   }
 
@@ -212,6 +214,25 @@ export function settingsScreen(params, app) {
           format: (v) => (v >= VOLUME_LIMIT.max ? "No limit" : String(v)),
         }),
       );
+    },
+
+    network: () => {
+      const wifi = state().wifi ?? {};
+      const rows = [readout("Connection", network())];
+      if (wifi.available === false && !settings.get("network.wifi")) {
+        rows.push(readout("Wi-Fi", "Not available"));
+      } else {
+        rows.push(
+          toggle({
+            key: "network.wifi",
+            label: "Wi-Fi",
+            hint: wifiHint(wifi),
+            on: settings.get("network.wifi"),
+            onChange: (on) => change("network.wifi", on),
+          }),
+        );
+      }
+      return h("div", { class: "settings" }, rows);
     },
 
     remote: () => {
@@ -411,7 +432,7 @@ export function settingsScreen(params, app) {
     } catch {
       info = info ?? { name: "Couch", device: "Unknown", network: undefined };
     }
-    if (current === "about") draw();
+    if (current === "about" || current === "network") draw();
   }
 
   function network() {
@@ -421,6 +442,27 @@ export function settingsScreen(params, app) {
     if (n === null) return "Not connected";
     const kind = n.kind === "wifi" ? "Wi-Fi" : "Ethernet";
     return [kind, n.name, n.address].filter(Boolean).join(" · ");
+  }
+
+  // ---- Network
+
+  // Under the Wi-Fi toggle: what the radio is doing (live state `wifi`, docs/protocol.md).
+  function wifiHint(wifi) {
+    if (!settings.get("network.wifi")) return "Off. Couch uses the network cable.";
+    if (wifi.available === false) return "Waiting for the Wi-Fi chip";
+    if (!wifi.enabled) return "Turning on…";
+    if (wifi.connection === "connected") {
+      return [wifi.ssid ?? "Connected", signalWords(wifi.signal)].filter(Boolean).join(" · ");
+    }
+    if (wifi.connection === "connecting") return `Connecting to ${wifi.ssid ?? "a network"}…`;
+    return "On. Not connected to a network.";
+  }
+
+  function signalWords(signal) {
+    if (typeof signal !== "number") return null;
+    if (signal >= 70) return "Strong signal";
+    if (signal >= 40) return "Good signal";
+    return "Weak signal";
   }
 
   function tvConnection() {
