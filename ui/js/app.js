@@ -19,6 +19,7 @@ import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { useKeyboardAsRemote } from "./keys.js";
 import { Router } from "./router.js";
+import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
 
 const ARROWS = new Set(["up", "down", "left", "right"]);
@@ -28,6 +29,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   const app = new EventTarget();
 
   app.couch = new Couch();
+  settings.bind(app.couch); // settings live in couchd; see settings.js
   app.theme = new Theme($(flood));
   app.focus = new FocusEngine(document.body);
   app.layer = $(layer);
