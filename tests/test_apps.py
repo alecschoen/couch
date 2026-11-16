@@ -310,6 +310,34 @@ async def test_plex_takes_the_screen_and_gives_it_back(ctx, apps, browser, displ
     assert "plex" not in state(ctx)["running"]
 
 
+async def test_leaving_plex_puts_the_waiting_launcher_in_front(ctx, apps, browser, display):
+    """The browser session stays up behind Kodi, so coming back is just the launcher's tab."""
+    await run(ctx, "apps.launch", app="youtube")
+    await run(ctx, "apps.home")
+    await run(ctx, "apps.launch", app="plex")
+    browser.active = browser.tab_for(YOUTUBE).id  # whatever Chromium had in front meanwhile
+    await run(ctx, "apps.dev.kodi_exit")
+    await until(lambda: browser.active == browser.tab_for(LAUNCHER).id)
+    assert state(ctx)["foreground"] == "launcher"
+    assert len(browser.tabs) == 2  # nothing reopened
+
+
+async def test_a_launcher_that_doesnt_draw_after_plex_is_restarted(
+    ctx, apps, browser, display, monkeypatch
+):
+    monkeypatch.setattr(apps_module, "DRAW_WAIT", 0.1)
+    await run(ctx, "apps.launch", app="plex")
+    await run(ctx, "apps.dev.kodi_exit")
+    await until(lambda: state(ctx)["foreground"] == "launcher")
+    await asyncio.sleep(0.2)
+    assert display.browser_restarts == 0  # it drew
+
+    browser.drawing = False  # cage didn't take the screen back
+    await run(ctx, "apps.launch", app="plex")
+    await run(ctx, "apps.dev.kodi_exit")
+    await until(lambda: display.browser_restarts == 1)
+
+
 async def test_plex_opens_even_if_the_launcher_that_asked_goes_away(ctx, browser):
     # On the Pi, Kodi starting stops the browser, which closes the launcher's WebSocket,
     # which cancels the apps.launch it sent. Kodi came up anyway, with couchd still sending

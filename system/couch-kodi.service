@@ -1,32 +1,42 @@
 [Unit]
-Description=Couch Plex (Kodi on tty1, started by couchd)
+Description=Couch Plex (Kodi on tty2, started by couchd)
 Documentation=https://github.com/alecschoen/couch
-# Kodi and the browser session take turns on tty1 and the HDMI output: starting either one
-# stops the other. The ordering makes the stop finish before the start.
-Conflicts=getty@tty1.service couch-session.service
-After=getty@tty1.service couch-session.service systemd-user-sessions.service
+# Kodi gets tty2, and the browser session stays up on tty1 behind it, paused: switching the
+# console to tty2 takes the screen and the remote from cage (logind pauses its devices), and
+# switching back to tty1 gives them back. So leaving Plex shows the launcher as it was, at
+# once, instead of starting cage and Chromium again behind the splash.
+Conflicts=getty@tty2.service autovt@tty2.service
+After=getty@tty2.service autovt@tty2.service systemd-user-sessions.service
 After=dbus.socket systemd-logind.service
 Wants=dbus.socket systemd-logind.service
-# However Kodi ends, the launcher comes back, even if couchd isn't around to do it.
+# However Kodi ends, the launcher comes back, even if couchd isn't around to do it: tty1 again
+# (ExecStopPost), and the session started if it isn't running (it normally is).
 OnSuccess=couch-session.service
 OnFailure=couch-session.service
-ConditionPathExists=/dev/tty1
+ConditionPathExists=/dev/tty2
 
 [Service]
 Type=simple
 User=couch
-# Same logind session setup as couch-session.service: Kodi gets DRM and input through it.
+# Same logind session setup as couch-session.service, on tty2: Kodi gets DRM and input
+# through it once tty2 is the console in front.
 PAMName=login
-TTYPath=/dev/tty1
-TTYReset=yes
+TTYPath=/dev/tty2
+# No TTYReset or TTYVTDisallocate: both would draw the (black) text console over the Opening
+# screen as Kodi starts. couch-kodi-vt keeps tty2 in graphics mode while Kodi has it.
 TTYVHangup=yes
-TTYVTDisallocate=yes
-StandardInput=tty-fail
+# tty-force: should a login prompt have got to tty2 first, Kodi still gets it (install.sh
+# masks them).
+StandardInput=tty-force
 StandardOutput=journal
 StandardError=journal
-UtmpIdentifier=tty1
+UtmpIdentifier=tty2
 UtmpMode=user
+# couch-kodi-vt runs as root (+). tty2 first, so cage lets go of the screen before Kodi opens
+# it; back to tty1 however Kodi ended, once Kodi has let go, so cage takes the screen again.
+ExecStartPre=+/opt/couch/bin/couch-kodi-vt enter
 ExecStart=/opt/couch/bin/couch-kodi
+ExecStopPost=+/opt/couch/bin/couch-kodi-vt leave
 # couchd decides what runs next; never restart Kodi on our own.
 Restart=no
 TimeoutStopSec=10

@@ -9,9 +9,9 @@ from couchd import display as display_module
 from couchd.backends import BackendError
 from couchd.display import KODI_UNIT, SESSION_UNIT, SystemdDisplay
 
-# Units are files holding their state. Starting one of the two stops the other, like the
-# Conflicts= in the real units. `start --wait` blocks until the unit is no longer active,
-# then exits with the code in <unit>.rc.
+# Units are files holding their state. Kodi starts in front of the session, which keeps
+# running (they're on different VTs). `start --wait` blocks until the unit is no longer
+# active, then exits with the code in <unit>.rc.
 SYSTEMCTL = """#!/bin/sh
 dir="$FAKE_SYSTEMD"
 echo "$*" >> "$dir/log"
@@ -19,13 +19,10 @@ state() { cat "$dir/$1" 2>/dev/null || echo inactive; }
 case "$1" in
 is-active) s=$(state "$2"); echo "$s"; [ "$s" = active ] ;;
 reset-failed) exit 0 ;;
+stop) echo inactive > "$dir/$2" ;;
 start)
     if [ "$2" = --wait ]; then unit=$3; else unit=$2; fi
     [ -e "$dir/$unit.broken" ] && { echo "Job for $unit failed."; exit 1; }
-    case "$unit" in
-    couch-kodi.service) echo inactive > "$dir/couch-session.service" ;;
-    couch-session.service) echo inactive > "$dir/couch-kodi.service" ;;
-    esac
     echo active > "$dir/$unit"
     if [ "$2" = --wait ]; then
         while [ "$(state "$unit")" = active ]; do sleep 0.02; done
@@ -70,13 +67,14 @@ async def test_hands_the_screen_to_kodi_and_back(systemd):
 
     await display.start_kodi(exits.append)
     assert await display.owner() == "kodi"
-    assert unit(systemd, SESSION_UNIT) == "inactive"
+    assert unit(systemd, SESSION_UNIT) == "active"  # waiting behind Kodi
 
     await display.show_browser()
     assert await display.owner() == "browser"
     await until(lambda: exits)
     assert exits == [False]
     log = (systemd / "log").read_text()
+    assert f"stop {KODI_UNIT}" in log
     assert f"reset-failed {SESSION_UNIT}" in log
     await display.stop()
 
@@ -89,7 +87,7 @@ async def test_kodi_crashing_is_reported(systemd):
     (systemd / KODI_UNIT).write_text("failed\n")
     await until(lambda: exits)
     assert exits == [True]
-    assert await display.owner() == "none"  # the stuck screen couchd must fix
+    assert await display.owner() == "browser"  # the session was there all along
     await display.stop()
 
 
@@ -106,6 +104,22 @@ async def test_a_session_that_wont_start(systemd):
     display = SystemdDisplay()
     with pytest.raises(BackendError, match="couldn't start the launcher"):
         await display.show_browser()
+
+
+async def test_a_session_that_died_behind_kodi_is_started_again(systemd):
+    display = SystemdDisplay()
+    await display.start_kodi(lambda failed: None)
+    (systemd / SESSION_UNIT).write_text("failed\n")
+    await display.show_browser()
+    assert unit(systemd, KODI_UNIT) == "inactive"
+    assert unit(systemd, SESSION_UNIT) == "active"
+    await display.stop()
+
+
+async def test_restarting_the_browser_session(systemd):
+    display = SystemdDisplay()
+    await display.restart_browser()
+    assert f"restart {SESSION_UNIT}" in (systemd / "log").read_text()
 
 
 async def test_stopping_couchd_leaves_kodi_running(systemd):

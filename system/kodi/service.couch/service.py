@@ -15,8 +15,9 @@ How PM4K behaves, from its source (1.3.19):
   to set it again. Couch takes that as an exit and goes back to the launcher.
 
 So: quit Kodi once `started` has been gone for a moment, or once Kodi's Home has been in
-front with PM4K inactive for a moment. Kodi's Home is the Opening screen (skin.couch), and
-`couch.closing` tells it to drop "Opening" as soon as PM4K looks to be leaving.
+front with PM4K inactive for a moment. Kodi's Home is the Opening screen (skin.couch) until
+PM4K's first window is up; then `couch.closing` turns it black, so leaving Plex goes from Plex
+to black to the launcher, without the Opening screen flashing up in between.
 
 The decisions live in Watch, which knows nothing about Kodi, so tests can drive it.
 
@@ -58,9 +59,9 @@ class Watch:
         self.home_since = None
 
     @property
-    def leaving(self):
-        """Plex looks to be on its way out (or restarting): Home stops saying "Opening"."""
-        return self.gone_since is not None
+    def closing(self):
+        """Home should be black: Plex has been on screen, or looks to be on its way out."""
+        return self.seen_active or self.gone_since is not None
 
     def tick(self):
         """None while Plex is up; otherwise why Kodi should quit."""
@@ -199,8 +200,8 @@ def main():
     while not kodi.monitor.waitForAbort(TICK):
         kodi.overlay.tick()
         reason = watch.tick()
-        if watch.leaving != closing:
-            closing = watch.leaving
+        if watch.closing != closing:
+            closing = watch.closing
             kodi.closing(closing)
         if reason:
             kodi.log(f"{reason}; quitting Kodi so Couch comes back")

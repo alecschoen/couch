@@ -33,6 +33,7 @@ def test_every_system_file_it_installs_exists():
         "couch-splash",
         "couch-kodi.service",
         "couch-kodi",
+        "couch-kodi-vt",
         "couch.rules",
         "kodi",
         "60-couch-uinput.rules",
@@ -69,10 +70,24 @@ def test_the_session_splash_is_installed_next_to_what_it_draws_with():
     assert "/opt/couch/bin/couch-splash" in start
 
 
-def test_kodi_and_the_session_take_turns():
+def test_kodi_runs_in_front_of_the_waiting_session():
     kodi = (ROOT / "system" / "couch-kodi.service").read_text()
-    assert re.search(r"^Conflicts=.*couch-session\.service", kodi, re.M)
-    assert re.search(r"^After=.*couch-session\.service", kodi, re.M)
+    # its own VT, so the session (tty1) keeps running behind it
+    assert "TTYPath=/dev/tty2" in kodi
+    assert not re.search(r"^Conflicts=.*couch-session\.service", kodi, re.M)
+    assert re.search(r"^Conflicts=.*autovt@tty2\.service", kodi, re.M)  # no login prompt
+    # the console goes to tty2 before Kodi opens the screen, and back to tty1 however it ends
+    # (couch-kodi-vt, which waits for Kodi to let go of the screen first)
+    assert "ExecStartPre=+/opt/couch/bin/couch-kodi-vt enter" in kodi
+    assert "ExecStopPost=+/opt/couch/bin/couch-kodi-vt leave" in kodi
+    # nothing puts tty2 back in text mode under Kodi: the black console would show
+    assert not re.search(r"^TTY(Reset|VTDisallocate)=yes", kodi, re.M)
+    # and no login prompt on tty2 to fight Kodi for it
+    script = (ROOT / "install.sh").read_text()
+    assert "KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)" in script
+    assert 'ln -sfn /dev/null "$UNIT_DIR/$u"' in script
+    unmask = 'if [[ $(readlink "$UNIT_DIR/$u") == /dev/null ]]; then rm -f "$UNIT_DIR/$u"; fi'
+    assert unmask in script
     # the launcher comes back however Kodi ends, couchd or not
     assert "OnSuccess=couch-session.service" in kodi
     assert "OnFailure=couch-session.service" in kodi

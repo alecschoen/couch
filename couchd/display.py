@@ -1,12 +1,16 @@
 """Who owns the screen: the browser session (cage + Chromium) or Kodi.
 
-Only one program can drive the HDMI output at a time. On the Pi each is a systemd unit on
-tty1, and the two conflict, so starting one stops the other:
+Only one program can drive the HDMI output at a time: the one on the console (VT) in front.
+On the Pi each is a systemd unit with a logind session on its own VT:
 
-- `couch-session.service`: cage + Chromium, the launcher and YouTube. Enabled at boot.
-- `couch-kodi.service`: Kodi on DRM/GBM, for Plex (#22). Started only by couchd. When Kodi
-  exits, the unit itself starts the session again (OnSuccess/OnFailure), so the launcher
-  comes back even if couchd isn't running.
+- `couch-session.service`: cage + Chromium on tty1, the launcher and YouTube. Enabled at
+  boot, and left running while Plex is up.
+- `couch-kodi.service`: Kodi on DRM/GBM on tty2, for Plex (#22). Started only by couchd. It
+  switches the console to tty2 as it starts, which pauses cage (logind takes the screen and
+  input from it), and back to tty1 however it ends, which gives them back. So leaving Plex
+  shows the launcher as it was, without starting cage and Chromium again. The unit also
+  starts the session (OnSuccess/OnFailure) in case it wasn't running, so the launcher comes
+  back even if couchd isn't.
 
 couchd runs as `couch`, and a polkit rule (`system/couch.rules`) lets that user start, stop
 and reset just these two units.
@@ -44,11 +48,16 @@ class Display(Backend):
 
     @abstractmethod
     async def show_browser(self) -> None:
-        """Start the browser session if it isn't running. Stops Kodi if it is."""
+        """Put the browser session in front: stop Kodi if it's running, and start the session
+        if it isn't."""
+
+    @abstractmethod
+    async def restart_browser(self) -> None:
+        """Start the browser session again from scratch (behind the splash)."""
 
     @abstractmethod
     async def start_kodi(self, on_exit: KodiExit) -> None:
-        """Stop the browser session and start Kodi. Returns once Kodi is running."""
+        """Start Kodi in front of the browser session. Returns once Kodi is running."""
 
     @abstractmethod
     async def watch_kodi(self, on_exit: KodiExit) -> None:
@@ -74,11 +83,22 @@ class SystemdDisplay(Display):
         return "none"
 
     async def show_browser(self) -> None:
+        if await self._state(KODI_UNIT) in ("active", "activating", "reloading"):
+            # Its ExecStopPost switches the console back to tty1, where the session is.
+            code, out = await _systemctl("stop", KODI_UNIT)
+            if code != 0:
+                log.warning("couldn't stop Kodi", extra={"detail": out or code})
         # After a burst of crashes systemd refuses to start the unit until it is reset.
         await _systemctl("reset-failed", SESSION_UNIT)
         code, out = await _systemctl("start", SESSION_UNIT)
         if code != 0:
             raise BackendError(f"couldn't start the launcher: {out or code}")
+
+    async def restart_browser(self) -> None:
+        await _systemctl("reset-failed", SESSION_UNIT)
+        code, out = await _systemctl("restart", SESSION_UNIT)
+        if code != 0:
+            raise BackendError(f"couldn't restart the launcher: {out or code}")
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await _systemctl("reset-failed", KODI_UNIT)
@@ -159,6 +179,7 @@ class FakeDisplay(Display):
         self.speed = speed
         self.kodi_running = False
         self.kodi_starts = 0
+        self.browser_restarts = 0
         self.fail_next_start = False
         self._on_exit: KodiExit | None = None
 
@@ -168,6 +189,9 @@ class FakeDisplay(Display):
     async def show_browser(self) -> None:
         if self.kodi_running:
             self.exit_kodi(crashed=False)
+
+    async def restart_browser(self) -> None:
+        self.browser_restarts += 1
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await asyncio.sleep(0.5 * self.speed)
