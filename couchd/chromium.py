@@ -5,6 +5,13 @@ The kiosk Chromium (`system/couch-browser`, or the dev window) listens for DevTo
 and close tabs ("targets"), and to run scripts in them: pausing a video when its app goes
 to the background now, overlays later (#18).
 
+Some tabs need more before their page loads: YouTube needs a TV user agent and a script of
+its own (couchd/youtube.py). Those tabs open on about:blank, couchd attaches a DevTools
+session that stays attached for the tab's life, sets them up (`PageSetup`), and only then
+loads the page. The user agent and the script last only as long as that session, so when
+couchd reconnects it sets them up again (`prepare`). The session also carries the tab's
+messages to couchd: the page calls `window.__couchd(message)`.
+
 Only loopback is ever dialled, and Chromium itself refuses DevTools WebSockets that carry
 an Origin header, so web pages in the same browser (youtube.com/tv) can't use this port.
 
@@ -51,6 +58,18 @@ class Page:
 
 # Called with (target_id, crashed). crashed is False when the tab simply closed.
 PageGone = Callable[[str, bool], None]
+# Called with (target_id, message) when a prepared tab calls window.__couchd(message).
+PageMessage = Callable[[str, str], None]
+
+BINDING = "__couchd"
+
+
+@dataclass(frozen=True)
+class PageSetup:
+    """What a tab needs before its page loads."""
+
+    user_agent: str = ""
+    script: str = ""  # runs in every document of the tab, before the page's own scripts
 
 
 class Chromium:
@@ -64,6 +83,8 @@ class Chromium:
         self._closed = asyncio.Event()
         self._closed.set()
         self._page_gone: list[PageGone] = []
+        self._page_message: list[PageMessage] = []
+        self._sessions: dict[str, str] = {}  # prepared tabs: target id -> session id
 
     @property
     def connected(self) -> bool:
@@ -71,6 +92,9 @@ class Chromium:
 
     def on_page_gone(self, listener: PageGone) -> None:
         self._page_gone.append(listener)
+
+    def on_page_message(self, listener: PageMessage) -> None:
+        self._page_message.append(listener)
 
     async def connect(self) -> None:
         """Attach to the running browser. Raises CdpError if it isn't listening (yet)."""
@@ -120,14 +144,53 @@ class Chromium:
             if t.get("type") == "page"
         ]
 
-    async def open(self, url: str, *, background: bool = False) -> str:
-        """Open `url` in a new tab and return its target id. A `background` tab loads behind
-        the one in front until it's activated."""
-        params: dict[str, Any] = {"url": url}
+    async def open(
+        self, url: str, setup: PageSetup | None = None, *, background: bool = False
+    ) -> str:
+        """Open `url` in a new tab and return its target id. With `setup`, the tab is set up
+        before the page starts loading. A `background` tab loads behind the one in front
+        until it's activated."""
+        params: dict[str, Any] = {"url": url if setup is None else "about:blank"}
         if background:
             params["background"] = True
-        result = await self.call("Target.createTarget", params)
-        return result["targetId"]
+        target_id = (await self.call("Target.createTarget", params))["targetId"]
+        if setup is None:
+            return target_id
+        try:
+            await self.prepare(target_id, setup)
+            await self.call("Page.navigate", {"url": url}, session=self._sessions[target_id])
+        except CdpError:
+            with contextlib.suppress(CdpError):
+                await self.close_page(target_id)
+            raise
+        return target_id
+
+    async def prepare(self, target_id: str, setup: PageSetup) -> None:
+        """Attach a session to the tab that stays attached, and set the tab up through it.
+        The page in it now keeps what it has; `setup` applies from its next load, and the
+        user agent from its next request."""
+        if target_id in self._sessions:
+            return
+        params = {"targetId": target_id, "flatten": True}
+        session = (await self.call("Target.attachToTarget", params))["sessionId"]
+        self._sessions[target_id] = session
+        try:
+            # The script needs the Page domain on, and the binding the Runtime domain, or
+            # neither survives a reload.
+            await self.call("Page.enable", session=session)
+            await self.call("Runtime.enable", session=session)
+            if setup.user_agent:
+                params = {"userAgent": setup.user_agent}
+                await self.call("Emulation.setUserAgentOverride", params, session=session)
+            if setup.script:
+                params = {"source": setup.script}
+                await self.call("Page.addScriptToEvaluateOnNewDocument", params, session=session)
+            await self.call("Runtime.addBinding", {"name": BINDING}, session=session)
+        except CdpError:
+            self._sessions.pop(target_id, None)
+            with contextlib.suppress(CdpError):
+                await self.call("Target.detachFromTarget", {"sessionId": session})
+            raise
 
     async def activate(self, target_id: str) -> None:
         await self.call("Target.activateTarget", {"targetId": target_id})
@@ -190,7 +253,7 @@ class Chromium:
                 if "id" in data:
                     self._resolve(data)
                 elif "method" in data:
-                    self._event(data["method"], data.get("params", {}))
+                    self._event(data["method"], data.get("params", {}), data.get("sessionId"))
         finally:
             if self._ws is ws:
                 self._lost()
@@ -204,11 +267,21 @@ class Chromium:
         else:
             future.set_result(data.get("result", {}))
 
-    def _event(self, method: str, params: dict[str, Any]) -> None:
+    def _event(self, method: str, params: dict[str, Any], session: str | None) -> None:
         if method == "Target.targetCrashed":
             self._emit_gone(params.get("targetId"), crashed=True)
         elif method == "Target.targetDestroyed":
+            self._sessions.pop(params.get("targetId"), None)
             self._emit_gone(params.get("targetId"), crashed=False)
+        elif method == "Target.detachedFromTarget":
+            gone = params.get("sessionId")
+            self._sessions = {t: s for t, s in self._sessions.items() if s != gone}
+        elif method == "Runtime.bindingCalled" and params.get("name") == BINDING:
+            target_id = next((t for t, s in self._sessions.items() if s == session), None)
+            payload = params.get("payload")
+            if target_id is not None and isinstance(payload, str):
+                for listener in list(self._page_message):
+                    listener(target_id, payload)
 
     def _emit_gone(self, target_id: Any, *, crashed: bool) -> None:
         if not isinstance(target_id, str):
@@ -220,6 +293,7 @@ class Chromium:
         if self._closed.is_set():
             return
         self._closed.set()
+        self._sessions.clear()
         for future in self._calls.values():
             if not future.done():
                 future.set_exception(CdpError("lost the connection to Chromium"))

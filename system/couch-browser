@@ -1,6 +1,15 @@
 #!/bin/sh
 # Chromium for the Couch session; cage (couch-session.service) runs this as the couch user.
-# YouTube's decode flags and user agent come with #21.
+#
+# On the Pi 4 (Raspberry Pi OS's chromium, checked on 156 under Trixie):
+# - Video: H.264 is decoded in hardware by V4L2VideoDecoder (bcm2835-codec) with no flags.
+#   YouTube is kept on H.264 by couchd/youtube.js; its user agent is set per tab over
+#   DevTools (couchd/youtube.py), so no --user-agent here.
+# - GPU raster: /etc/chromium.d turns it on too; said here so we don't depend on that.
+# - /etc/chromium.d also adds --force-renderer-accessibility, which builds a screen-reader
+#   accessibility tree for every page and costs renderer CPU. Nobody uses a screen reader
+#   on the couch, so it's turned off (this flag wins over the forced one).
+#
 # couchd drives the tabs over DevTools on 127.0.0.1 only (couchd/chromium.py). Chromium
 # refuses DevTools WebSockets from web pages (they send an Origin), so pages can't use it.
 exec /usr/bin/chromium \
@@ -16,6 +25,8 @@ exec /usr/bin/chromium \
     --password-store=basic \
     --autoplay-policy=no-user-gesture-required \
     --hide-scrollbars \
+    --enable-gpu-rasterization \
+    --disable-renderer-accessibility \
     --remote-debugging-port="${COUCH_CDP_PORT:-9222}" \
     --remote-debugging-address=127.0.0.1 \
     "http://127.0.0.1:${COUCH_PORT:-8765}/"

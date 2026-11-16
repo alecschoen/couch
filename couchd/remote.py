@@ -67,8 +67,12 @@ KEYMAPS: dict[str, dict[str, int]] = {
     "chromium": {**_COMMON, "back": uinput.KEY_BACK},
     "kodi": {**_COMMON, "back": uinput.KEY_BACKSPACE},
 }
-# Per-app changes on top of its kind's keymap, by app id. YouTube's are #21's.
-APP_KEYMAPS: dict[str, dict[str, int]] = {}
+# Per-app changes on top of its kind's keymap, by app id. YouTube's TV interface takes
+# Escape as Back, as a TV's Return; BrowserBack would be history back, and the first entry
+# in its tab is about:blank. Its Back from Home goes to the launcher (couchd/youtube.js).
+APP_KEYMAPS: dict[str, dict[str, int]] = {
+    "youtube": {"back": uinput.KEY_ESC},
+}
 
 
 @dataclass(frozen=True)
