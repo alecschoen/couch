@@ -1,0 +1,485 @@
+/* Base components. Anything focusable is a <button> (or has tabindex="-1") so focus.js can
+   reach it. Focus (.is-focused, set by focus.js) is always a solid ink fill: the element
+   takes the palette's ink as its background and the ground colour as its text, and --ground
+   flips so children follow. */
+
+/* ---- The focus fill, shared by every focusable component. */
+.card.is-focused,
+.pill.is-focused,
+.row.is-focused,
+.tab.is-focused,
+.segment.is-focused,
+.setting.is-focused,
+.chip.is-focused {
+  --ground: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+.pill.is-focused,
+.row.is-focused,
+.tab.is-focused,
+.segment.is-focused,
+.setting.is-focused,
+.chip.is-focused,
+.card.is-focused .card__bg {
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+}
+
+.pill,
+.row,
+.tab,
+.segment,
+.setting,
+.chip,
+.card,
+.card__bg {
+  transition:
+    background-color var(--dur-quick),
+    color var(--dur-quick),
+    border-color var(--dur-quick);
+}
+
+/* While a live list re-renders (components.js replace()), fresh elements skip their fills'
+   transitions, so the focused one doesn't fade in again. */
+.no-transition,
+.no-transition * {
+  transition: none !important;
+}
+
+/* ---- Card: the B3 app card. Wide when it's the row's current one. Width changes are
+   animated by components.js with transforms (FLIP), not by transitioning width. */
+.cards {
+  display: flex;
+  gap: 27px;
+  align-items: flex-end;
+}
+
+.card {
+  position: relative;
+  flex: none;
+  width: var(--card-w);
+  height: var(--card-h);
+  padding: 27px 30px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.card.is-wide {
+  width: var(--card-w-focus);
+}
+
+.card__bg {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  transform-origin: left center;
+}
+
+.card__label {
+  position: relative;
+  font-family: var(--font-display);
+  font-size: var(--text-card);
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* ---- Pill: a rounded option or action. .is-selected marks the current choice. */
+.pill {
+  height: var(--pill-h);
+  padding: 0 36px;
+  border-radius: var(--radius-pill);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  font-size: var(--text-base);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  white-space: nowrap;
+}
+
+.pill.is-primary {
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+.pill.is-primary.is-focused {
+  /* already filled: focus shows as a ring of ground colour inside the fill */
+  box-shadow: inset 0 0 0 4px var(--palette-bg);
+}
+
+.pill.is-selected:not(.is-focused),
+.row.is-selected:not(.is-focused) {
+  border-color: currentColor;
+}
+
+.pills {
+  display: flex;
+  gap: var(--s-3);
+}
+
+/* ---- Segmented control: Evening colors · After sunset / Always / Off */
+.segmented {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.segment {
+  height: var(--segment-h);
+  padding: 0 30px;
+  border-radius: var(--radius-pill);
+  border: var(--border) solid transparent;
+  background-color: color-mix(in srgb, currentColor var(--a-tint), transparent);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.segment.is-selected:not(.is-focused) {
+  border-color: currentColor;
+  background-color: transparent;
+}
+
+/* ---- Row: a device or item in a list, with a title, a sub-line and something on the right. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.list__label {
+  font-size: var(--text-sm);
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.row {
+  width: 100%;
+  min-height: var(--row-h);
+  padding: 18px 36px;
+  border-radius: var(--radius-row);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+
+.row__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.row__title {
+  font-family: var(--font-display);
+  font-size: var(--text-row);
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.row__sub {
+  font-size: var(--text-xs);
+  opacity: 0.8;
+}
+
+.row__end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-base);
+}
+
+.row[disabled] {
+  opacity: 0.45;
+}
+
+/* ---- Tab: a category in a side list (Settings). */
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.tab {
+  height: var(--tab-h);
+  padding: 0 33px;
+  border-radius: var(--radius-tab);
+  font-family: var(--font-display);
+  font-size: var(--text-card);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.tab.is-selected:not(.is-focused) {
+  background-color: color-mix(in srgb, currentColor var(--a-tint), transparent);
+}
+
+/* ---- Setting: a label and its value on one line, divided by hairlines. Padded so the focus
+   fill has room; the negative margin keeps the text aligned with the title above. */
+.settings {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting {
+  width: calc(100% + 54px);
+  margin: 0 -27px;
+  padding: 27px;
+  border-radius: var(--radius-row);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-5);
+  position: relative;
+}
+
+.setting + .setting::before {
+  content: "";
+  position: absolute;
+  left: 27px;
+  right: 27px;
+  top: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--palette-ink) var(--a-hairline), transparent);
+}
+
+.setting.is-focused::before,
+.setting.is-focused + .setting::before {
+  opacity: 0;
+}
+
+.setting__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.setting__label {
+  font-size: var(--text-md);
+}
+
+.setting__hint {
+  font-size: var(--text-xs);
+  opacity: var(--a-faint);
+}
+
+.setting__value {
+  font-size: var(--text-base);
+  opacity: var(--a-muted);
+  white-space: nowrap;
+}
+
+/* ---- Switch: on/off, inside a .setting. Knob moves with a transform. */
+.switch {
+  flex: none;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  border-radius: var(--radius-pill);
+  position: relative;
+  background-color: color-mix(in srgb, currentColor var(--a-track), transparent);
+  transition: background-color var(--dur-quick);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background-color: currentColor;
+  transition:
+    transform var(--dur-quick) var(--ease-out),
+    background-color var(--dur-quick);
+}
+
+.switch.is-on {
+  background-color: currentColor;
+}
+
+.switch.is-on::after {
+  background-color: var(--ground);
+  transform: translateX(calc(var(--switch-w) - var(--knob) - 12px));
+}
+
+/* ---- Chip: a small action, like the remote-key hints in the design's corner. */
+.chip {
+  height: 60px;
+  padding: 0 24px;
+  border-radius: var(--radius-pill);
+  border: var(--border) solid transparent;
+  background-color: color-mix(in srgb, currentColor var(--a-track), transparent);
+  font-size: var(--text-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* ---- Key hint: "● Blue · quick menu" */
+.key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-xs);
+}
+
+.key::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--key-color, currentColor);
+}
+
+.key--red { --key-color: var(--key-red); }
+.key--blue { --key-color: var(--key-blue); }
+
+/* ---- Progress: the bar scales on X, so changes stay on the compositor. */
+.progress {
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.progress__bar {
+  height: 100%;
+  border-radius: 6px;
+  background-color: currentColor;
+  transform-origin: left center;
+  transform: scaleX(var(--value, 0));
+  transition: transform var(--dur-quick) var(--ease-out);
+}
+
+/* An indeterminate bar: "Opening", "Turning on the TV". */
+.progress.is-busy .progress__bar {
+  width: 40%;
+  transform: none;
+  animation: progress-slide 1.3s var(--ease-in-out) infinite;
+}
+
+@keyframes progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 4px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+:root[data-motion="reduced"] .spinner,
+:root[data-motion="reduced"] .pulse,
+:root[data-motion="reduced"] .progress.is-busy .progress__bar {
+  animation-duration: 0s;
+  animation-iteration-count: 1;
+}
+
+/* ---- Breadcrumb: "Home › Bluetooth" */
+.breadcrumb {
+  font-size: var(--text-sm);
+  opacity: 0.8;
+}
+
+/* ---- Toast: top right, ink on the ground. */
+.toasts {
+  position: absolute;
+  top: 66px;
+  right: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s-2);
+}
+
+.toast {
+  max-width: 900px;
+  padding: 27px 39px;
+  border-radius: var(--radius-card);
+  background-color: var(--palette-ink);
+  color: var(--palette-bg);
+  font-size: var(--text-base);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 21px;
+}
+
+.toast.is-error {
+  background-color: var(--key-red);
+  color: #ffffff;
+}
+
+/* ---- Sheet: slides up from the bottom (the quick menu). Give it its own data-palette. */
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 51px 84px 60px;
+  background-color: var(--palette-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 33px;
+  transform: translateY(100%);
+  transition: transform var(--dur-sheet) var(--ease-out);
+}
+
+.sheet.is-open {
+  transform: none;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 6, 0.5);
+  opacity: 0;
+  transition: opacity var(--dur-sheet);
+}
+
+.scrim.is-open {
+  opacity: 1;
+}
+
+/* ---- Wordmark placeholder until the product name lands (#26). */
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Icons: inline stroke SVGs, sized here. */
+.icon { width: 36px; height: 36px; }
+.icon-sm { width: 30px; height: 30px; }
+.icon-lg { width: 60px; height: 60px; }
