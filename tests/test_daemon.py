@@ -81,7 +81,8 @@ async def test_dev_mode_runs_the_fakes(tmp_path):
 async def test_device_mode_has_the_tv_the_remote_audio_bluetooth_and_apps(tmp_path):
     daemon = Daemon(make_config(tmp_path), dev=False)
     assert [s.name for s in daemon.services] == [
-        "startup", "tv", "remote", "audio", "tv_volume", "bluetooth", "apps", "idle", "system"
+        "startup", "tv", "remote", "audio", "tv_volume", "bluetooth", "apps", "idle",
+        "evening", "system",
     ]  # fmt: skip
     audio = daemon.services.get("audio")
     assert type(audio.backend).__name__ == "PipewireAudio"

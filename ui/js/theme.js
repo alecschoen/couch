@@ -18,8 +18,10 @@ export class Theme {
     this.root = root;
     this.palette = null;
     this._applyEvening();
-    settings.addEventListener("change", (e) => e.detail.key === "display.evening" && this._eveningChanged());
-    // Recheck "after sunset" every minute.
+    // couchd says when the sun sets ("sun"); the setting can change from anywhere.
+    const evening = new Set(["display.evening", "sun"]);
+    settings.addEventListener("change", (e) => evening.has(e.detail.key) && this._eveningChanged());
+    // Recheck every minute too, for the fixed hours before couchd has said.
     setInterval(() => this._eveningChanged(), 60_000);
   }
 

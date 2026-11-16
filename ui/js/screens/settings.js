@@ -133,6 +133,15 @@ export function settingsScreen(params, app) {
 
   const readout = (label, value, hint) => setting({ label, value, hint });
 
+  // Under Evening colors: when "After sunset" is today (couchd/evening.py).
+  function sunHint() {
+    const sun = settings.sun ?? {};
+    if (typeof sun.dark !== "boolean") return null;
+    if (!sun.place) return "After sunset is 18:00 to 07:00 until the timezone is set";
+    if (!sun.sunset) return sun.dark ? "The sun doesn't rise today" : "The sun doesn't set today";
+    return `Sunset today ${sun.sunset}, sunrise ${sun.sunrise}`;
+  }
+
   // ---- Panels
 
   const PANELS = {
@@ -143,6 +152,7 @@ export function settingsScreen(params, app) {
         readout("Resolution", resolution()),
         setting({
           label: "Evening colors",
+          hint: sunHint(),
           end: segmented({
             key: "evening",
             choices: CHOICES["display.evening"],
@@ -156,6 +166,13 @@ export function settingsScreen(params, app) {
           value: settings.get("display.dim_after"),
           values: CHOICES["display.dim_after"].map(([v]) => v),
           format: (v) => CHOICES["display.dim_after"].find(([c]) => c === v)?.[1] ?? `${v} s`,
+        }),
+        toggle({
+          key: "tv.off_when_idle",
+          label: "Turn the TV off when idle",
+          hint: "After 2 hours on Couch with no buttons pressed. Never while something plays.",
+          on: settings.get("tv.off_when_idle"),
+          onChange: (on) => change("tv.off_when_idle", on),
         }),
       ),
 
