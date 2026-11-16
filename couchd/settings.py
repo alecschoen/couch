@@ -9,8 +9,8 @@ debounced like the saved state. A value that is missing or no longer valid falls
 default; unknown keys in the file are kept as they are, so an older couchd doesn't lose a
 newer one's settings.
 
-    settings.get("display.evening")              # "always"
-    settings.set("display.evening", "sunset")    # validated, saved, published
+    settings.get("display.evening")              # "sunset"
+    settings.set("display.evening", "always")    # validated, saved, published
     settings.on_change(lambda key, value: ...)   # every change, from anywhere
 
 The UI sees them in the live state section `settings` (key → value), and changes them with
@@ -91,8 +91,9 @@ def _schema(*settings: Setting) -> dict[str, Setting]:
 
 SCHEMA: dict[str, Setting] = _schema(
     # Read by the UI (ui/js/settings.js).
+    # "sunset" follows the sun where the Pi's timezone is (couchd/evening.py).
     Setting(
-        "display.evening", "choice", "always", ("sunset", "always", "off"), label="Evening colors"
+        "display.evening", "choice", "sunset", ("sunset", "always", "off"), label="Evening colors"
     ),
     Setting("display.motion", "choice", "auto", ("auto", "reduced", "full"), label="Reduce motion"),
     # Seconds without a key press on the launcher before it dims to the clock; 0 = never.
@@ -108,6 +109,8 @@ SCHEMA: dict[str, Setting] = _schema(
     # Kept for the CEC volume keys (System Audio Mode); nothing acts on it yet.
     Setting("audio.tv_remote_volume", "bool", True, label="TV remote controls volume"),
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
+    # The TV goes to standby after 2 hours idle on the launcher (couchd/idle.py).
+    Setting("tv.off_when_idle", "bool", False, label="Turn the TV off when idle"),
     # The TV goes to standby when the Pi powers off (not on a reboot).
     Setting("tv.standby_on_poweroff", "bool", False, label="Turn the TV off too"),
     # For the updater (#24); nothing acts on it yet.

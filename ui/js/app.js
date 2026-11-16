@@ -10,6 +10,7 @@
 // Home, which also takes the launcher back to its first screen.
 //
 // Keys, in order, until something takes them:
+//   0. the idle clock (idle.js): a key that wakes it does nothing else
 //   1. the innermost focus scope (an open sheet: Back closes it)
 //   2. the top screen's onKey()
 //   3. arrows move focus, OK clicks, Back goes back, Home goes to the first screen
@@ -17,6 +18,7 @@
 import { Couch } from "./couch.js";
 import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
+import { IdleClock } from "./idle.js";
 import { useKeyboardAsRemote } from "./keys.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
@@ -36,6 +38,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.layer = $(layer);
   app.toasts = new Toasts($(toasts));
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
+  app.idle = new IdleClock(app); // over everything once couchd says idle; see idle.js
 
   // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
   // True if a scope or the screen took the key (the app's "key" event says so as `taken`).
@@ -52,7 +55,8 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.couch.addEventListener("key", (e) => {
     const { key, app: target } = e.detail;
     if (target && target !== "launcher" && key !== "home") return;
-    const taken = app.handleKey(key, e.detail);
+    // A press that wakes the idle clock does only that.
+    const taken = app.idle.wake(e.detail) || app.handleKey(key, e.detail);
     app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
