@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Add mount options to /etc/fstab for Couch, and undo exactly that.
+
+    couch-fstab apply OWNER MOUNTPOINT=OPTION...   (apply sd-card /=noatime /boot/firmware=noatime)
+    couch-fstab revert OWNER
+    couch-fstab show
+
+Only the options column (the 4th) of the named mount points changes; every other byte of
+the file stays as it was, spacing and comments included. An option that was already there
+before Couch isn't recorded, so revert never removes it. What each OWNER added is kept in
+`/etc/fstab.couch.json`, and the first change keeps a copy of the file as it was
+(`/etc/fstab.couch-orig`). If the Pi won't boot, put the card in a PC and copy that copy over
+`etc/fstab` on the root partition.
+
+A broken fstab stops the boot, so before writing it checks that the new file has the same
+lines as the old one apart from those options, and that `findmnt --verify` finds no more
+problems in it than in the old one. It writes the new file atomically (fsync, rename,
+fsync). Changes apply from the next mount; install.sh remounts to apply them now.
+
+Prints one line per change and nothing when everything already matches. Standard library
+only, like couch-bootfiles: install.sh runs it before couchd's virtualenv exists.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ORIG = ".couch-orig"
+STATE = ".couch.json"  # /etc/fstab.couch.json
+
+# An fstab entry: source, target, type, options, then optional dump and pass.
+ENTRY = re.compile(r"^(\s*\S+\s+)(\S+)(\s+\S+\s+)(\S+)(.*)$")
+
+
+class Refused(SystemExit):
+    def __init__(self, why: str):
+        super().__init__(f"couch-fstab: {why}; /etc/fstab is unchanged")
+
+
+def unescape(target: str) -> str:
+    """fstab writes a space in a path as \\040."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), target)
+
+
+def entries(text: str) -> dict[str, int]:
+    """Mount point -> line index, for the lines that are entries (not comments)."""
+    out = {}
+    for i, line in enumerate(text.splitlines()):
+        if line.lstrip().startswith("#"):
+            continue
+        m = ENTRY.match(line)
+        if m:
+            out.setdefault(unescape(m.group(2)), i)
+    return out
+
+
+def edit(text: str, changes: dict[str, list[str]], *, add: bool) -> str:
+    """Add (or remove) options on the given mount points' lines."""
+    lines = text.splitlines(keepends=True)
+    where = entries(text)
+    for target, options in changes.items():
+        if target not in where:
+            if add:
+                raise Refused(f"no entry for {target}")
+            continue  # gone since; nothing of ours left to take out
+        i = where[target]
+        body = lines[i].rstrip("\r\n")
+        end = lines[i][len(body) :]
+        m = ENTRY.match(body)
+        have = m.group(4).split(",")
+        if add:
+            new = have + [o for o in options if o not in have]
+        else:
+            new = [o for o in have if o not in options] or ["defaults"]
+        lines[i] = m.group(1) + m.group(2) + m.group(3) + ",".join(new) + m.group(5) + end
+    return "".join(lines)
+
+
+def check_shape(old: str, new: str) -> None:
+    """Everything but the options column must be identical."""
+    a, b = old.splitlines(), new.splitlines()
+    if len(a) != len(b):
+        raise Refused("the new fstab would have a different number of lines")
+    for x, y in zip(a, b, strict=True):
+        if x == y:
+            continue
+        mx, my = ENTRY.match(x), ENTRY.match(y)
+        if not (mx and my) or [mx.group(k) for k in (1, 2, 3, 5)] != [
+            my.group(k) for k in (1, 2, 3, 5)
+        ]:
+            raise Refused(f"a line would change beyond its options: {x!r}")
+        if not my.group(4) or ",," in my.group(4):
+            raise Refused(f"bad options in {y!r}")
+
+
+def findmnt_problems(text: str) -> tuple[int, int] | None:
+    """(parse errors, errors) from `findmnt --verify`, or None without findmnt."""
+    if not shutil.which("findmnt"):
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".fstab") as f:
+        f.write(text)
+        f.flush()
+        run = subprocess.run(
+            ["findmnt", "--verify", "--tab-file", f.name],
+            capture_output=True,
+            text=True,
+        )
+    m = re.search(r"(\d+) parse errors?, (\d+) errors?", run.stdout + run.stderr)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return (0, 0) if run.returncode == 0 else None
+
+
+def check_findmnt(old: str, new: str) -> None:
+    before, after = findmnt_problems(old), findmnt_problems(new)
+    if before is None or after is None:
+        return
+    if after[0] > before[0] or after[1] > before[1]:
+        raise Refused(f"findmnt --verify finds more problems in the new fstab ({after} > {before})")
+
+
+def write(path: Path, text: str) -> None:
+    """Replace `path` with `text` without ever leaving it half-written."""
+    mode = path.stat().st_mode & 0o7777 if path.exists() else 0o644
+    tmp = path.with_name(f".{path.name}.couch-tmp")
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fchmod(f.fileno(), mode)
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+class Fstab:
+    """State: `before` has each touched mount point's options as they were before Couch;
+    `owners` has the options each owner wants, per mount point. An option comes out again
+    only when no owner wants it any more and it wasn't there before Couch."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.orig = path.with_name(path.name + ORIG)
+        self.state_path = path.with_name(path.name + STATE)
+        self.state: dict[str, dict] = {"before": {}, "owners": {}}
+        if self.state_path.exists():
+            self.state.update(json.loads(self.state_path.read_text()))
+
+    def wanted(self) -> dict[str, set[str]]:
+        out: dict[str, set[str]] = {}
+        for changes in self.state["owners"].values():
+            for target, options in changes.items():
+                out.setdefault(target, set()).update(options)
+        return out
+
+    def apply(self, owner: str, want: dict[str, list[str]], out: list[str]) -> None:
+        """Make OWNER's options exactly `want`; `{}` reverts it."""
+        text = self.path.read_text()
+        lines, where = text.splitlines(), entries(text)
+        before, owners = self.state["before"], self.state["owners"]
+        for target in want:
+            if target not in where:
+                raise Refused(f"no entry for {target}")
+            if target not in before:
+                before[target] = ENTRY.match(lines[where[target]]).group(4).split(",")
+        old = owners.pop(owner, {})
+        if want:
+            owners[owner] = want
+        still = self.wanted()
+        drop = {
+            t: [o for o in opts if o not in still.get(t, ()) and o not in before.get(t, ())]
+            for t, opts in old.items()
+        }
+        new = edit(edit(text, drop, add=False), want, add=True)
+        for target in list(before):
+            if target not in still:
+                del before[target]
+        self.save(text, new, out)
+
+    def save(self, text: str, new: str, out: list[str]) -> None:
+        if new != text:
+            check_shape(text, new)
+            check_findmnt(text, new)
+            if not self.orig.exists():
+                write(self.orig, text)
+            write(self.path, new)
+            for a, b in zip(text.splitlines(), new.splitlines(), strict=True):
+                if a != b:
+                    out.append(f"{self.path}: {b.strip()}")
+        if self.state["owners"]:
+            state = json.dumps(self.state, indent=2, sort_keys=True) + "\n"
+            if not self.state_path.exists() or self.state_path.read_text() != state:
+                write(self.state_path, state)
+            return
+        if self.state_path.exists():
+            self.state_path.unlink()
+        if self.orig.exists():
+            if self.orig.read_text() == self.path.read_text():
+                self.orig.unlink()
+            else:
+                out.append(f"kept {self.orig}: {self.path} has other changes since")
+
+
+def parse_changes(items: list[str], p: argparse.ArgumentParser) -> dict[str, list[str]]:
+    want: dict[str, list[str]] = {}
+    for item in items:
+        target, sep, option = item.partition("=")
+        if not sep or not target.startswith("/") or not re.fullmatch(r"[\w.=-]+", option):
+            p.error(f"expected MOUNTPOINT=OPTION, got {item!r}")
+        want.setdefault(target, [])
+        if option not in want[target]:
+            want[target].append(option)
+    return want
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="couch-fstab", description=__doc__.split("\n")[0])
+    p.add_argument("--fstab", type=Path, default=Path("/etc/fstab"))
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("apply", help="add OWNER's options (and undo any it no longer adds)")
+    a.add_argument("owner")
+    a.add_argument("changes", nargs="+", metavar="MOUNTPOINT=OPTION")
+    r = sub.add_parser("revert", help="take out every option OWNER added")
+    r.add_argument("owner")
+    sub.add_parser("show", help="print what each owner added")
+    args = p.parse_args(argv)
+
+    owner = getattr(args, "owner", None)
+    if owner is not None and not owner.replace("-", "").isalnum():
+        p.error(f"owner must be letters, digits and dashes: {owner!r}")
+
+    fstab = Fstab(args.fstab)
+    out: list[str] = []
+    if args.cmd == "show":
+        print(json.dumps(fstab.state, indent=2, sort_keys=True))
+        return 0
+    if args.cmd == "apply":
+        fstab.apply(args.owner, parse_changes(args.changes, p), out)
+    else:
+        fstab.apply(args.owner, {}, out)
+    for line in out:
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
