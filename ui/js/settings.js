@@ -23,6 +23,7 @@ export const DEFAULTS = {
   "display.dim_after": 300,
   "audio.volume_limit": 100,
   "audio.tv_remote_volume": true,
+  "audio.ui_sounds": "on",
   "bluetooth.auto_reconnect": true,
   "network.wifi": false,
   "tv.off_when_idle": false,
@@ -34,6 +35,11 @@ const ALIASES = { evening: "display.evening", motion: "display.motion" };
 const full = (key) => ALIASES[key] ?? key;
 
 export const CHOICES = {
+  "audio.ui_sounds": [
+    ["on", "On"],
+    ["tv", "TV only"],
+    ["off", "Off"],
+  ],
   "display.evening": [
     ["sunset", "After sunset"],
     ["always", "Always"],

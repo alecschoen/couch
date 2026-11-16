@@ -22,8 +22,9 @@ What it sets up, and why:
   quits; PM4K draws everything else with its own windows.
 - media/splash.png: Kodi's splash, the same Opening screen.
 - guisettings.xml: that skin, DRM PRIME decoding, refresh rate matched on start/stop, sound
-  through PulseAudio (so it follows couchd's PipeWire routing), no UI sounds, no screensaver,
-  no addon updates, JSON-RPC on for couchd's pause.
+  through PulseAudio (so it follows couchd's PipeWire routing), no screensaver,
+  no addon updates, JSON-RPC on for couchd's pause. Navigation sounds are left alone:
+  couchd switches them to follow the UI sounds setting (couchd/kodi_sounds.py).
 - Kodi's CEC adapter off: couchd owns CEC (#7).
 - PM4K's own settings: no update check, no kiosk auto-start (service.couch starts it).
 """
@@ -81,7 +82,6 @@ def _always(value: str) -> Callable[[str | None], bool]:
 # guisettings.xml: id -> (value to write, does the current value already do?)
 GUI_SETTINGS: dict[str, tuple[str, Callable[[str | None], bool]]] = {
     "lookandfeel.skin": (SKIN, _always(SKIN)),
-    "lookandfeel.soundskin": ("", lambda v: not v),  # no navigation clicks
     "lookandfeel.startupwindow": ("10000", _always("10000")),  # Home: the Opening screen
     "screensaver.mode": ("", lambda v: not v),  # couchd does idle
     "input.enablemouse": ("false", _always("false")),  # no pointer

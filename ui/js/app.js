@@ -24,6 +24,7 @@ import { useKeyboardAsRemote } from "./keys.js";
 import { useOverlays } from "./overlay.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
+import { UiSounds } from "./sounds.js";
 import { Theme } from "./theme.js";
 import { announceUpdates } from "./updates.js";
 
@@ -41,6 +42,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.toasts = new Toasts($(toasts));
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
   app.idle = new IdleClock(app); // over everything once couchd says idle; see idle.js
+  app.sounds = new UiSounds(app); // quiet sounds for keys, toasts and errors (#49)
 
   // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
   // True if a scope or the screen took the key (the app's "key" event says so as `taken`).
@@ -58,9 +60,14 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
     const { key, app: target, overlay } = e.detail;
     if (overlay) return;
     if (target && target !== "launcher" && key !== "home") return;
+    const before = [app.focus.current, app.router.current, app.router.depth];
     // A press that wakes the idle clock does only that.
-    const taken = app.idle.wake(e.detail) || app.handleKey(key, e.detail);
-    app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
+    const woke = app.idle.wake(e.detail);
+    const taken = woke || app.handleKey(key, e.detail);
+    // Did anything change: focus, the screen on top, or the back stack (for sounds.js).
+    const after = [app.focus.current, app.router.current, app.router.depth];
+    const moved = after.some((v, i) => v !== before[i]);
+    app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken, woke, moved } }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level, e.detail.icon));
   useOverlays(app);

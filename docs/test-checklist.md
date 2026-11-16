@@ -57,6 +57,13 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       Always / Off. Dim to clock after: Left and Right change it.
 - [ ] **C2** Sound: Output opens a list of outputs; picking one moves the sound. The two
       switches flip with OK. Volume limit changes with Left and Right.
+- [ ] **C2b** UI sounds (#49), on by default. On Home and in Settings, from the couch:
+      moving makes a soft tick, OK a short rising pair, Back a falling pair, and pushing
+      against an edge a low thud. Hold Down in Settings: a light, steady ticking, not a
+      rattle. Expected: quiet next to a video at the same volume, and no lag you can feel.
+      Then try "TV only" with the sound on the jack (silent), and Off (silent). Write down
+      any sound that's too loud, too sharp or annoying: ____. Then open Plex: Kodi's own
+      clicks when you move, and none with the setting on Off. Put it back to On.
 - [ ] **C3** Remote → Test your remote → OK. Press each button below and write what the box
       shows (it shows the name and the TV's code, or nothing if the TV keeps the button to
       itself). Return twice stops the test.
