@@ -11,9 +11,16 @@ Rules:
   The Pause key (also sent when the TV goes to standby) pauses the Chromium app in front.
 - An app going to the background has its media paused. Its tab stays open, so bringing it
   back to the front is instant.
+- Opening an app shows the launcher's Opening screen (#19) until the app is ready to look
+  at: a new YouTube tab loads in the background and comes to the front once it has loaded
+  (or after `PAGE_LOAD_WAIT`), and Kodi gets the screen after `opening_delay`. Home or Back
+  while it opens gives up on it.
+- Before opening, couchd checks the app can work: YouTube needs the internet, Plex its server
+  (couchd/network.py). If not, the launcher shows an error screen instead.
 - If an app dies (a crashed tab, Kodi failing, the browser going away under it), we go back
   to the launcher and set `error` for the error screen. Nothing restarts an app on its own;
   after `CRASH_LIMIT` crashes in `CRASH_WINDOW` seconds, launching it is refused for a while.
+  An error clears itself after `ERROR_TTL`, on Home, or when anything is launched.
 - If the browser session is gone and nothing brings it back, we restart it, capped the same
   way, so a broken Chromium can't spin forever.
 
@@ -35,15 +42,21 @@ from couchd.backends import BackendError
 from couchd.chromium import CdpError, Chromium, PageSetup
 from couchd.commands import CommandError, arg
 from couchd.display import Display, FakeDisplay
+from couchd.network import Connectivity, FakeConnectivity
 from couchd.services import Context, Service
 
 log = logging.getLogger(__name__)
 
 AppKind = Literal["launcher", "chromium", "kodi"]
+# What the error screen says: no internet, Plex server unreachable, the app stopped, the app
+# didn't start, or it keeps stopping (the crash limit).
+ErrorKind = Literal["offline", "server", "crashed", "failed", "repeated"]
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
-OPENING_DELAY = 0.8  # time for the launcher to paint its Opening screen before a handoff
+OPENING_DELAY = 0.8  # the Opening screen shows at least this long, and paints before a handoff
+PAGE_LOAD_WAIT = 10.0  # a new tab comes to the front once loaded, or after this long
+ERROR_TTL = 120.0  # an error screen nobody answered goes away by itself
 BROWSER_WAIT = 20.0  # how long a launch waits for the browser to come back from Kodi
 SESSION_GRACE = 15.0  # browser unreachable this long, and its session is down: restart it
 RETRY_MIN, RETRY_MAX = 0.25, 1.0  # DevTools reconnect backoff; a refused connect is cheap
@@ -51,6 +64,8 @@ CRASH_LIMIT, CRASH_WINDOW = 3, 120.0
 
 PAUSE_MEDIA = 'document.querySelectorAll("video, audio").forEach((m) => m.pause())'
 VISIBILITY = "document.visibilityState"
+# A new tab is about:blank (and "complete") until navigation starts.
+READY = 'location.href === "about:blank" ? "loading" : document.readyState'
 
 
 @dataclass(frozen=True)
@@ -108,6 +123,7 @@ class AppService(Service):
         *,
         apps: tuple[App, ...] = DEFAULT_APPS,
         launcher_url: str | None = None,
+        connectivity: Connectivity | None = None,
         opening_delay: float = OPENING_DELAY,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -119,6 +135,7 @@ class AppService(Service):
         self.apps = {app.id: app for app in apps}
         self.launcher = next(a for a in apps if a.kind == "launcher")
         self._launcher_url = launcher_url
+        self.connectivity = connectivity  # None: don't check before opening
         self.opening_delay = opening_delay
         self._clock = clock
         self.crashes = CrashLimiter(clock=clock)
@@ -130,6 +147,8 @@ class AppService(Service):
         self._seen_browser = False  # first attach: find out which tab is in front
         self._opening: str | None = None
         self._error: dict[str, str] | None = None
+        self._error_expiry: asyncio.Task | None = None
+        self._abort = asyncio.Event()  # Home or Back while an app opens
         self._kodi: str | None = None  # the Kodi app on screen
         self._handoff = False  # handing the screen to Kodi: losing the browser is expected
         self._browser_ready = asyncio.Event()
@@ -154,12 +173,16 @@ class AppService(Service):
         commands.add("apps.clear_error", self._clear_error_command)
         if isinstance(self.display, FakeDisplay):
             commands.add("apps.dev.kodi_exit", self._dev_kodi_exit)
+            commands.add("apps.dev.crash", self._dev_crash)
+        if isinstance(self.connectivity, FakeConnectivity):
+            commands.add("apps.dev.network", self._dev_network)
         self._publish()
         self._spawn(self._browser_loop())
         self._spawn(self._watch_keys())
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("apps.")
+        self._set_error(None)
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -189,7 +212,10 @@ class AppService(Service):
             await self.home()
             return
         if self.crashes.too_many(app.id):
+            self._fail(app.id, "repeated", f"{app.name} keeps stopping")
+            self._publish()
             raise CommandError(f"{app.name} keeps stopping. Try again in a minute.")
+        self._abort.clear()
         if app.kind == "chromium":
             await self._ensure_browser()
             async with self._lock:
@@ -199,7 +225,10 @@ class AppService(Service):
                 await self._launch_kodi(app)
 
     async def home(self) -> None:
+        if self._opening is not None:
+            self._abort.set()  # stop waiting on the app that's opening; it holds the lock
         async with self._lock:
+            self._set_error(None)
             if self._kodi is not None:
                 await self._stop_kodi()
             elif self.launcher.id in self._pages:
@@ -224,7 +253,7 @@ class AppService(Service):
             self._publish()
 
     def clear_error(self) -> None:
-        self._error = None
+        self._set_error(None)
         self._publish()
 
     # --- Chromium apps -------------------------------------------------------------------
@@ -242,22 +271,92 @@ class AppService(Service):
                 raise CommandError("The browser isn't responding") from None
 
     async def _launch_chromium(self, app: App) -> None:
-        self._error = None
-        if app.id not in self._pages:
-            self._opening = app.id
-            self._publish()
-            try:
-                self._pages[app.id] = await self.chromium.open(app.url, app.setup)
-            except CdpError as e:
-                raise CommandError(f"Couldn't open {app.name}") from e
-            finally:
-                self._opening = None
+        """Bring a tab to the front, opening it first if need be. Lock held."""
+        self._set_error(None)
         try:
+            if app.id not in self._pages and not await self._open_tab(app):
+                if self._error is not None:
+                    raise CommandError(self._error["message"])
+                return  # given up on: Home or Back
             await self._show(app.id)
         except CdpError as e:
             raise CommandError(f"Couldn't switch to {app.name}") from e
         finally:
+            self._opening = None
             self._publish()
+
+    async def _open_tab(self, app: App) -> bool:
+        """Open the app's tab behind the launcher's Opening screen and wait for it to load.
+        False if the user gave up on it first. Lock held."""
+        started = self._clock()
+        await self._begin_opening(app)
+        if not await self._unless_aborted(self._preflight(app)):
+            return False
+        try:
+            self._pages[app.id] = await self.chromium.open(app.url, app.setup, background=True)
+        except CdpError as e:
+            self._fail(app.id, "failed", f"{app.name} didn't open")
+            raise CommandError(f"Couldn't open {app.name}") from e
+        loaded = await self._unless_aborted(self._wait_loaded(self._pages[app.id]))
+        if loaded:
+            loaded = await self._unless_aborted(self._linger(started))
+        return loaded
+
+    async def _wait_loaded(self, target: str) -> None:
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(PAGE_LOAD_WAIT):
+                while True:
+                    with contextlib.suppress(CdpError):
+                        if await self.chromium.evaluate(target, READY) == "complete":
+                            return
+                    await asyncio.sleep(0.2)
+        log.info("tab still loading; showing it anyway", extra={"target": target})
+
+    async def _begin_opening(self, app: App) -> None:
+        """Show the Opening screen: `opening` set, and the launcher in front. Lock held."""
+        self._opening = app.id
+        self._publish()
+        if self._foreground != self.launcher.id and self.launcher.id in self._pages:
+            with contextlib.suppress(CdpError):
+                await self._show(self.launcher.id)
+
+    async def _linger(self, started: float) -> None:
+        """Keep the Opening screen up for at least `opening_delay`, so it's seen, not a flash."""
+        await asyncio.sleep(max(0.0, self.opening_delay - (self._clock() - started)))
+
+    async def _unless_aborted(self, awaitable: Coroutine[Any, Any, Any]) -> Any:
+        """Await it, unless Home or Back comes first: then cancel it and return False."""
+        work = asyncio.ensure_future(awaitable)
+        abort = asyncio.ensure_future(self._abort.wait())
+        try:
+            await asyncio.wait({work, abort}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            abort.cancel()
+        if not work.done():
+            work.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await work
+            log.info("stopped opening", extra={"app": self._opening})
+            return False
+        result = work.result()
+        return True if result is None else result
+
+    async def _preflight(self, app: App) -> bool:
+        """Can the app work right now? If not, set the error that says why."""
+        if self.connectivity is None:
+            return True
+        if app.kind == "chromium":
+            if await self.connectivity.internet():
+                return True
+            self._fail(app.id, "offline", f"{app.name} needs the internet")
+            return False
+        if await self.connectivity.plex() != "unreachable":
+            return True
+        if await self.connectivity.internet():
+            self._fail(app.id, "server", "Can't reach your Plex server")
+        else:
+            self._fail(app.id, "offline", f"{app.name} needs the network")
+        return False
 
     async def _show(self, app_id: str) -> None:
         """Put a tab in front and pause whatever was in front before. Lock held."""
@@ -298,7 +397,7 @@ class AppService(Service):
                     await self._reopen_launcher()
                 else:
                     if crashed:
-                        self._fail(app_id, f"{app.name} stopped unexpectedly")
+                        self._fail(app_id, "crashed", f"{app.name} stopped unexpectedly")
                     if self._foreground == app_id and self.launcher.id in self._pages:
                         await self._show(self.launcher.id)
             except CdpError as e:
@@ -322,14 +421,20 @@ class AppService(Service):
         """Hand the screen to Kodi. Lock held."""
         if self._kodi is not None:
             return  # already on screen
-        self._error = None
-        self._opening = app.id
-        self._publish()
-        # The launcher, in front, shows the Opening screen (#19) while the switch happens.
-        if self.launcher.id in self._pages:
-            with contextlib.suppress(CdpError):
-                await self._show(self.launcher.id)
-        await asyncio.sleep(self.opening_delay)
+        self._set_error(None)
+        # The launcher, in front, shows the Opening screen while the switch happens. Kodi's
+        # own splash looks the same (ui/assets/opening-plex.png), so the handoff is one screen.
+        started = self._clock()
+        await self._begin_opening(app)
+        ok = await self._unless_aborted(self._preflight(app))
+        if ok:
+            ok = await self._unless_aborted(self._linger(started))
+        if not ok:
+            self._opening = None
+            self._publish()
+            if self._error is not None:
+                raise CommandError(self._error["message"])
+            return
         self._handoff = True
         try:
             await self.display.start_kodi(self._kodi_exit_callback(app.id))
@@ -337,7 +442,7 @@ class AppService(Service):
         except BackendError as e:
             log.error("Kodi didn't start", extra={"app": app.id, "error": str(e)})
             self.crashes.record(app.id)
-            self._fail(app.id, f"{app.name} didn't start")
+            self._fail(app.id, "failed", f"{app.name} didn't start")
             await self._restore_browser()
             raise CommandError(f"{app.name} didn't start") from e
         finally:
@@ -366,7 +471,7 @@ class AppService(Service):
             app = self.apps[app_id]
             if failed:
                 self.crashes.record(app_id)
-                self._fail(app_id, f"{app.name} stopped unexpectedly")
+                self._fail(app_id, "crashed", f"{app.name} stopped unexpectedly")
             log.info("Kodi exited", extra={"app": app_id, "failed": failed})
             self._publish()
             await self._restore_browser()
@@ -461,7 +566,7 @@ class AppService(Service):
             log.warning("lost the browser", extra={"foreground": app.id})
             self.crashes.record("browser")
             if app.kind == "chromium":
-                self._fail(app.id, f"{app.name} stopped unexpectedly")
+                self._fail(app.id, "crashed", f"{app.name} stopped unexpectedly")
             # The session restarts on the launcher.
             self._foreground = self.launcher.id
         self._publish()
@@ -515,9 +620,24 @@ class AppService(Service):
             raise CommandError(f"unknown app {app_id!r}")
         return app
 
-    def _fail(self, app_id: str, message: str) -> None:
-        self._error = {"app": app_id, "message": message}
-        self.ctx.bus.toast(message, "error")
+    def _fail(self, app_id: str, kind: ErrorKind, message: str) -> None:
+        """Set the error the launcher's error screen shows. No toast: the screen says it."""
+        log.info("app error", extra={"app": app_id, "kind": kind, "error": message})
+        self._set_error({"app": app_id, "kind": kind, "message": message})
+
+    def _set_error(self, error: dict[str, str] | None) -> None:
+        if self._error_expiry is not None:
+            self._error_expiry.cancel()
+            self._error_expiry = None
+        self._error = error
+        if error is not None:
+            self._error_expiry = asyncio.create_task(self._expire_error(error))
+
+    async def _expire_error(self, error: dict[str, str]) -> None:
+        await asyncio.sleep(ERROR_TTL)
+        if self._error is error:
+            self._error_expiry = None
+            self.clear_error()
 
     def _publish(self) -> None:
         running = [a for a in self.apps if a in self._pages or a == self._kodi]
@@ -555,3 +675,25 @@ class AppService(Service):
         if not self.display.kodi_running:
             raise CommandError("Kodi isn't running")
         self.display.exit_kodi(crashed=crashed)
+
+    async def _dev_crash(self, args: dict[str, Any]) -> None:
+        """Dev mode only: act as if an app crashed (its tab, or the pretend Kodi)."""
+        app = self._app(arg(args, "app", str))
+        if app.kind == "kodi":
+            await self._dev_kodi_exit({"crashed": True})
+            return
+        target = self._pages.get(app.id)
+        if target is None:
+            raise CommandError(f"{app.name} isn't open")
+        self._page_gone(target, True)  # what Chromium's Target.targetCrashed leads to
+
+    async def _dev_network(self, args: dict[str, Any]) -> None:
+        """Dev mode only: pretend the internet or the Plex server is gone (or back)."""
+        assert isinstance(self.connectivity, FakeConnectivity)
+        if "internet" in args:
+            self.connectivity.online = arg(args, "internet", bool)
+        if "plex" in args:
+            plex = arg(args, "plex", str)
+            if plex not in ("ok", "unreachable", "unknown"):
+                raise CommandError("'plex' must be ok, unreachable or unknown")
+            self.connectivity.plex_reach = plex  # type: ignore[assignment]

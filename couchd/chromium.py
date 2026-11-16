@@ -144,13 +144,18 @@ class Chromium:
             if t.get("type") == "page"
         ]
 
-    async def open(self, url: str, setup: PageSetup | None = None) -> str:
+    async def open(
+        self, url: str, setup: PageSetup | None = None, *, background: bool = False
+    ) -> str:
         """Open `url` in a new tab and return its target id. With `setup`, the tab is set up
-        before the page starts loading."""
+        before the page starts loading. A `background` tab loads behind the one in front
+        until it's activated."""
+        params: dict[str, Any] = {"url": url if setup is None else "about:blank"}
+        if background:
+            params["background"] = True
+        target_id = (await self.call("Target.createTarget", params))["targetId"]
         if setup is None:
-            result = await self.call("Target.createTarget", {"url": url})
-            return result["targetId"]
-        target_id = (await self.call("Target.createTarget", {"url": "about:blank"}))["targetId"]
+            return target_id
         try:
             await self.prepare(target_id, setup)
             await self.call("Page.navigate", {"url": url}, session=self._sessions[target_id])
