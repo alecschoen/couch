@@ -199,8 +199,11 @@ export class Toasts {
   }
 
   show(text, level = "info") {
-    const iconName = level === "error" ? "info" : level === "warning" ? "info" : "check";
-    const el = h("div", { class: `toast${level === "error" ? " is-error" : ""}`, role: "status" }, icon(iconName), h("span", {}, text));
+    // couchd's "Sound now on X" gets the speaker and a bold X, as in the design.
+    const sound = level === "info" && /^(Sound now on )(.+)$/.exec(text);
+    const iconName = level !== "info" ? "info" : sound ? "speaker" : "check";
+    const body = sound ? h("span", {}, sound[1], h("b", { class: "toast__em" }, sound[2])) : h("span", {}, text);
+    const el = h("div", { class: `toast${level === "error" ? " is-error" : ""}`, role: "status" }, icon(iconName), body);
     this.container.prepend(el);
     while (this.container.children.length > this.max) this.container.lastElementChild.remove();
     animate(el, [{ opacity: 0, transform: "translateY(-18px)" }, { opacity: 1, transform: "none" }], { dur: "quick" });

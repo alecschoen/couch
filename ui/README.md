@@ -13,6 +13,7 @@ css/
   tokens.css          palettes, alphas, type sizes, spacing, radii, sizes, durations
   base.css            page basics, the colour flood, screens, type classes, layout helpers
   bluetooth.css       the Bluetooth screen's layout
+  home.css            Home's layout
   components.css      cards, pills, segmented controls, rows, tabs, setting lines,
                       switches, progress, toasts, sheet, key hints
 fonts/                woff2 files and their licences
@@ -26,7 +27,8 @@ js/
   motion.js           animate() that respects Reduce motion; durations come from tokens.css
   settings.js         Evening colors and Reduce motion (in localStorage for now)
   components.js       h(), icons and the component builders
-  screens/            the launcher's screens, one module each (bluetooth.js)
+  screens/            the launcher's screens, one module each: home.js (the first screen),
+                      bluetooth.js, and stub.js standing in for Settings until it lands
   demo/               the foundation demo: home cards, Components, Type, Console, quick menu
 ```
 

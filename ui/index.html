@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <title>Couch</title>
   <!--
-    Foundation demo: the shared base (tokens, fonts, focus, router, motion) on a few sample
-    screens, plus the dev console. Home (#15) replaces the first screen.
+    The launcher. Home is the first screen; the foundation demo's screens (console, kit, type)
+    stay registered for poking at from devtools: couchApp.router.go("console").
   -->
   <link rel="preload" href="fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/home.css">
   <link rel="stylesheet" href="css/bluetooth.css">
 </head>
 <body>
@@ -28,17 +29,21 @@
     import { openQuickMenu } from "./js/demo/quickmenu.js";
     import { typeScreen } from "./js/demo/type.js";
     import { bluetoothScreen } from "./js/screens/bluetooth.js";
+    import { homeScreen } from "./js/screens/home.js";
+    import { stubScreen } from "./js/screens/stub.js";
 
     const app = createApp();
     app.router
+      .register("home", homeScreen)
+      .register("bluetooth", bluetoothScreen)
+      .register("settings", stubScreen({ title: "Settings", palette: "settings" }))
       .register("foundation", foundationScreen)
       .register("console", consoleScreen)
       .register("kit", kitScreen)
-      .register("type", typeScreen)
-      .register("bluetooth", bluetoothScreen);
+      .register("type", typeScreen);
     app.addEventListener("key", (e) => e.detail.key === "blue" && openQuickMenu(app));
     window.couchApp = app; // for poking at it from devtools
-    app.start("foundation");
+    app.start("home");
   </script>
 </body>
 </html>
