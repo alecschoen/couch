@@ -21,7 +21,7 @@ from couchd.state import LiveState, SavedState
 from tests.fake_chromium import FakeChromium
 
 # Fast enough for tests, far enough apart that the event loop's jitter doesn't matter.
-FAST = Timing(delay=0.08, first=0.04, speedup=0.5, fastest=0.01, home_after=0.15, max_hold=0.6)
+FAST = Timing(delay=0.08, first=0.04, speedup=0.5, fastest=0.01, hold_after=0.15, max_hold=0.6)
 
 APPS = [
     {"id": "launcher", "name": "Home", "kind": "launcher"},
@@ -56,7 +56,8 @@ def keys(sub):
         message = sub._queue.get_nowait()
         if message["type"] == "key":
             d = message["data"]
-            out.append((d["key"], d["app"]) + (("repeat",) if d["repeat"] else ()))
+            flags = tuple(f for f in ("repeat", "hold") if d[f])
+            out.append((d["key"], d["app"], *flags))
         elif message["type"] == "quick_menu":
             out.append(("quick_menu", message["data"]["app"]))
     return out
@@ -217,7 +218,7 @@ async def test_repeats_are_marked_for_the_launcher(ctx, remote):
 async def test_the_tvs_own_repeats_are_ignored(ctx, remote):
     in_front(ctx, "youtube")
     for _ in range(3):
-        remote.tv.key_pressed("select")
+        remote.tv.key_pressed("play")
         remote.tv.key_pressed("left")
     remote.tv.key_released()
     # select, left, select, left...: each new button is a new press. The same one again isn't.
@@ -233,9 +234,46 @@ async def test_the_tvs_own_repeats_are_ignored(ctx, remote):
 async def test_select_doesnt_repeat(ctx, remote):
     in_front(ctx, "youtube")
     remote.tv.key_pressed("select")
-    await asyncio.sleep(FAST.delay * 3)
+    await asyncio.sleep(FAST.max_hold / 2)
     remote.tv.key_released()
     assert remote.keyboard.typed == [uinput.KEY_ENTER]
+
+
+async def test_ok_acts_on_release(ctx, remote):
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("select")
+    await settle()
+    assert keys(sub) == []
+    remote.tv.key_released()
+    assert keys(sub) == [("select", "launcher")]
+
+
+async def test_holding_ok_is_a_long_press(ctx, remote):
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("select")
+    await asyncio.sleep(FAST.hold_after + 0.05)
+    assert keys(sub) == [("select", "launcher", "hold")]
+    remote.tv.key_released()
+    assert keys(sub) == []
+
+
+async def test_a_long_press_in_an_app_is_one_enter(ctx, remote):
+    in_front(ctx, "plex")
+    remote.tv.key_pressed("select")
+    await asyncio.sleep(FAST.hold_after + 0.05)
+    remote.tv.key_released()
+    assert remote.keyboard.typed == [uinput.KEY_ENTER]
+
+
+async def test_remote_press_can_hold(ctx, remote):
+    sub = ctx.bus.subscribe()
+    await ctx.commands.run("remote.press", {"key": "select", "hold": True, "keyboard": True})
+    await ctx.commands.run("remote.press", {"key": "back", "hold": True})
+    assert keys(sub) == [("select", "launcher", "hold"), ("home", "launcher")]
+    with pytest.raises(CommandError, match="can be held"):
+        await ctx.commands.run("remote.press", {"key": "up", "hold": True})
 
 
 async def test_a_lost_release_stops_the_repeat_eventually(ctx, remote):
@@ -269,7 +307,7 @@ async def test_holding_back_is_home(ctx, remote):
     in_front(ctx, "youtube")
     sub = ctx.bus.subscribe()
     remote.tv.key_pressed("back")
-    await asyncio.sleep(FAST.home_after + 0.05)
+    await asyncio.sleep(FAST.hold_after + 0.05)
     assert keys(sub) == [("home", "youtube")]
     remote.tv.key_released()
     assert keys(sub) == []
@@ -318,7 +356,7 @@ async def test_held_back_takes_you_home_and_red_moves_the_sound(ctx, remote):
         remote.tv.key_released()
         await until(lambda: ctx.state.get("audio")["current"] == "jack")
         remote.tv.key_pressed("back")
-        await asyncio.sleep(FAST.home_after + 0.05)
+        await asyncio.sleep(FAST.hold_after + 0.05)
         remote.tv.key_released()
         await until(lambda: ctx.state.get("apps")["foreground"] == "launcher")
         assert remote.keyboard.typed == []

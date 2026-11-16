@@ -15,15 +15,17 @@ Timing is couchd's, because TVs differ in whether, and how often, they repeat a 
 
 - Arrows repeat while held: the first repeat after `delay`, then faster and faster, down to
   one every `fastest`. The TV's own repeats are ignored.
-- Back acts on release. Held for `home_after`, it's Home instead, and the release does
-  nothing. (The Sony doesn't forward its Home button, so this is the way home.)
+- Back and OK act on release. Held for `hold_after`, Back is Home instead (the Sony doesn't
+  forward its Home button, so this is the way home), and OK is a long press: `select` with
+  `hold: true` (in an app, a plain Enter). The release then does nothing.
 - Everything else acts on press, once.
 - A button whose release never comes (CEC frames do get lost) is let go after `max_hold`.
 
-`remote.press` acts like a quick press and release of one button, for curl and tests. With
-`keyboard: true` it is a key typed on a keyboard into the launcher (ui/js/keys.js): it goes
-to the launcher whatever is in front, so a key the virtual keyboard typed into a launcher
-that wasn't supposed to have the screen can't come back to be typed again.
+`remote.press` acts like a quick press and release of one button, for curl and tests;
+`hold: true` makes it a long press of OK or Back. With `keyboard: true` it is a key typed on
+a keyboard into the launcher (ui/js/keys.js): it goes to the launcher whatever is in front,
+so a key the virtual keyboard typed into a launcher that wasn't supposed to have the screen
+can't come back to be typed again.
 """
 
 import asyncio
@@ -40,6 +42,7 @@ from couchd.services import Context, Service
 log = logging.getLogger(__name__)
 
 REPEATING = frozenset({"up", "down", "left", "right"})
+ON_RELEASE = frozenset({"back", "select"})  # these wait to see whether they're held
 COUCHD_KEYS = frozenset({"home", "red", "green", "yellow", "blue"})
 LAUNCHER = "launcher"
 
@@ -73,7 +76,7 @@ class Timing:
     first: float = 0.2  # then the gap between repeats starts here...
     speedup: float = 0.85  # ...shrinking by this much each repeat...
     fastest: float = 0.06  # ...down to this
-    home_after: float = 0.8  # Back held this long is Home
+    hold_after: float = 0.8  # Back or OK held this long is Home or a long press
     max_hold: float = 15.0  # no release from the TV after this long: let go
 
 
@@ -94,7 +97,7 @@ class RemoteService(Service):
         self.timing = timing
         self._held: str | None = None
         self._held_task: asyncio.Task | None = None
-        self._went_home = False  # the held Back already turned into Home
+        self._held_long = False  # the held Back or OK already acted as a long press
         self._keyboard_up = False
 
     async def start(self) -> None:
@@ -127,23 +130,23 @@ class RemoteService(Service):
             self.tap(key)
 
     def press(self, key: str) -> None:
-        """A button went down. Acts now, or on release for Back."""
+        """A button went down. Acts now, or for Back and OK on release or hold."""
         if not self._known(key):
             return
         if key == self._held:
             return  # the TV repeating a held button; we do our own repeat
         self.release()  # a new button down means the last one is up
         self._held = key
-        self._went_home = False
-        if key != "back":
+        self._held_long = False
+        if key not in ON_RELEASE:
             self._send(key)
         self._held_task = asyncio.create_task(self._hold(key))
 
     def release(self) -> None:
         """The button that was down came up."""
         key = self._let_go()
-        if key == "back" and not self._went_home:
-            self._send("back")
+        if key in ON_RELEASE and not self._held_long:
+            self._send(key)
 
     def tap(self, key: str) -> None:
         """A press and release in one, with no hold."""
@@ -162,10 +165,10 @@ class RemoteService(Service):
         t = self.timing
         loop = asyncio.get_running_loop()
         deadline = loop.time() + t.max_hold
-        if key == "back":
-            await asyncio.sleep(t.home_after)
-            self._went_home = True
-            self._send("home")
+        if key in ON_RELEASE:
+            await asyncio.sleep(t.hold_after)
+            self._held_long = True
+            self._send_hold(key)
         elif key in REPEATING:
             await asyncio.sleep(t.delay)
             gap = t.first
@@ -186,12 +189,20 @@ class RemoteService(Service):
 
     # --- routing -------------------------------------------------------------------------
 
-    def _send(self, key: str, *, repeat: bool = False, keyboard: bool = False) -> None:
+    def _send_hold(self, key: str, *, keyboard: bool = False) -> None:
+        if key == "back":
+            self._send("home", keyboard=keyboard)
+        else:
+            self._send(key, hold=True, keyboard=keyboard)
+
+    def _send(
+        self, key: str, *, repeat: bool = False, hold: bool = False, keyboard: bool = False
+    ) -> None:
         apps = self.ctx.state.get("apps")
         foreground = apps.get("foreground") or LAUNCHER
         app_id = LAUNCHER if keyboard else foreground
         kind = next((a["kind"] for a in apps.get("list", ()) if a["id"] == app_id), LAUNCHER)
-        self.ctx.bus.publish("key", {"key": key, "repeat": repeat, "app": app_id})
+        self.ctx.bus.publish("key", {"key": key, "repeat": repeat, "hold": hold, "app": app_id})
         if key == "blue" and not repeat:
             self.ctx.bus.publish("quick_menu", {"app": app_id})
         if kind == LAUNCHER or key in COUCHD_KEYS:
@@ -210,8 +221,14 @@ class RemoteService(Service):
         key = arg(args, "key", str)
         if key not in REMOTE_KEYS:
             raise CommandError(f"unknown key {key!r}")
-        keyboard = args.get("keyboard", False)
-        if not isinstance(keyboard, bool):
-            raise CommandError("'keyboard' must be true or false")
+        flags = {name: args.get(name, False) for name in ("keyboard", "hold")}
+        for name, value in flags.items():
+            if not isinstance(value, bool):
+                raise CommandError(f"'{name}' must be true or false")
+        if flags["hold"] and key not in ON_RELEASE:
+            raise CommandError(f"only {' and '.join(sorted(ON_RELEASE))} can be held")
         self.release()
-        self._send(key, keyboard=keyboard)
+        if flags["hold"]:
+            self._send_hold(key, keyboard=flags["keyboard"])
+        else:
+            self._send(key, keyboard=flags["keyboard"])

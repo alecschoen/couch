@@ -105,7 +105,7 @@ async def test_tv_standby_pauses_whatever_is_playing(rig):
     await run(rig, "tv.standby")
     assert await sub.get() == {
         "type": "key",
-        "data": {"key": "pause", "repeat": False, "app": "launcher"},
+        "data": {"key": "pause", "repeat": False, "hold": False, "app": "launcher"},
     }
 
 
@@ -114,7 +114,7 @@ async def test_remote_press_becomes_a_key_message(rig):
     await run(rig, "remote.press", key="red")
     assert await sub.get() == {
         "type": "key",
-        "data": {"key": "red", "repeat": False, "app": "launcher"},
+        "data": {"key": "red", "repeat": False, "hold": False, "app": "launcher"},
     }
 
 

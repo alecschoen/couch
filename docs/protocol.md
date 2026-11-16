@@ -72,7 +72,7 @@ analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); a
 **`key`**: a remote button.
 
 ```json
-{"type": "key", "data": {"key": "up", "repeat": false, "app": "launcher"}}
+{"type": "key", "data": {"key": "up", "repeat": false, "hold": false, "app": "launcher"}}
 ```
 
 Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `back` `home`
@@ -82,8 +82,9 @@ Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `b
 `app` is the app the key was for: the one in front (`apps.foreground`). Keys for any other
 app than the launcher were typed into that app on couchd's virtual keyboard; the launcher
 ignores them, except `home`. `repeat` is true for the repeats of a held arrow key: couchd
-repeats them itself, after 400 ms and then faster and faster. Back is sent when it's
-released; held for 800 ms it's `home` instead.
+repeats them itself, after 400 ms and then faster and faster. Back and OK are sent when
+they're released. Held for 800 ms, Back is `home` instead, and OK is a long press: `select`
+with `hold: true` (only once, and nothing on release).
 
 Some keys are couchd's, wherever you are, and are never typed into apps: `home` goes back
 to the launcher, `red` moves the sound to the next available output, `blue` asks for the
@@ -120,7 +121,7 @@ The text `ping` gets `pong`.
 
 | Command | Args |
 | --- | --- |
-| `remote.press` | `key`; `keyboard` (bool, optional). Like a quick press of that button on the remote. With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
+| `remote.press` | `key`; `keyboard`, `hold` (bools, optional). Like a quick press of that button on the remote; `hold` makes it a long press (OK and Back only). With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
