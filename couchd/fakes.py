@@ -20,6 +20,7 @@ from couchd.backends import (
     TvBackend,
     TvPower,
 )
+from couchd.cec_tv import VOLUME_COMMANDS
 from couchd.uinput import key_name
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,34 @@ class FakeTv(TvBackend):
         self._delays = _Delays(speed)
         self._power: TvPower = power
         self._wake_time = wake_time
+        self._audio_wanted = False
+        self.audio_status: tuple[int, bool] | None = None
+        self.reports: list[tuple[int, bool]] = []  # what a real TV would have been sent
+
+    def system_audio(self) -> bool:
+        return self._audio_wanted and self._power == "on"
+
+    async def set_system_audio(self, on: bool) -> None:
+        if on != self._audio_wanted:
+            self._audio_wanted = on
+            log.info("fake TV audio system", extra={"on": on})
+            self.changed()
+
+    def set_audio_status(self, volume: int, muted: bool, *, report: bool = False) -> None:
+        changed = self.audio_status != (volume, muted)
+        self.audio_status = (volume, muted)
+        if self.system_audio() and (report or changed):
+            self.reports.append((volume, muted))
+
+    async def simulate(self, frame: bytes) -> None:
+        """Understands what the volume buttons send: User Control Pressed 0x41-0x43, 0x65,
+        0x66 and User Control Released, to any address."""
+        if len(frame) >= 3 and frame[1] == 0x44 and frame[2] in VOLUME_COMMANDS:
+            self.volume_key_pressed(VOLUME_COMMANDS[frame[2]])
+        elif len(frame) >= 2 and frame[1] == 0x45:
+            self.volume_key_released()
+        else:
+            raise BackendError("The fake TV only simulates volume buttons")
 
     def power(self) -> TvPower:
         return self._power
