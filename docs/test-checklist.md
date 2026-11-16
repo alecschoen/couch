@@ -45,7 +45,10 @@ the Pi yet.
       top right says "Sound: Headphone jack". Press Return to leave the row.
 - [ ] **B6** Press Red a few times. Expected: the sound goes TV → Headphone jack → … in turn,
       with a "Sound now on …" message each time. Leave it on TV speakers.
-- [ ] **B7** Press Blue. Expected: the quick menu slides up from the bottom. Return closes it.
+- [ ] **B7** Press Blue. Expected: the quick menu slides up from the bottom with Home, Sound,
+      Volume and Bluetooth. Left and Right move between them; on Volume, Up and Down change the
+      volume and the card shows it. While it's open, Home underneath doesn't move. Return closes
+      it. Open it again and leave it: it closes by itself after about 30 seconds.
 - [ ] **B8** Press Return on Home. Expected: nothing happens.
 
 ## C. Settings (5 min)
@@ -72,8 +75,8 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       | Digits 0–9 | | ⏪ / ⏩ | |
       | Volume + / − / Mute | | ⏮ / ⏭ | |
 
-      Note: Red still switches the sound while the test runs. Switch it back with Red if
-      you need to.
+      Expected: Red shows up as a key and the sound stays where it is; Blue shows up too and
+      no quick menu opens. (Home still goes Home.)
 - [ ] **C4** Updates: Launcher, Last check, System and Overnight rows, and a Check now button
       (more in K).
 - [ ] **C5** About: Name on the TV is Couch, Device is the Raspberry Pi 4, Network says Ethernet
@@ -114,10 +117,12 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       the Bluetooth speaker.
 - [ ] **E4** Pause, Play, Stop, ⏪ / ⏩ (if the TV sends them: C3). Expected: YouTube does each one.
 - [ ] **E5** Press Red while it plays. Expected: the sound moves to the next output with a
-      message on top of YouTube **(pending merge: the message over YouTube)**. Go back to the
+      message on top of YouTube. Go back to the
       speaker with Red.
-- [ ] **E6** Press Blue. **(pending merge)** Expected: the quick menu over YouTube, in YouTube's
-      red, with Home, Sound, Volume and Bluetooth. Return closes it.
+- [ ] **E6** Press Blue while it plays. Expected: the quick menu over YouTube, in YouTube's
+      red, with Home, Sound, Volume and Bluetooth. Press Left, Right, Up, Down and OK on Volume
+      (mute, then OK again to unmute). Expected: only the menu reacts; YouTube underneath doesn't
+      move, seek or pause. Return closes it, and YouTube's own Return works again.
 - [ ] **E7** Press Return a few times. Expected: YouTube steps back (player → grid → …). On
       YouTube's home, Return goes to Couch's Home.
 - [ ] **E8** Open YouTube again. Expected: it comes straight back where you left it, without the
@@ -134,7 +139,8 @@ default).
 - [ ] **F1** Red to the Bluetooth speaker. Expected: the TV's own speakers go quiet.
 - [ ] **F2** Press the TV remote's Volume + and −, then hold Volume +. Expected: the speaker
       gets louder and quieter, and keeps going while you hold. Note whether the TV shows its
-      own volume bar. (Couch's own volume panel is **(pending merge)**.)
+      own volume bar. Couch's own volume panel shows the new volume and goes away a couple of
+      seconds after the last press.
 - [ ] **F3** Mute, then Mute again. Expected: the speaker goes quiet, then comes back.
 - [ ] **F4** With the sound still on the speaker, move around Home with the arrows, OK and
       Return. Expected: they all still work. If they don't, note it, turn "TV remote controls
@@ -157,8 +163,14 @@ default).
 - [ ] **G2** Arrows, OK and Return move around Plex as you'd expect.
 - [ ] **G3** Play a movie for a minute. Expected: picture and sound are fine (sound on whichever
       output is current).
-- [ ] **G4** Press Blue. **(pending merge)** Expected: the quick menu, or Couch's Home with the
-      menu open if Plex can't show it.
+- [ ] **G4** Press Blue while the movie plays. Expected: the quick menu over Plex, in Plex's
+      gold (Kodi draws this one; nobody has seen it on the TV yet, so compare it with
+      YouTube's in E6 and note anything off). Left, Right, Up, Down and OK on Volume move only
+      the menu: Plex underneath doesn't move, seek or pause. Return closes it. If instead you
+      land on Couch's Home with the menu open (and Plex stopped), note that: it's the fallback
+      when Kodi can't draw the menu.
+- [ ] **G4b** If the sound isn't on the TV speakers (Red to the speaker or the jack first),
+      press the TV remote's Volume + and −. Expected: Couch's volume panel over Plex, as in F2.
 - [ ] **G5** Stop, then Return until Plex asks "Are you ready to exit Plex?". Choose Exit.
       Expected: back on Couch's Home after a brief Couch logo (about half a second). It should
       read as a calm hand-over, not a flicker.
@@ -346,7 +358,7 @@ decides what the remote's buttons do.
 | YouTube | #21, PR #45 |
 | Plex via Kodi | #22, PR #43 |
 | Sound outputs | #10, PR #34 |
-| Quick menu, messages, volume panel | #18 (pending) |
+| Quick menu, messages, volume panel | #18, PR #56 |
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24, PR #54 |

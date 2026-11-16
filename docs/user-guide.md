@@ -27,6 +27,19 @@ The remote's own Home button opens the TV's menu, not Couch's. Use **hold Return
 
 When you turn the TV off, whatever's playing pauses.
 
+## The quick menu
+
+Press Blue, wherever you are, even in the middle of a film. A menu comes up with four
+cards: **Home**, **Sound**, **Volume** and **Bluetooth**. Left and Right move between them,
+and what's playing underneath carries on and doesn't react.
+
+- **Home**: back to Couch's Home.
+- **Sound**: OK sends the sound to the next place, like Red.
+- **Volume**: Up and Down make it louder and quieter; OK mutes and unmutes.
+- **Bluetooth**: OK opens the Bluetooth screen.
+
+Return or Blue closes the menu. It also closes by itself after half a minute.
+
 ## Home
 
 Home is a row of cards: **YouTube**, **Plex**, **Audio**, **Bluetooth** and **Settings**.
