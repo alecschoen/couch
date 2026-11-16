@@ -4,11 +4,38 @@ What Couch's TV, a 2010 Sony Bravia KDL-40V55 ("Bravia Sync"), sends and accepts
 HDMI-CEC, and what couchd does about it. The Pi is on HDMI 1.
 
 Sources: COUCH-7 (CEC playback device, PR #37), COUCH-8 (remote keys, PR #39), and the
-COUCH-9 probe on 17 Nov 2026 (cec-ctl on the Pi while couchd ran). **✓** = seen on this TV.
+COUCH-9 probe on 16 Nov 2026 (cec-ctl on the Pi while couchd ran). **✓** = seen on this TV.
 **?** = not seen yet: someone has to press the button. `scripts/cec-button-survey.sh`
 checks those rows (see [Re-running the survey](#re-running-the-survey)).
 
-PROBE_RESULTS
+## What the TV says about itself
+
+Asked from the Pi with `cec-ctl --to 0` while couchd ran:
+
+| Question | Answer |
+| --- | --- |
+| CEC version | 1.3a ✓ |
+| Vendor ID | 0x080046, Sony ✓ |
+| OSD name | "TV" ✓ |
+| Physical address | 0.0.0.0, logical address 0 (TV) ✓ |
+| Menu language | eng ✓ |
+| Power status | on, standby, or to-on while it wakes ✓ |
+| <Give Audio Status>, <Give System Audio Mode Status>, <System Audio Mode Request> | Feature Abort, "unrecognized opcode" ✓. The TV has no amplifier of its own to report on. |
+| <Give Features> | Feature Abort, "unrecognized opcode" ✓ (CEC 2.0; the TV is 1.3a) |
+| Reply time | 9–12 ms ✓ |
+| Other devices on the bus | none: the TV and Couch ✓ |
+
+The Pi's side: the vc4_hdmi adapter (kernel 6.18) does CEC 1.4 at physical address 1.0.0.0
+(HDMI 1), and it holds **one logical address**. So couchd is either Playback Device 1 (4)
+or Audio System (5), never both at once (see [Volume](#volume-couch-11)). It can't watch
+the whole bus: `cec-ctl --monitor-all` falls back to `--monitor`, which only shows frames
+to and from Couch's address and broadcasts.
+
+What couchd logs about CEC at the default `info` level: "claimed CEC address", "lost CEC
+address", and "TV power=… showing_couch=…" on each change. COUCH-11 adds "TV remote
+volume", "claiming CEC addresses roles=…" and "System Audio Mode on=…". Every frame sent
+and received ("cec tx", "cec rx"), remote buttons, unmapped buttons and Feature Aborts are
+logged at `debug` only (`[log] level = "debug"` in /etc/couch/config.toml).
 
 ## Remote buttons
 
@@ -59,6 +86,17 @@ release comes (couchd/remote.py).
 ## Power and inputs
 
 - **couchd wakes the TV on every start**: <Image View On>, then <Active Source>. ✓
+- **Standby** (`tv.standby`, <Standby> to the TV): the TV reports standby to the next power
+  query ~130 ms later. couchd pauses playback. ✓
+- **Wake** (`tv.power_on`, <Image View On> then <Active Source>): the TV reports "to-on"
+  ~190 ms later. It then broadcasts <Report Physical Address>, <Device Vendor ID>, and
+  two <Vendor Command With ID> Sony frames with payloads `00:04:00:01` and `00:08:00:00`,
+  and asks Couch for its OSD name and vendor ID. ✓
+- **The hotplug drops 12.3 s after <Image View On>**, for 0.6 s (f.f.f.f → 1.0.0.0). couchd
+  claims its address again; TV power reads "unknown" for ~3 s until the next answer. While
+  the hotplug is down the Pi's HDMI sink disappears and sound falls back to the jack for
+  about a second. couchd waits 2 s for the output to settle before taking the Audio System
+  address, so the blip doesn't change it (COUCH-11). ✓
 - **Hotplug drops** for under a second when the TV powers on and when it switches back to
   HDMI 1. Couch's address goes to f.f.f.f and comes back by itself. ✓
 - **The TV never sends <Request Active Source>.** When it's turned on with its own remote it
@@ -67,7 +105,39 @@ release comes (couchd/remote.py).
 
 ## Volume (COUCH-11)
 
-PROBE_AUDIO
+The TV only sends its volume buttons to an Audio System (logical address 5) that has System
+Audio Mode on. It has no audio status of its own: asked by Playback Device 1, it
+Feature-Aborts all three audio queries (above).
+
+**It accepts Couch as the Audio System.** With the adapter's one address, couchd gives up 4
+and claims 5 while sound is on the jack, Bluetooth or USB, and goes back to 4 when sound is
+on the TV (COUCH-11). Seen on the bus, 16 Nov 2026, with sound moved to the jack:
+
+- The claim takes ~150 ms. couchd then broadcasts <Report Physical Address> (Audio System),
+  <Device Vendor ID>, <Active Source> 1.0.0.0 and <Set System Audio Mode> on. ✓
+- 80 ms after the claim the TV asks 5 for <Give System Audio Mode Status>, and later for
+  <Give OSD Name>, <Give Device Vendor ID> and <Give Audio Status>. couchd answers each one.
+  The TV broadcasts <Routing Change> 0.0.0.0 → 1.0.0.0, so it treats 5 as the active
+  source on HDMI 1. ✓
+- The TV sends no Feature Abort for <Set System Audio Mode> or <Report Audio Status>. ✓
+- After that it asks nothing more: 25 s went by with no audio polls. ✓
+- couchd's volume handling, fed through `tv.simulate`: frames from the TV to 5 were
+  Vol+ ×2, Vol− and Mute ×2, then Vol+ held 1.2 s. They took the jack from 40 to 42, 44
+  and 42, muted and unmuted it, then took it to 52 (couchd's own repeat, no TV repeats).
+  Each change sent <Report Audio Status> to the TV. A Vol+ to 5 after sound went back to
+  the TV was ignored. ✓
+- Moving sound back to the TV broadcasts <Set System Audio Mode> off, then claims 4 again
+  and re-announces <Active Source>. The TV sends <Routing Change> again and asks 4 for its
+  name. ✓
+
+Not seen yet, because it needs someone at the TV:
+
+- ? Does the TV mute its own speakers in System Audio Mode, and unmute them when it ends?
+- ? Does it send Vol+ / Vol− / Mute to 5? (`sudo ./scripts/cec-button-survey.sh --volume`)
+- ? Does it still send arrows, OK and Return to Couch while Couch is at 5? If it doesn't,
+  turn off `audio.tv_remote_volume`. The quick menu's volume (`audio.step_volume`) still
+  works.
+- ? Does it show its own volume bar from <Report Audio Status>?
 
 ## Re-running the survey
 
