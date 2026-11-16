@@ -69,10 +69,15 @@ def test_the_session_splash_is_installed_next_to_what_it_draws_with():
     assert "/opt/couch/bin/couch-splash" in start
 
 
-def test_kodi_and_the_session_take_turns():
+def test_kodi_runs_in_front_of_the_waiting_session():
     kodi = (ROOT / "system" / "couch-kodi.service").read_text()
-    assert re.search(r"^Conflicts=.*couch-session\.service", kodi, re.M)
-    assert re.search(r"^After=.*couch-session\.service", kodi, re.M)
+    # its own VT, so the session (tty1) keeps running behind it
+    assert "TTYPath=/dev/tty2" in kodi
+    assert not re.search(r"^Conflicts=.*couch-session\.service", kodi, re.M)
+    assert re.search(r"^Conflicts=.*autovt@tty2\.service", kodi, re.M)  # no login prompt
+    # the console goes to tty2 before Kodi opens the screen, and back to tty1 however it ends
+    assert "ExecStartPre=+/usr/bin/chvt 2" in kodi
+    assert "ExecStopPost=+/usr/bin/chvt 1" in kodi
     # the launcher comes back however Kodi ends, couchd or not
     assert "OnSuccess=couch-session.service" in kodi
     assert "OnFailure=couch-session.service" in kodi

@@ -7,7 +7,7 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage/Chrom
 - `couch-session-start`: what cage runs. It starts `couch-splash`, then `couch-browser`; see [Session splash](#session-splash).
 - `couch-splash`: a small Wayland client (Python's standard library only) that keeps the boot splash on screen in cage until the launcher has drawn. It draws with `couch-fbsplash`'s code, so it's installed next to it in `/opt/couch/bin`.
 - `couch-browser`: the Chromium command line cage runs (kiosk, Wayland, profile in `/var/lib/couch/chromium`, DevTools on 127.0.0.1:9222 for couchd)
-- `couch-kodi.service`: Kodi on tty1 for Plex. Not enabled: couchd starts it, and starting it stops `couch-session.service` (they conflict). When Kodi exits the unit starts the session again, so the launcher comes back even without couchd.
+- `couch-kodi.service`: Kodi on tty2 for Plex. Not enabled: couchd starts it. It switches the console to tty2 as it starts and back to tty1 however it ends (`chvt`, as root), so `couch-session.service` waits behind it, paused by logind, and leaving Plex shows the launcher as it was, without starting Chromium again. It also starts the session when Kodi exits, in case it wasn't running, so the launcher comes back even without couchd.
 - `couch-kodi`: the Kodi command line (DRM/GBM, profile in `/var/lib/couch/kodi`, filled by #22)
 - `couch.rules`: polkit rules letting the `couch` user start, stop and reset those two units, reboot or power off the Pi (Settings › Power), and switch Wi-Fi on and off (Settings › Network), nothing else. Installed as `/etc/polkit-1/rules.d/50-couch.rules`.
 - `config.example.toml`: every config key with its default

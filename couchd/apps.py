@@ -231,10 +231,10 @@ class AppService(Service):
             async with self._lock:
                 await self._launch_chromium(app)
         else:
-            # Kodi takes the screen from the browser, and with it the launcher's connection,
-            # which cancels the command that asked for Plex (couchd/api.py). The handoff has to
-            # finish anyway, or Kodi is on screen while the remote still goes to the launcher.
-            # So it runs as our own task, and only the wait for it can be cancelled.
+            # If the launcher's connection drops during the switch (Chromium dying with it,
+            # say), the command that asked for Plex is cancelled (couchd/api.py). The handoff
+            # has to finish anyway, or Kodi is on screen while the remote still goes to the
+            # launcher. So it runs as our own task, and only the wait for it can be cancelled.
             await asyncio.shield(self._own(self._launch_kodi_locked(app)))
 
     async def _launch_kodi_locked(self, app: App) -> None:
@@ -514,6 +514,13 @@ class AppService(Service):
             await self.display.show_browser()
         except BackendError as e:
             log.error("couldn't bring the launcher back", extra={"error": str(e)})
+            return
+        # The browser session waits behind Kodi (couchd/display.py), so the launcher's tab is
+        # normally still there: make sure it's the tab in front. If Chromium went away
+        # instead, _attached() puts it in front when the session is back.
+        if self.launcher.id in self._pages:
+            with contextlib.suppress(CdpError):
+                await self._show(self.launcher.id)
 
     # --- the browser connection ----------------------------------------------------------
 
