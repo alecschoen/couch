@@ -11,8 +11,9 @@ What it does on the bus:
   should show, e.g. the TV was just turned on with its own remote).
 - Follows Standby, Report Power Status, Routing Change, Routing Information, Set Stream Path and
   other devices' Active Source to keep `power()` and `active()` true.
-- Turns User Control Pressed into key names (couchd.keys). Key repeat, hold-Back-for-Home and
-  per-app routing are #8; this is the plain mapping.
+- Turns User Control Pressed / Released into key presses and releases (couchd.keys names),
+  and <Play> / <Deck Control> into taps. Key repeat, hold-Back-for-Home and per-app routing
+  are couchd/remote.py's.
 - Feature Aborts any other message addressed to us, as the spec requires.
 
 Every frame in and out is logged at debug level, for the TV compatibility notes (#9).
@@ -128,7 +129,7 @@ class CecTv(TvBackend):
             cec.PLAY: self._on_play,
             cec.DECK_CONTROL: self._on_deck_control,
             # Replies and announcements: nothing to do, but never Feature Abort them.
-            cec.USER_CONTROL_RELEASED: None,
+            cec.USER_CONTROL_RELEASED: self._on_user_control_released,
             cec.FEATURE_ABORT: self._on_feature_abort,
             cec.SET_OSD_NAME: None,
             cec.CEC_VERSION: None,
@@ -319,16 +320,22 @@ class CecTv(TvBackend):
         key = UI_COMMANDS.get(args[0])
         if key is None:
             log.debug("unmapped remote button", extra={"code": f"0x{args[0]:02x}"})
+            # A new button down means the last one is up, whether or not we know this one.
+            self.key_released()
             return
+        log.debug("remote button", extra={"code": f"0x{args[0]:02x}", "key": key})
         self.key_pressed(key)
+
+    def _on_user_control_released(self, source: int, args: bytes) -> None:
+        self.key_released()
 
     def _on_play(self, source: int, args: bytes) -> None:
         if key := PLAY_MODES.get(args[0]):
-            self.key_pressed(key)
+            self.key_tapped(key)
 
     def _on_deck_control(self, source: int, args: bytes) -> None:
         if key := DECK_CONTROL_MODES.get(args[0]):
-            self.key_pressed(key)
+            self.key_tapped(key)
 
     def _on_feature_abort(self, source: int, args: bytes) -> None:
         opcode = cec.OPCODE_NAMES.get(args[0], f"0x{args[0]:02x}")

@@ -1,0 +1,51 @@
+/* Home: the B3 colour flood (artboard "B3 · Color flood", evening). Sizes are the artboard's
+   at ×1.5. The cards, pills and flood are the shared components. */
+
+.screen.home {
+  padding: 84px var(--screen-pad-x) 96px;
+}
+
+.home__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.home__when {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.home__sound {
+  padding-top: var(--s-3);
+}
+
+.home__info {
+  margin-top: auto;
+  margin-bottom: var(--s-6);
+  display: flex;
+  flex-direction: column;
+  gap: 21px;
+}
+
+/* The current card keeps a full-ink outline while focus is up in the output pills. */
+.home .card.is-wide:not(.is-focused) .card__bg {
+  border-color: currentColor;
+}
+
+/* The current output is filled while focus is elsewhere; once focus is in the pills, the
+   focus fill moves and the current one keeps a full-ink outline. */
+.home__outputs:not(:has(.is-focused)) .pill.is-selected {
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+.home__outputs[hidden] {
+  display: none;
+}
+
+.home__outputs .pill[disabled] {
+  opacity: 0.45;
+}

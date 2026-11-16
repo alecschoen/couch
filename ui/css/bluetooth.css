@@ -1,0 +1,65 @@
+/* The Bluetooth screen (js/screens/bluetooth.js). Sizes are the artboard's ×1.5. */
+
+.bt-title {
+  margin-top: 27px;
+}
+
+.bt-columns {
+  flex: 1;
+  min-height: 0;
+  margin-top: 60px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 72px;
+}
+
+.bt-column {
+  min-height: 0;
+}
+
+.bt-column > .list__label {
+  margin-bottom: 6px;
+}
+
+.bt-rows {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.bt-looking {
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.bt-looking[hidden] {
+  display: none;
+}
+
+.bt-looking > span:last-child {
+  opacity: 0.8;
+}
+
+.bt-note {
+  min-height: var(--row-h);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-base);
+  opacity: 0.8;
+}
+
+.bt-check {
+  width: 39px;
+  height: 39px;
+}
+
+.bt-tip {
+  margin: 36px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 21px;
+  font-size: var(--text-sm);
+  opacity: var(--a-muted);
+}

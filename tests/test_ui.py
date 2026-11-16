@@ -14,7 +14,8 @@ HTML_REF = re.compile(r"""(?:href|src)\s*=\s*["']([^"']+)["']""")
 JS_IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(?\s*)["']([^"']+)["']""")
 
 
-COMMENT = re.compile(r"/\*.*?\*/|^\s*//.*$", re.DOTALL | re.MULTILINE)
+# Block comments, and whole-line // comments (not `//` inside a URL).
+COMMENT = re.compile(r"/\*[\s\S]*?\*/|^\s*//[^\n]*", re.MULTILINE)
 
 
 def references(path: Path) -> list[str]:
@@ -60,3 +61,59 @@ def test_inline_brand_matches_the_brand_files():
     text = (UI / "js" / "brand.js").read_text()
     svg = (UI / "brand" / "svg" / "lockup-stacked.svg").read_text().strip()
     assert f"export const LOCKUP_STACKED = `{svg}`;" in text
+
+
+# ---- Screens, routes and commands: the names the UI uses must exist on the other side.
+
+ROOT = UI.parent
+JS = sorted(p for p in UI.rglob("*.js"))
+
+
+def code(path: Path) -> str:
+    return COMMENT.sub("", path.read_text())
+
+
+def registered_screens() -> set[str]:
+    return set(re.findall(r"""\.register\(\s*["']([\w-]+)["']""", (UI / "index.html").read_text()))
+
+
+def couchd_commands() -> set[str]:
+    source = "\n".join(p.read_text() for p in (ROOT / "couchd").glob("*.py"))
+    return set(re.findall(r"""commands\.add\(\s*["']([\w.]+)["']""", source))
+
+
+def test_home_is_the_first_screen():
+    page = (UI / "index.html").read_text()
+    assert re.search(r"""app\.start\(\s*["']home["']\s*\)""", page)
+    assert "home" in registered_screens()
+
+
+def test_screens_only_go_to_registered_screens():
+    screens = registered_screens()
+    gone_to = {
+        name
+        for path in JS
+        for name in re.findall(r"""(?:\.go\(|\broute:\s*)["']([\w-]+)["']""", code(path))
+    }
+    assert {"bluetooth", "settings"} <= gone_to  # Home's cards
+    assert gone_to <= screens, f"not registered in index.html: {gone_to - screens}"
+
+
+def test_ui_only_sends_commands_couchd_has():
+    commands = couchd_commands()
+    assert "audio.set_output" in commands  # the pattern still finds them
+    pattern = r"""command\(\s*["']([\w.]+)["']"""
+    sent = {name for path in JS for name in re.findall(pattern, code(path))}
+    assert {"apps.launch", "audio.set_output"} <= sent
+    assert sent <= commands, f"couchd has no such command: {sent - commands}"
+
+
+def test_home_cards_match_the_design_and_launch_real_apps():
+    home = code(UI / "js" / "screens" / "home.js")
+    ids = re.findall(r"""\{\s*id:\s*["']([\w-]+)["']""", home)
+    assert ids == ["youtube", "plex", "audio", "bluetooth", "settings"]
+    apps_py = (ROOT / "couchd" / "apps.py").read_text()
+    apps = set(re.findall(r"""App\(\s*["']([\w-]+)["']""", apps_py))
+    launched = set(re.findall(r"""\bapp:\s*["']([\w-]+)["']""", home))
+    assert launched == {"youtube", "plex"}
+    assert launched <= apps

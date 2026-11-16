@@ -1,12 +1,13 @@
-"""Fake hardware for `couchd --dev`: a TV, three kinds of audio output, and Bluetooth devices
-that turn up while scanning. They behave like the real thing closely enough to build every
-screen: things take a moment, connecting a speaker adds an output, one speaker always fails
-to pair.
+"""Fake hardware for `couchd --dev`: a TV, three kinds of audio output, Bluetooth devices
+that turn up while scanning, and a virtual keyboard that only logs. They behave like the
+real thing closely enough to build every screen: things take a moment, connecting a speaker
+adds an output, one speaker always fails to pair.
 
 `speed` scales every delay; tests use 0.
 """
 
 import asyncio
+import logging
 from dataclasses import replace
 
 from couchd.backends import (
@@ -14,10 +15,14 @@ from couchd.backends import (
     BackendError,
     BluetoothBackend,
     Device,
+    KeyboardBackend,
     Output,
     TvBackend,
     TvPower,
 )
+from couchd.uinput import key_name
+
+log = logging.getLogger(__name__)
 
 
 class _Delays:
@@ -52,6 +57,18 @@ class FakeTv(TvBackend):
         await self._delays.sleep(0.3)
         self._power = "standby"
         self.changed()
+
+
+class FakeKeyboard(KeyboardBackend):
+    """Records what it would have typed; in dev mode the browser window has the real keyboard."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.typed: list[int] = []
+
+    def tap(self, code: int) -> None:
+        log.debug("virtual keyboard", extra={"key": key_name(code)})
+        self.typed.append(code)
 
 
 class FakeAudio(AudioBackend):

@@ -85,21 +85,38 @@ analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); a
 
 `level` is `info`, `warning` or `error`.
 
-**`key`**: a remote button for the UI to act on.
+**`key`**: a remote button.
 
 ```json
-{"type": "key", "data": {"key": "up"}}
+{"type": "key", "data": {"key": "up", "repeat": false, "hold": false, "app": "launcher"}}
 ```
 
 Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `back` `home`
 `play` `pause` `play_pause` `stop` `rewind` `fast_forward` `red` `green` `yellow` `blue` and
 `0`–`9`. Screens react only to these messages, never to raw keyboard events.
-couchd acts on `red` itself, wherever you are, YouTube included: it moves the sound to the
-next available output. Screens shouldn't give `red` another meaning. A keyboard
-(in dev mode, or plugged into the Pi) is turned into `remote.press` commands by
-`ui/js/keys.js`, so it takes the same path through couchd as the TV remote.
+
+`app` is the app the key was for: the one in front (`apps.foreground`). Keys for any other
+app than the launcher were typed into that app on couchd's virtual keyboard; the launcher
+ignores them, except `home`. `repeat` is true for the repeats of a held arrow key: couchd
+repeats them itself, after 400 ms and then faster and faster. Back and OK are sent when
+they're released. Held for 800 ms, Back is `home` instead, and OK is a long press: `select`
+with `hold: true` (only once, and nothing on release).
+
+Some keys are couchd's, wherever you are, and are never typed into apps: `home` goes back
+to the launcher, `red` moves the sound to the next available output, `blue` asks for the
+quick menu (below), and `green` and `yellow` are kept for later. Screens shouldn't give
+`red` or `blue` another meaning. A keyboard (in dev mode, or plugged into the Pi) is turned
+into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
+the TV remote.
 
 When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops.
+
+**`quick_menu`**: the Blue button was pressed; show the quick menu (#18). `app` is the app
+in front.
+
+```json
+{"type": "quick_menu", "data": {"app": "youtube"}}
+```
 
 **`result`**: the reply to a command, matched by `id`.
 
@@ -120,7 +137,8 @@ The text `ping` gets `pong`.
 
 | Command | Args |
 | --- | --- |
-| `remote.press` | `key` |
+| `remote.press` | `key`; `keyboard`, `hold` (bools, optional). Like a quick press of that button on the remote; `hold` makes it a long press (OK and Back only). With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
+| `remote.hold` | `key`, `seconds` (up to 15). Holds the button down that long, as if on the remote, for trying key repeat with curl |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
