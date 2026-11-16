@@ -25,7 +25,8 @@ Timing is couchd's, because TVs differ in whether, and how often, they repeat a 
 `hold: true` makes it a long press of OK or Back. With `keyboard: true` it is a key typed on
 a keyboard into the launcher (ui/js/keys.js): it goes to the launcher whatever is in front,
 so a key the virtual keyboard typed into a launcher that wasn't supposed to have the screen
-can't come back to be typed again.
+can't come back to be typed again. `remote.hold` holds a button down for some seconds,
+through the same press and release as the TV's, to try repeat with curl.
 """
 
 import asyncio
@@ -111,6 +112,7 @@ class RemoteService(Service):
         if self.tv is not None:
             self.tv.on_key(self._on_tv_key)
         self.ctx.commands.add("remote.press", self._press_command)
+        self.ctx.commands.add("remote.hold", self._hold_command)
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("remote.")
@@ -232,3 +234,19 @@ class RemoteService(Service):
             self._send_hold(key, keyboard=flags["keyboard"])
         else:
             self._send(key, keyboard=flags["keyboard"])
+
+    async def _hold_command(self, args: dict[str, Any]) -> None:
+        key = arg(args, "key", str)
+        if key not in REMOTE_KEYS:
+            raise CommandError(f"unknown key {key!r}")
+        seconds = args.get("seconds")
+        if isinstance(seconds, bool) or not isinstance(seconds, int | float):
+            raise CommandError("'seconds' must be a number")
+        if not 0 < seconds <= self.timing.max_hold:
+            raise CommandError(f"'seconds' must be more than 0 and at most {self.timing.max_hold}")
+        self.press(key)
+        try:
+            await asyncio.sleep(seconds)
+        finally:
+            if self._held == key:
+                self.release()

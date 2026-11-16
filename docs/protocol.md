@@ -122,6 +122,7 @@ The text `ping` gets `pong`.
 | Command | Args |
 | --- | --- |
 | `remote.press` | `key`; `keyboard`, `hold` (bools, optional). Like a quick press of that button on the remote; `hold` makes it a long press (OK and Back only). With `keyboard: true`, the key was typed into the launcher and goes to the launcher whatever is in front |
+| `remote.hold` | `key`, `seconds` (up to 15). Holds the button down that long, as if on the remote, for trying key repeat with curl |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |

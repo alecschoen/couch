@@ -372,3 +372,18 @@ async def until(condition):
             return
         await asyncio.sleep(0.01)
     raise AssertionError("timed out waiting")
+
+
+async def test_remote_hold_holds_a_button(ctx, remote):
+    in_front(ctx, "youtube")
+    await ctx.commands.run("remote.hold", {"key": "down", "seconds": FAST.delay + 0.1})
+    assert len(remote.keyboard.typed) >= 3
+    typed = len(remote.keyboard.typed)
+    await asyncio.sleep(0.1)
+    assert len(remote.keyboard.typed) == typed  # released
+    await ctx.commands.run("remote.hold", {"key": "back", "seconds": FAST.hold_after + 0.05})
+    assert ctx.state.get("apps")["foreground"] == "youtube"  # no apps service here
+    with pytest.raises(CommandError, match="seconds"):
+        await ctx.commands.run("remote.hold", {"key": "down", "seconds": 99})
+    with pytest.raises(CommandError, match="seconds"):
+        await ctx.commands.run("remote.hold", {"key": "down"})
