@@ -25,8 +25,7 @@ body {
   font-family: var(--font-text);
   font-size: var(--text-base);
   line-height: 1.35;
-  color: var(--palette-ink);
-  transition: color var(--dur-ink);
+  color: var(--palette-ink); /* switches at once: fading all the text repaints it every frame */
   cursor: none; /* the remote is the only pointer on the TV */
 }
 

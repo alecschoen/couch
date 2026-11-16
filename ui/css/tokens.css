@@ -105,7 +105,6 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-quick: 200ms; /* fills, focus */
   --dur-card: 280ms; /* card width */
-  --dur-ink: 300ms; /* text colour after a flood */
   --dur-sheet: 320ms; /* sheets sliding in */
   --dur-screen: 240ms; /* one screen to the next */
   --dur-flood: 500ms; /* background colour flood */
@@ -116,7 +115,6 @@
 :root[data-motion="reduced"] {
   --dur-quick: 0ms;
   --dur-card: 0ms;
-  --dur-ink: 0ms;
   --dur-sheet: 0ms;
   --dur-screen: 0ms;
   --dur-flood: 0ms;
