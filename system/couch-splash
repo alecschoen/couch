@@ -1,0 +1,431 @@
+#!/usr/bin/python3 -I
+"""Hold the Couch splash over cage until the launcher has drawn (#23): couch-splash
+
+The splash shows from power-on: first the kernel draws it, then couch-fbsplash draws it on
+vc4's framebuffer. When cage takes the screen it shows black until a client draws, and when
+Chromium's window appears its first frames are white, before the launcher paints. This is
+cage's first client and keeps the same picture on screen through both.
+
+It draws exactly what couch-fbsplash drew: its frame cached in /run, or the same TGA rendered
+the same way (centred, the rest filled with its top-left pixel). So the logo doesn't move.
+
+cage stacks each newly mapped window on top and focuses it. When Chromium's window maps,
+cage takes the focus from ours, and we hear about that at once
+(xdg_toplevel.configure without "activated"). Then we map a second window we prepared
+earlier, so it lands on top of Chromium, normally before cage draws its next frame. So
+nothing Chromium draws before the launcher is ready can be seen.
+
+The buffer is ARGB with every pixel opaque, and no opaque region is declared. That way
+wlroots doesn't count Chromium as hidden and keeps sending it frame callbacks. The launcher
+renders underneath as usual, and its first frame reaches couchd (`ui.first_frame`). couchd
+then ends this process (couchd/splash.py, through the pid that couch-session-start writes).
+cage gives the focus back to Chromium, which already shows the Startup frame: the same
+picture. With no word from couchd it gives up after TIMEOUT seconds, so a broken launcher
+can't stay hidden.
+
+Python's standard library only, speaking the Wayland wire protocol directly.
+"""
+
+import contextlib
+import importlib.machinery
+import importlib.util
+import os
+import signal
+import socket
+import struct
+import sys
+import time
+from pathlib import Path
+
+TIMEOUT = 30.0
+REMAPS = 4  # how many times we go back on top of a new window before letting it be
+FBSPLASH = Path("/opt/couch/bin/couch-fbsplash")
+FBSPLASH_CACHE = Path("/run/couch-fbsplash")
+TGAS = (Path("/lib/firmware/couch-splash.tga"), Path("/opt/couch/ui/brand/splash.tga"))
+ARGB8888 = 0
+XDG_TOPLEVEL_ACTIVATED = 4
+GROUND = bytes((0x14, 0x12, 0x12, 0xFF))  # #121214, the splash's ground, as BGRA
+
+
+def log(msg: str, **kw) -> None:
+    extra = "".join(f" {k}={v}" for k, v in kw.items())
+    print(f"couch-splash: {msg}{extra} uptime={uptime()}", file=sys.stderr, flush=True)
+
+
+def uptime() -> str:
+    """Seconds since boot, the clock couchd's boot timing uses (/proc/uptime), to the ms."""
+    return f"{time.clock_gettime(time.CLOCK_BOOTTIME):.3f}"
+
+
+# --- the picture ---------------------------------------------------------------------------
+
+
+def load_fbsplash():
+    """couch-fbsplash as a module, for its read_tga() and render()."""
+    here = Path(__file__).resolve().parent / "couch-fbsplash"
+    path = here if here.exists() else FBSPLASH
+    loader = importlib.machinery.SourceFileLoader("couch_fbsplash", str(path))
+    spec = importlib.util.spec_from_loader("couch_fbsplash", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def cached_frame(width: int, height: int, cache: Path = FBSPLASH_CACHE) -> bytes | None:
+    """couch-fbsplash's own frame, if it drew one this boot in our layout (XRGB8888)."""
+    name = f"-{width}x{height}-32-{width * 4}-16-8-8-8-0-8"
+    with contextlib.suppress(OSError):
+        for path in cache.iterdir():
+            if path.name.endswith(name):
+                data = path.read_bytes()
+                if len(data) == width * height * 4:
+                    return data
+    return None
+
+
+def rendered_frame(width: int, height: int, tgas=TGAS, fbsplash=None) -> bytes:
+    fb = fbsplash or load_fbsplash()
+    for tga in tgas:
+        with contextlib.suppress(OSError):
+            data = tga.read_bytes()
+            break
+    else:
+        raise FileNotFoundError("no splash TGA")
+    w, h, rows = fb.read_tga(data)
+    return fb.render(w, h, rows, width, height, width * 4, fb.packer(32, (16, 8), (8, 8), (0, 8)))
+
+
+def splash_pixels(width: int, height: int, **kw) -> bytes:
+    """The splash as ARGB8888 with full alpha, width * 4 bytes a row."""
+    cache = kw.pop("cache", FBSPLASH_CACHE)
+    frame = cached_frame(width, height, cache)
+    if frame is None:
+        try:
+            frame = rendered_frame(width, height, **kw)
+        except (OSError, ValueError, ImportError, SyntaxError) as e:
+            log(f"no splash picture ({e}); the ground colour only")
+            frame = GROUND * (width * height)
+    pixels = bytearray(frame)
+    pixels[3::4] = b"\xff" * (width * height)
+    return bytes(pixels)
+
+
+# --- the wire protocol ---------------------------------------------------------------------
+
+
+def pad(n: int) -> int:
+    return (n + 3) & ~3
+
+
+def wl_string(s: str) -> bytes:
+    data = s.encode() + b"\0"
+    return struct.pack("<I", len(data)) + data.ljust(pad(len(data)), b"\0")
+
+
+def message(obj: int, opcode: int, *args) -> bytes:
+    """A request: args are ints (u32/i32/object/new_id) or str, packed in order."""
+    body = b""
+    for a in args:
+        if isinstance(a, str):
+            body += wl_string(a)
+        elif a < 0:
+            body += struct.pack("<i", a)
+        else:
+            body += struct.pack("<I", a)
+    return struct.pack("<II", obj, (8 + len(body)) << 16 | opcode) + body
+
+
+def split_messages(buf: bytes):
+    """(complete messages as (object, opcode, body), the unparsed rest)."""
+    out = []
+    while len(buf) >= 8:
+        obj, word = struct.unpack_from("<II", buf)
+        size = word >> 16
+        if size < 8 or len(buf) < size:
+            break
+        out.append((obj, word & 0xFFFF, buf[8:size]))
+        buf = buf[size:]
+    return out, buf
+
+
+def read_string(body: bytes, off: int) -> tuple[str, int]:
+    (n,) = struct.unpack_from("<I", body, off)
+    s = body[off + 4 : off + 4 + n].rstrip(b"\0").decode(errors="replace")
+    return s, off + 4 + pad(n)
+
+
+def read_array(body: bytes, off: int) -> tuple[bytes, int]:
+    (n,) = struct.unpack_from("<I", body, off)
+    return body[off + 4 : off + 4 + n], off + 4 + pad(n)
+
+
+class Window:
+    """One xdg_toplevel. Mapped once a buffer is attached after its first configure."""
+
+    def __init__(self, surface: int, xdg_surface: int, toplevel: int) -> None:
+        self.surface, self.xdg_surface, self.toplevel = surface, xdg_surface, toplevel
+        self.configured = False  # its first xdg_surface.configure has been acked
+        self.size = (0, 0)
+        self.mapped = False
+        self.activated = False
+        self.was_activated = False
+        self.presented = False  # wp_presentation said it reached the screen
+
+
+class Splash:
+    """The protocol logic, apart from the socket so it can be tested.
+
+    feed(object, opcode, body) takes an event; `out` collects the requests to send, each with
+    the fd it carries (only wl_shm.create_pool has one) or None."""
+
+    DISPLAY, REGISTRY = 1, 2
+
+    def __init__(self, pixels_for=splash_pixels, clock=time.monotonic) -> None:
+        self.pixels_for = pixels_for
+        self.clock = clock
+        self.started = clock()
+        self.next_id = 3
+        self.out: list[tuple[bytes, int | None]] = []
+        self.globals: dict[str, tuple[int, int]] = {}
+        self.compositor = self.shm = self.wm_base = None
+        self.windows: dict[int, Window] = {}  # by xdg_surface id
+        self.toplevels: dict[int, Window] = {}
+        self.top: Window | None = None  # the mapped window that should be on top
+        self.spare: Window | None = None  # configured, waiting to be mapped
+        self.pool: int | None = None
+        self.buffer_size = (0, 0)
+        self.remaps = 0
+        self.presentation: int | None = None
+        self.clock_id = time.CLOCK_MONOTONIC
+        self.feedback: dict[int, tuple[Window, float]] = {}  # feedback id -> (window, commit)
+        self.sync_id: int | None = None
+        self.error: str | None = None
+        self.closed = False
+        self.send(self.DISPLAY, 1, self.REGISTRY)  # wl_display.get_registry
+        self.sync_id = self.new_id()
+        self.send(self.DISPLAY, 0, self.sync_id)  # wl_display.sync: globals are in after it
+
+    def on_clock(self, monotonic: float) -> float:
+        """A time.monotonic() reading on the compositor's presentation clock."""
+        if self.clock_id == time.CLOCK_MONOTONIC:
+            return monotonic
+        return monotonic - time.monotonic() + time.clock_gettime(self.clock_id)
+
+    def new_id(self) -> int:
+        n = self.next_id
+        self.next_id += 1
+        return n
+
+    def send(self, obj: int, opcode: int, *args, fd: int | None = None) -> None:
+        self.out.append((message(obj, opcode, *args), fd))
+
+    # events
+
+    def feed(self, obj: int, opcode: int, body: bytes) -> None:
+        if obj == self.DISPLAY:
+            if opcode == 0:  # error
+                o, code = struct.unpack_from("<II", body)
+                text, _ = read_string(body, 8)
+                self.error = f"object {o} code {code}: {text}"
+        elif obj == self.REGISTRY and opcode == 0:  # global
+            (name,) = struct.unpack_from("<I", body)
+            iface, off = read_string(body, 4)
+            (version,) = struct.unpack_from("<I", body, off)
+            self.globals[iface] = (name, version)
+        elif obj == self.sync_id and opcode == 0:  # wl_callback.done
+            self.sync_id = None
+            self.bind()
+        elif obj == self.presentation and opcode == 0:  # clock_id
+            self.clock_id = struct.unpack_from("<I", body)[0]
+        elif obj in self.feedback:
+            if opcode == 1:  # presented
+                hi, lo, nsec = struct.unpack_from("<III", body)
+                shown = (hi << 32 | lo) + nsec / 1e9
+                window, committed = self.feedback.pop(obj)
+                if not window.presented:
+                    window.presented = True
+                    lag = shown - self.on_clock(committed)
+                    since = shown - self.on_clock(self.started)
+                    log(
+                        "splash on screen",
+                        window=window.toplevel,
+                        ms=round(lag * 1000, 1),
+                        since_start_ms=round(since * 1000),
+                    )
+            elif opcode == 2:  # discarded: a later commit replaced it before it was shown
+                self.feedback.pop(obj)
+        elif obj == self.wm_base and opcode == 0:  # ping
+            self.send(self.wm_base, 3, *struct.unpack_from("<I", body))
+        elif obj in self.windows and opcode == 0:  # xdg_surface.configure
+            self.surface_configure(self.windows[obj], struct.unpack_from("<I", body)[0])
+        elif obj in self.toplevels:
+            window = self.toplevels[obj]
+            if opcode == 0:  # configure
+                w, h = struct.unpack_from("<ii", body)
+                states, _ = read_array(body, 8)
+                window.size = (w, h) if w > 0 and h > 0 else window.size
+                active = XDG_TOPLEVEL_ACTIVATED in struct.unpack(f"<{len(states) // 4}I", states)
+                lost = window.activated and not active
+                window.activated = active
+                window.was_activated |= active
+                if lost and window is self.top:
+                    self.covered()
+            elif opcode == 1:  # close
+                self.closed = True
+
+    def bind(self) -> None:
+        missing = {"wl_compositor", "wl_shm", "xdg_wm_base"} - set(self.globals)
+        if missing:
+            self.error = f"compositor lacks {', '.join(sorted(missing))}"
+            return
+        self.compositor = self.bind_global("wl_compositor", 4)
+        self.shm = self.bind_global("wl_shm", 1)
+        self.wm_base = self.bind_global("xdg_wm_base", 1)
+        if "wp_presentation" in self.globals:  # only to log when the splash reached the screen
+            self.presentation = self.bind_global("wp_presentation", 1)
+        self.top = self.make_window()
+        self.spare = self.make_window()
+
+    def bind_global(self, iface: str, version: int) -> int:
+        name, have = self.globals[iface]
+        new = self.new_id()
+        self.send(self.REGISTRY, 0, name, iface, min(version, have), new)
+        return new
+
+    def make_window(self) -> Window:
+        surface, xdg_surface, toplevel = self.new_id(), self.new_id(), self.new_id()
+        self.send(self.compositor, 0, surface)  # create_surface
+        self.send(self.wm_base, 2, xdg_surface, surface)  # get_xdg_surface
+        self.send(xdg_surface, 1, toplevel)  # get_toplevel
+        self.send(toplevel, 3, "couch-splash")  # set_app_id
+        self.send(toplevel, 2, "Couch")  # set_title
+        self.send(surface, 6)  # commit: asks for the first configure
+        window = Window(surface, xdg_surface, toplevel)
+        self.windows[xdg_surface] = window
+        self.toplevels[toplevel] = window
+        return window
+
+    def surface_configure(self, window: Window, serial: int) -> None:
+        self.send(window.xdg_surface, 4, serial)  # ack_configure
+        window.configured = True
+        if window is self.top and not window.mapped:
+            self.map(window)
+        elif window.mapped:
+            self.commit(window)  # the ack takes effect
+
+    def new_buffer(self, size: tuple[int, int]) -> int:
+        """A wl_buffer of the splash for one window. They share one pool (one copy of the
+        pixels), but each window gets its own buffer object."""
+        w, h = size if size[0] > 0 else (1920, 1080)
+        if self.pool is None or self.buffer_size != (w, h):
+            pixels = self.pixels_for(w, h)
+            fd = os.memfd_create("couch-splash", os.MFD_CLOEXEC)
+            os.write(fd, pixels)
+            self.pool = self.new_id()
+            self.send(self.shm, 0, self.pool, len(pixels), fd=fd)  # create_pool(new_id, fd, size)
+            self.buffer_size = (w, h)
+        buffer = self.new_id()
+        self.send(self.pool, 0, buffer, 0, w, h, w * 4, ARGB8888)  # create_buffer
+        return buffer
+
+    def map(self, window: Window) -> None:
+        buffer = self.new_buffer(window.size)
+        w, h = self.buffer_size
+        self.send(window.surface, 1, buffer, 0, 0)  # attach
+        self.send(window.surface, 2, 0, 0, w, h)  # damage
+        self.commit(window)
+        window.mapped = True
+        log("splash mapped", window=window.toplevel, size=f"{w}x{h}")
+
+    def commit(self, window: Window) -> None:
+        """wl_surface.commit, asking when it reaches the screen until the window has."""
+        if self.presentation is not None and not window.presented:
+            fb = self.new_id()
+            self.send(self.presentation, 1, window.surface, fb)  # feedback
+            self.feedback[fb] = (window, self.clock())
+        self.send(window.surface, 6)
+
+    def covered(self) -> None:
+        """Another window was mapped over ours: go back on top with the spare one."""
+        log("a new window is over ours")
+        if self.remaps >= REMAPS or self.spare is None:
+            log("another window is on top; letting it be")
+            return
+        self.remaps += 1
+        window, self.spare = self.spare, None
+        self.top = window
+        if window.configured:
+            self.map(window)
+        log("back on top of a new window", remap=self.remaps)
+        self.spare = self.make_window() if self.remaps < REMAPS else None
+
+
+def connect() -> socket.socket:
+    name = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    path = name if name.startswith("/") else os.path.join(os.environ["XDG_RUNTIME_DIR"], name)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(path)
+    return sock
+
+
+def flush(sock: socket.socket, splash: Splash) -> None:
+    for msg, fd in splash.out:
+        if fd is None:
+            sock.sendall(msg)
+            continue
+        sock.sendmsg([msg], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, struct.pack("i", fd))])
+        os.close(fd)
+    splash.out.clear()
+
+
+def ended(*_) -> None:
+    """SIGTERM from couchd: go now. Closing the connection unmaps every window at once."""
+    log("splash ending", reason="SIGTERM")
+    os._exit(0)
+
+
+def run() -> int:
+    signal.signal(signal.SIGTERM, ended)
+    started = time.monotonic()
+    try:
+        sock = connect()
+    except (OSError, KeyError) as e:
+        log(f"no Wayland display: {e}")
+        return 1
+    splash = Splash()
+    flush(sock, splash)
+    buf = b""
+    sock.settimeout(0.5)
+    while True:
+        if time.monotonic() - started > TIMEOUT:
+            log("no word from couchd; going", seconds=TIMEOUT)
+            break
+        try:
+            data, ancdata, _, _ = sock.recvmsg(65536, socket.CMSG_SPACE(16 * 4))
+        except TimeoutError:
+            continue
+        except InterruptedError:
+            continue
+        for level, kind, fds in ancdata:  # none of our events carry fds; close any we get
+            if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                for fd in struct.unpack(f"{len(fds) // 4}i", fds[: len(fds) // 4 * 4]):
+                    os.close(fd)
+        if not data:
+            log("compositor went away")
+            return 0
+        messages, buf = split_messages(buf + data)
+        for obj, opcode, body in messages:
+            splash.feed(obj, opcode, body)
+        flush(sock, splash)
+        if splash.error:
+            log(f"Wayland error: {splash.error}")
+            return 1
+        if splash.closed:
+            break
+    log("splash ending", reason="closed" if splash.closed else "timeout", remaps=splash.remaps)
+    sock.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())

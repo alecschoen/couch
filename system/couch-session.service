@@ -24,7 +24,7 @@ StandardOutput=journal
 StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
-ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-browser
+ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-session-start
 Restart=always
 RestartSec=2
 

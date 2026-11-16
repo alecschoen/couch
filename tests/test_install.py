@@ -29,6 +29,8 @@ def test_every_system_file_it_installs_exists():
         "couchd.service",
         "couch-session.service",
         "couch-browser",
+        "couch-session-start",
+        "couch-splash",
         "couch-kodi.service",
         "couch-kodi",
         "couch.rules",
@@ -48,9 +50,23 @@ def test_every_system_file_it_installs_exists():
 
 def test_session_runs_the_installed_browser_wrapper():
     unit = (ROOT / "system" / "couch-session.service").read_text()
-    assert "ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-browser" in unit
-    wrapper = r'"\$SRC/system/couch-browser" "\$PREFIX/bin/couch-browser" 755'
-    assert re.search(wrapper, INSTALL.read_text())
+    assert "ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-session-start" in unit
+    for name in ("couch-session-start", "couch-browser"):
+        wrapper = rf'"\$SRC/system/{name}" "\$PREFIX/bin/{name}" 755'
+        assert re.search(wrapper, INSTALL.read_text()), name
+    start = (ROOT / "system" / "couch-session-start").read_text()
+    assert "exec /opt/couch/bin/couch-browser" in start
+
+
+def test_the_session_splash_is_installed_next_to_what_it_draws_with():
+    script = INSTALL.read_text()
+    assert re.search(r'"\$SRC/system/couch-splash" "\$PREFIX/bin/couch-splash" 755', script)
+    # couch-splash borrows couch-fbsplash's drawing code from the same directory
+    assert re.search(r'"\$SRC/system/couch-fbsplash" "\$PREFIX/bin/couch-fbsplash" 755', script)
+    assert "swayimg" not in script
+    start = (ROOT / "system" / "couch-session-start").read_text()
+    assert "couch-splash.pid" in start
+    assert "/opt/couch/bin/couch-splash" in start
 
 
 def test_kodi_and_the_session_take_turns():

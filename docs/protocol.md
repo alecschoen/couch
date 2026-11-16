@@ -233,6 +233,7 @@ The text `ping` gets `pong`.
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
 | `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
+| `ui.first_frame` | `at` (ms on the page's clock, optional). The launcher sends it once per page load, after its first frame is drawn. couchd then ends the session's boot splash, if it's still up (#23) |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
 | `apps.dev.crash` | Dev mode only: `app`. couchd acts as if its tab (or the pretend Kodi) crashed |
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |

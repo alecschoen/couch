@@ -21,6 +21,7 @@ from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
+from couchd.splash import SplashService
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
@@ -77,7 +78,8 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
 def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
     """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend. Before an
     app opens, the internet and the Plex server are checked (#19). The overlays (#18) draw
-    over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode)."""
+    over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode). The splash
+    service ends the session's boot splash once the launcher has drawn (#23)."""
     display = FakeDisplay() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
     rpc = None if dev else KodiRpc()  # one client for both: pausing and the overlays
@@ -90,7 +92,8 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
         kodi=FakeKodi() if rpc is None else KodiClient(rpc),
         go_home=apps.home,
     )
-    return [apps, IdleService(ctx, idle_after=_idle_after()), EveningService(ctx)], overlay
+    services = [apps, IdleService(ctx, idle_after=_idle_after()), EveningService(ctx)]
+    return [*services, SplashService(ctx)], overlay
 
 
 def _idle_after() -> float | None:
