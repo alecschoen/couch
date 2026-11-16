@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from aiohttp import web
 
-from couchd.apps import PAUSE_MEDIA, VISIBILITY
+from couchd.apps import PAUSE_MEDIA, READY, VISIBILITY
 
 
 @dataclass
@@ -14,6 +14,7 @@ class Tab:
     id: str
     url: str
     paused: int = 0
+    loaded: bool = True  # False: document.readyState stays "loading"
 
 
 @dataclass
@@ -22,6 +23,7 @@ class FakeChromium:
     active: str | None = None
     up: bool = True  # False: refuse connections, as while the session restarts
     calls: list[str] = field(default_factory=list)
+    load_new_tabs: bool = True  # False: tabs opened from now on never finish loading
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
     _sockets: set = field(default_factory=set)
     _runner: web.AppRunner | None = None
@@ -102,7 +104,9 @@ class FakeChromium:
                 infos.append({"targetId": "W1", "type": "service_worker", "url": "https://x/"})
                 return {"targetInfos": infos}
             case "Target.createTarget":
-                return {"targetId": self.add_tab(params["url"])}
+                target = self.add_tab(params["url"], active=not params.get("background"))
+                self.tabs[target].loaded = self.load_new_tabs
+                return {"targetId": target}
             case "Target.activateTarget" if tab:
                 self.active = tab.id
                 return {}
@@ -121,6 +125,9 @@ class FakeChromium:
                 if params["expression"] == VISIBILITY:
                     visible = "visible" if self.active == tab.id else "hidden"
                     return {"result": {"type": "string", "value": visible}}
+                if params["expression"] == READY:
+                    ready = "complete" if tab.loaded else "loading"
+                    return {"result": {"type": "string", "value": ready}}
                 if params["expression"] == PAUSE_MEDIA:
                     tab.paused += 1
                     return {"result": {"type": "undefined"}}

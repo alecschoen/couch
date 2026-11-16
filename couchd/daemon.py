@@ -15,6 +15,7 @@ from couchd.commands import Commands
 from couchd.config import Config
 from couchd.devbrowser import DevBrowser
 from couchd.services import Context, Service, ServiceRegistry
+from couchd.settings import Settings
 from couchd.state import LiveState, SavedState
 from couchd.systemd import notify, watchdog_interval, watchdog_loop
 from couchd.wiring import build_services
@@ -39,8 +40,10 @@ class Daemon:
         self.bus = EventBus()
         self.state = LiveState(self.bus)
         self.saved = SavedState(config.paths.state)
+        self.settings = Settings(self.state, config.paths.state.with_name("settings.json"))
         self.commands = Commands()
-        self.ctx = Context(self.bus, self.state, self.saved, self.commands)
+        self.settings.add_commands(self.commands)
+        self.ctx = Context(self.bus, self.state, self.saved, self.commands, self.settings)
         self.services = ServiceRegistry(self.state)
         if services is None:
             services = build_services(self.ctx, dev=dev)
@@ -74,6 +77,9 @@ class Daemon:
         mode = "dev" if self.dev else "device"
         log.info("couchd starting", extra={"version": __version__, "mode": mode})
         self.saved.load()
+        self.settings.load()
+        # Before #17 these two were kept in state.json.
+        self.settings.adopt(self.saved, ["tv.standby_on_poweroff", "bluetooth.auto_reconnect"])
         self.state.update("system", {"version": __version__, "mode": mode})
 
         # The API comes up first and systemd is told we're ready right after, so the
@@ -97,6 +103,7 @@ class Daemon:
             await self._runner.cleanup()
             self._runner = None
         self.saved.flush()
+        self.settings.flush()
         log.info("couchd stopped")
 
     async def _start_api(self) -> None:
@@ -130,4 +137,6 @@ async def run_daemon(daemon: Daemon) -> int:
     finally:
         with contextlib.suppress(Exception):
             daemon.saved.flush()
+        with contextlib.suppress(Exception):
+            daemon.settings.flush()
     return 0

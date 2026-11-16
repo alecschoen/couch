@@ -9,11 +9,12 @@ Status per service is published in the `services` section of live state.
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from couchd.bus import EventBus
 from couchd.commands import Commands
+from couchd.settings import Settings
 from couchd.state import LiveState, SavedState
 
 log = logging.getLogger(__name__)
@@ -23,12 +24,18 @@ STOP_TIMEOUT = 5.0
 
 @dataclass(frozen=True)
 class Context:
-    """What every service gets: the bus, both kinds of state, and the command table."""
+    """What every service gets: the bus, both kinds of state, the command table and the
+    user's settings. Left out, `settings` is an in-memory store with the defaults."""
 
     bus: EventBus
     state: LiveState
     saved: SavedState
     commands: Commands
+    settings: Settings = field(default=None)  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.settings is None:
+            object.__setattr__(self, "settings", Settings(self.state))
 
 
 class Service:

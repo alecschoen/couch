@@ -6,6 +6,7 @@ has no key presses.
 
 Activity is any remote key (`key` messages on the bus), a change of app, or the UI saying
 so with `idle.activity`. Live state section `idle`: `{"idle": bool, "after": seconds}`.
+`after` is the `display.dim_after` setting (0 = never), unless the service was given one.
 Python code can also listen with `on_change`, e.g. to put the TV in standby later.
 """
 
@@ -20,7 +21,7 @@ from couchd.services import Context, Service
 
 log = logging.getLogger(__name__)
 
-IDLE_AFTER = 300.0
+DIM_AFTER = "display.dim_after"  # a setting (couchd/settings.py)
 
 
 class IdleService(Service):
@@ -30,11 +31,12 @@ class IdleService(Service):
         self,
         ctx: Context,
         *,
-        idle_after: float = IDLE_AFTER,
+        idle_after: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.ctx = ctx
-        self.idle_after = idle_after
+        self._idle_after = idle_after
+        self._unwatch = None
         self._clock = clock
         self._last = clock()
         self._idle = False
@@ -42,6 +44,13 @@ class IdleService(Service):
         self._listeners: list[Callable[[bool], None]] = []
         self._poke = asyncio.Event()
         self._task: asyncio.Task | None = None
+
+    @property
+    def idle_after(self) -> float:
+        """Seconds before going idle; 0 means never."""
+        if self._idle_after is not None:
+            return self._idle_after
+        return float(self.ctx.settings.get(DIM_AFTER))
 
     @property
     def idle(self) -> bool:
@@ -58,11 +67,14 @@ class IdleService(Service):
     async def start(self) -> None:
         self._foreground = self.ctx.state.get("apps").get("foreground")
         self.ctx.commands.add("idle.activity", self._activity_command)
+        self._unwatch = self.ctx.settings.on_change(self._setting_changed)
         self._publish()
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("idle.")
+        if self._unwatch is not None:
+            self._unwatch()
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -75,7 +87,7 @@ class IdleService(Service):
                 while True:
                     self._check()
                     wait = None  # idle already, or an app is up: sleep until something happens
-                    if not self._idle and self._on_launcher():
+                    if not self._idle and self._on_launcher() and self.idle_after > 0:
                         wait = max(self._last + self.idle_after - self._clock(), 0.05)
                     with contextlib.suppress(TimeoutError):
                         async with asyncio.timeout(wait):
@@ -100,8 +112,14 @@ class IdleService(Service):
     def _on_launcher(self) -> bool:
         return self._foreground in (None, "launcher")
 
+    def _setting_changed(self, key: str, value) -> None:
+        if key == DIM_AFTER and self._idle_after is None:
+            self._publish()
+            self._poke.set()
+
     def _check(self) -> None:
-        due = self._clock() - self._last >= self.idle_after
+        after = self.idle_after
+        due = after > 0 and self._clock() - self._last >= after
         self._set(self._on_launcher() and due)
 
     def _set(self, idle: bool) -> None:

@@ -34,16 +34,22 @@ class _Delays:
 
 
 class FakeTv(TvBackend):
-    def __init__(self, *, speed: float = 1.0) -> None:
+    """`power` is how it starts; dev mode starts it in standby, so the Startup screen shows
+    "Turning on the TV" for `wake_time` seconds."""
+
+    def __init__(
+        self, *, speed: float = 1.0, power: TvPower = "on", wake_time: float = 0.5
+    ) -> None:
         super().__init__()
         self._delays = _Delays(speed)
-        self._power: TvPower = "on"
+        self._power: TvPower = power
+        self._wake_time = wake_time
 
     def power(self) -> TvPower:
         return self._power
 
     async def power_on(self) -> None:
-        await self._delays.sleep(0.5)
+        await self._delays.sleep(self._wake_time)
         self._power = "on"
         self.changed()
 

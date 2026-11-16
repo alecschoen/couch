@@ -12,7 +12,7 @@ from couchd.systemd import powering_off
 
 log = logging.getLogger(__name__)
 
-SAVED_STANDBY_ON_POWEROFF = "tv.standby_on_poweroff"
+STANDBY_ON_POWEROFF = "tv.standby_on_poweroff"  # a setting (couchd/settings.py)
 
 
 class TvService(Service):
@@ -34,10 +34,14 @@ class TvService(Service):
         self._wake_on_start = wake_on_start
         self._power = backend.power()
         self._wake: asyncio.Task | None = None
+        self._unwatch = None
 
     async def start(self) -> None:
         await self.backend.start()
         self.backend.on_change(self._sync)
+        self._unwatch = self.ctx.settings.on_change(
+            lambda key, _: key == STANDBY_ON_POWEROFF and self._sync()
+        )
         self._power = self.backend.power()
         self._sync()
         self.ctx.commands.add("tv.power_on", self._power_on)
@@ -48,6 +52,8 @@ class TvService(Service):
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("tv.")
+        if self._unwatch is not None:
+            self._unwatch()
         if self._wake is not None:
             self._wake.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -67,7 +73,7 @@ class TvService(Service):
             log.warning("couldn't wake the TV", extra={"error": str(e)})
 
     def _standby_on_poweroff(self) -> bool:
-        return bool(self.ctx.saved.get(SAVED_STANDBY_ON_POWEROFF, False))
+        return self.ctx.settings.get(STANDBY_ON_POWEROFF)
 
     def _sync(self) -> None:
         power = self.backend.power()
@@ -92,5 +98,5 @@ class TvService(Service):
         await self.backend.standby()
 
     async def _set_standby_on_poweroff(self, args: dict[str, Any]) -> None:
-        self.ctx.saved.set(SAVED_STANDBY_ON_POWEROFF, arg(args, "on", bool))
-        self._sync()
+        # Kept for older callers; the same as settings.set tv.standby_on_poweroff.
+        self.ctx.settings.set(STANDBY_ON_POWEROFF, arg(args, "on", bool))

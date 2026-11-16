@@ -17,12 +17,12 @@ export function kitScreen(_params, app) {
         setting({
           label: "Evening colors",
           hint: "Deeper colours, easier on the eyes in a dark room",
-          end: segmented({ key: "evening", choices: CHOICES.evening, value: settings.get("evening"), onChange: (v) => settings.set("evening", v) }),
+          end: segmented({ key: "evening", choices: CHOICES.evening, value: settings.get("evening"), onChange: (v) => settings.set("evening", v).catch((e) => app.toasts.show(e.message, "error")) }),
         }),
         setting({
           label: "Reduce motion",
           hint: "Auto follows the system setting",
-          end: segmented({ key: "motion", choices: CHOICES.motion, value: settings.get("motion"), onChange: (v) => settings.set("motion", v) }),
+          end: segmented({ key: "motion", choices: CHOICES.motion, value: settings.get("motion"), onChange: (v) => settings.set("motion", v).catch((e) => app.toasts.show(e.message, "error")) }),
         }),
         setting({ key: "dim", label: "Dim to clock after", value: "5 minutes ›", onSelect: () => app.toasts.show("Not a real setting yet") }),
       ),
