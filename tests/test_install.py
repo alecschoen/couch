@@ -87,6 +87,15 @@ def test_browser_listens_for_devtools_on_loopback_only():
     assert "--remote-allow-origins" not in wrapper  # pages must not reach DevTools
 
 
+def test_browser_turns_off_the_forced_screen_reader_tree():
+    wrapper = (ROOT / "system" / "couch-browser").read_text()
+    # Pi OS's /etc/chromium.d forces renderer accessibility on; this turns it back off.
+    assert "--disable-renderer-accessibility" in wrapper
+    assert "--enable-gpu-rasterization" in wrapper
+    # YouTube's user agent is set per tab (couchd/youtube.py), not for the whole browser.
+    assert not re.search(r"^\s*--user-agent", wrapper, re.MULTILINE)
+
+
 def test_uinput_is_for_group_input_only():
     rule = (ROOT / "system" / "60-couch-uinput.rules").read_text()
     assert 'KERNEL=="uinput"' in rule
