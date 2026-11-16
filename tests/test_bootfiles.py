@@ -296,3 +296,11 @@ def test_fbsplash_runs_as_vc4s_framebuffer_appears():
     install = (ROOT / "install.sh").read_text()
     assert '"$SRC/system/couch-fbsplash.rules" "$FBSPLASH_RULE"' in install
     assert 'rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT"' in install
+
+
+def test_cloud_init_done_is_read_from_its_output_not_its_exit_status():
+    # Pi OS's first boot ends "degraded done", and `cloud-init status` then exits 2, which
+    # pipefail turned into "not done".
+    install = (ROOT / "install.sh").read_text()
+    assert "status=$(cloud-init status 2>/dev/null) || true" in install
+    assert "cloud-init status 2>/dev/null |" not in install

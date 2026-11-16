@@ -372,8 +372,13 @@ install_boot() {
     # cloud-init only matters on a card's first boot, where it sets up the user and SSH key
     # (docs/sd-card.md). After that it adds about 2.5 s to every boot, before anything else
     # starts. Pi OS's network doesn't come from it: NetworkManager configures eth0 itself.
-    if [[ -d /etc/cloud && ! -e $CLOUD_INIT_OFF ]] \
-        && cloud-init status 2>/dev/null | grep -qx 'status: done'; then
+    # `cloud-init status` exits 2 for "degraded done" (Pi OS's first boot ends that way), so
+    # read its first line rather than its exit status.
+    local status=
+    if [[ -d /etc/cloud && ! -e $CLOUD_INIT_OFF ]]; then
+        status=$(cloud-init status 2>/dev/null) || true
+    fi
+    if [[ ${status%%$'\n'*} == "status: done" ]]; then
         echo "$CLOUD_INIT_MARK" >"$CLOUD_INIT_OFF"
         note "turned cloud-init off after its first boot ($CLOUD_INIT_OFF)"
         REBOOT=1
