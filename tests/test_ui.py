@@ -56,6 +56,13 @@ def test_fonts_are_bundled_with_their_licences():
     assert (UI / "fonts" / "OFL-SpaceGrotesk.txt").is_file()
 
 
+def test_inline_brand_matches_the_brand_files():
+    """ui/js/brand.js carries copies of the brand SVGs; they must not drift."""
+    text = (UI / "js" / "brand.js").read_text()
+    svg = (UI / "brand" / "svg" / "lockup-stacked.svg").read_text().strip()
+    assert f"export const LOCKUP_STACKED = `{svg}`;" in text
+
+
 # ---- Screens, routes and commands: the names the UI uses must exist on the other side.
 
 ROOT = UI.parent

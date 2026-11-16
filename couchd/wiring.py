@@ -11,9 +11,11 @@ from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
 from couchd.idle import IdleService
+from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
+from couchd.startup import StartupService
 from couchd.tv import TvService
 from couchd.uinput import UinputKeyboard
 
@@ -22,10 +24,11 @@ log = logging.getLogger(__name__)
 
 def build_services(ctx: Context, *, dev: bool) -> list[Service]:
     if dev:
-        tv = FakeTv()
+        tv = FakeTv(power="standby", wake_time=2.0)
         audio = FakeAudio()
         bluetooth = FakeBluetooth(audio)
         return [
+            StartupService(ctx),
             TvService(ctx, tv),
             RemoteService(ctx, tv, FakeKeyboard()),
             AudioService(ctx, audio),
@@ -34,6 +37,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         ]
     tv = CecTv()
     return [
+        StartupService(ctx),
         TvService(ctx, tv),
         RemoteService(ctx, tv, UinputKeyboard()),
         AudioService(ctx, PipewireAudio()),
@@ -43,6 +47,8 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
 
 
 def _apps(ctx: Context, *, dev: bool) -> list[Service]:
-    """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend."""
+    """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend. Before an
+    app opens, the internet and the Plex server are checked (#19)."""
     display = FakeDisplay() if dev else SystemdDisplay()
-    return [AppService(ctx, display, Chromium()), IdleService(ctx)]
+    net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
+    return [AppService(ctx, display, Chromium(), connectivity=net), IdleService(ctx)]

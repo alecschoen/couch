@@ -120,9 +120,13 @@ class Chromium:
             if t.get("type") == "page"
         ]
 
-    async def open(self, url: str) -> str:
-        """Open `url` in a new tab and return its target id."""
-        result = await self.call("Target.createTarget", {"url": url})
+    async def open(self, url: str, *, background: bool = False) -> str:
+        """Open `url` in a new tab and return its target id. A `background` tab loads behind
+        the one in front until it's activated."""
+        params: dict[str, Any] = {"url": url}
+        if background:
+            params["background"] = True
+        result = await self.call("Target.createTarget", params)
         return result["targetId"]
 
     async def activate(self, target_id: str) -> None:
