@@ -2,9 +2,11 @@
 # and nothing ever updates them: no repository addon is installed, Kodi's own addon updates
 # are off, and so is PM4K's update check. To move to a new version, change it here.
 #
-# PM4K (script.plexmod) comes from pannal's "Don't Panic" repository. pm4k.eu only hands out
-# repository.dontpanic, which points at GitHub, so this fetches from GitHub at a fixed commit.
-# Its dependencies come from Kodi's official Omega repository.
+# PM4K (script.plexmod) is pannal's release 1.3.19 (github.com/pannal/plex-for-kodi, tag
+# 1.3.19, commit 0c589685). That release has no zip of its own; the packaged zip is the one in
+# pannal's "Don't Panic" Kodi repository (pm4k.eu hands out repository.dontpanic, which points
+# at GitHub), fetched here at a fixed commit. Its files are the tag's, minus git metadata, plus
+# five CA certificates for plexnet. Its dependencies come from Kodi's official Omega repository.
 
 [[addon]]
 id = "script.plexmod"
