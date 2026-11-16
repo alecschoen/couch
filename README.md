@@ -56,6 +56,8 @@ Your keyboard is the remote:
 | Space | Play/pause |
 | F1–F4 | Red, green, yellow, blue |
 
+In the launcher these keys go through couchd like the remote's. On the Pi, couchd types the remote's buttons into YouTube and Plex on a virtual keyboard; in dev mode that keyboard only logs what it would have typed (at debug level), and the browser window gets your real keyboard instead.
+
 The fakes take a moment like real hardware does, and "Old Speaker" always refuses to pair, so error screens can be built too. The API is described in [docs/protocol.md](docs/protocol.md).
 
 ## Install on the Pi

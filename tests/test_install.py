@@ -32,6 +32,8 @@ def test_every_system_file_it_installs_exists():
         "couch-kodi.service",
         "couch-kodi",
         "couch.rules",
+        "60-couch-uinput.rules",
+        "couch-uinput.conf",
     } <= named
     for name in named:
         assert (ROOT / "system" / name).is_file(), name
@@ -80,3 +82,13 @@ def test_browser_turns_off_the_forced_screen_reader_tree():
     assert "--enable-gpu-rasterization" in wrapper
     # YouTube's user agent is set per tab (couchd/youtube.py), not for the whole browser.
     assert not re.search(r"^\s*--user-agent", wrapper, re.MULTILINE)
+
+
+def test_uinput_is_for_group_input_only():
+    rule = (ROOT / "system" / "60-couch-uinput.rules").read_text()
+    assert 'KERNEL=="uinput"' in rule
+    assert 'GROUP="input"' in rule
+    assert 'MODE="0660"' in rule
+    script = INSTALL.read_text()
+    assert "python3-evdev" in script
+    assert re.search(r"^COUCH_GROUPS=\(.*\binput\b.*\)$", script, re.M)

@@ -136,9 +136,9 @@ export class FocusEngine extends EventTarget {
   }
 
   // The innermost scope's key handler, if it has one. Returns true if it took the key.
-  scopeKey(key) {
+  scopeKey(key, detail = { key }) {
     const scope = this._scopes.at(-1);
-    return scope?.onKey ? scope.onKey(key) === true : false;
+    return scope?.onKey ? scope.onKey(key, detail) === true : false;
   }
 
   // ---- Recovering after a re-render
