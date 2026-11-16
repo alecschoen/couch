@@ -205,6 +205,16 @@ export function settingsScreen(params, app) {
           on: settings.get("audio.tv_remote_volume"),
           onChange: (on) => change("audio.tv_remote_volume", on),
         }),
+        setting({
+          label: "UI sounds",
+          hint: "Quiet sounds when you press a button. TV only: not on the jack or Bluetooth.",
+          end: segmented({
+            key: "ui_sounds",
+            choices: CHOICES["audio.ui_sounds"],
+            value: settings.get("audio.ui_sounds"),
+            onChange: (v) => change("audio.ui_sounds", v),
+          }),
+        }),
         stepper({
           key: "audio.volume_limit",
           label: "Volume limit",

@@ -215,3 +215,13 @@ async def test_settings_survive_a_daemon_restart(tmp_path):
         assert second.state.get("settings")["display.evening"] == "off"
     finally:
         await second.stop()
+
+
+def test_ui_sounds_default_on_and_take_only_known_modes(state):
+    settings = Settings(state)
+    assert settings.get("audio.ui_sounds") == "on"
+    settings.set("audio.ui_sounds", "tv")
+    assert state.get("settings")["audio.ui_sounds"] == "tv"
+    with pytest.raises(SettingError):
+        settings.set("audio.ui_sounds", "loud")
+    assert settings.get("audio.ui_sounds") == "tv"

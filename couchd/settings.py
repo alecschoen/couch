@@ -108,6 +108,8 @@ SCHEMA: dict[str, Setting] = _schema(
     Setting("audio.volume_limit", "int", 100, min=10, max=100, step=5, label="Volume limit"),
     # Kept for the CEC volume keys (System Audio Mode); nothing acts on it yet.
     Setting("audio.tv_remote_volume", "bool", True, label="TV remote controls volume"),
+    # The launcher's UI sounds (#49, ui/js/sounds.js): everywhere, only on the TV speakers, or off.
+    Setting("audio.ui_sounds", "choice", "on", ("on", "tv", "off"), label="UI sounds"),
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
     # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.
     Setting("network.wifi", "bool", False, label="Wi-Fi"),

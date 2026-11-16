@@ -1,5 +1,6 @@
 """Static checks on the launcher UI: it must work with no internet, from local files only."""
 
+import json
 import re
 from pathlib import Path
 
@@ -130,3 +131,31 @@ def test_the_quick_menu_opens_registered_screens():
     named = set(re.findall(r'"open_screen", \{"screen": (\w+)\}', source))
     assert named == {"screen"}  # still the one place it's sent
     assert "bluetooth" in registered_screens()
+
+
+def test_ui_setting_defaults_match_couchd():
+    # ui/js/settings.js paints from its DEFAULTS before couchd's snapshot arrives; they must
+    # be couchd's defaults, or the first frame shows the wrong thing.
+    from couchd.settings import SCHEMA
+
+    source = code(UI / "js" / "settings.js")
+    block = re.search(r"export const DEFAULTS = \{([\s\S]*?)\};", source).group(1)
+    ui = {k: json.loads(v) for k, v in re.findall(r'"([\w.]+)":\s*([^,\n]+),', block)}
+    assert ui == {k: s.default for k, s in SCHEMA.items()}
+
+
+def test_ui_sounds_are_wired_and_their_setting_offered():
+    from couchd.settings import SCHEMA
+
+    app = code(UI / "js" / "app.js")
+    assert "new UiSounds(app)" in app
+    # sounds.js decides from these; app.js must keep sending them.
+    assert re.search(r"detail: \{ \.\.\.e\.detail, taken, woke, moved \}", app)
+    sounds = code(UI / "js" / "sounds.js")
+    assert "audio.ui_sounds" in sounds
+    modes = set(re.findall(r'mode === "(\w+)"', sounds))
+    assert modes <= set(SCHEMA["audio.ui_sounds"].choices)
+    ui_settings = code(UI / "js" / "settings.js")
+    choices = re.search(r'"audio.ui_sounds": \[\n([\s\S]*?)\n  \],', ui_settings).group(1)
+    assert re.findall(r'\["(\w+)"', choices) == list(SCHEMA["audio.ui_sounds"].choices)
+    assert 'CHOICES["audio.ui_sounds"]' in code(UI / "js" / "screens" / "settings.js")
