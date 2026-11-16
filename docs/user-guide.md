@@ -35,7 +35,8 @@ Move along them and press OK. The screen takes the colour of the card you're on.
 The top right says where the sound is going. To change it, go to **Audio**, press OK and
 pick one, or just press Red.
 
-If nobody touches the remote for a while, Home dims to a clock. Any button brings it back.
+If nobody touches the remote for 5 minutes, Home dims to a clock. Any button brings Home back
+as you left it; that press does nothing else. Nothing dims while a video plays.
 
 ## YouTube
 
@@ -72,8 +73,9 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 
 ## Settings
 
-- **Display**: evening colours (softer colours after sunset), and how soon Home dims to
-  the clock.
+- **Display**: evening colours (softer colours after sunset), how soon Home dims to the
+  clock, and whether the TV turns itself off after 2 hours with no buttons pressed (off
+  unless you turn it on; never while something plays).
 - **Sound**: where the sound goes, a volume limit, and whether the TV remote's volume
   buttons work for headphones and Bluetooth.
 - **Remote**: what the buttons do, and a test that shows what each button sends.
@@ -85,7 +87,7 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 
 1. **Hold Return** for a second. That goes Home from anywhere.
 2. Still stuck? Check the TV is on the Couch input (HDMI 1).
-3. **"Needs the internet"** or **"Can't reach your Plex server"**: check the Wi-Fi router,
+3. **"Needs the internet"** or **"Can't reach your Plex server"**: check the internet router and Couch's network cable,
    or that the Plex computer is on, then choose **Try again**.
 4. **No sound**: look at the top right of Home. Press Red until it says where you want the
    sound. A Bluetooth speaker has to be on and in range.

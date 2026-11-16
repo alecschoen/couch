@@ -1,9 +1,9 @@
 # Test on the real TV
 
-One run through everything Couch does, with only the Sony remote, in about 45 minutes (10 more
-with the pending features). Each
-step has a box and what should happen. If something doesn't, note the step's number (say
-**D4**) and what you saw, and carry on. Section times are rough.
+One run through everything Couch does, with only the Sony remote, in about an hour (a few
+minutes more with the pending features). Each step has a box and what should happen. If
+something doesn't, note the step's number (say **D4**) and what you saw, and carry on.
+Section times are rough.
 
 Steps marked **(pending merge)** are features still in review. Skip them if they aren't on
 the Pi yet.
@@ -116,15 +116,29 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 - [ ] **E9** Play something, then hold Return for about a second. Expected: Couch's Home, and the
       video is paused.
 
-## F. TV remote volume (3 min) (pending merge)
+## F. TV remote volume (5 min)
 
-- [ ] **F1** With the sound on the Bluetooth speaker, press the TV remote's Volume + and −.
-      Expected: the speaker gets louder and quieter, and a volume panel shows on screen.
-- [ ] **F2** Mute. Expected: the speaker goes quiet; Mute again brings it back.
-- [ ] **F3** Red to Headphone jack, Volume + and −. Expected: the same, for the jack.
-- [ ] **F4** Red to TV speakers, Volume + and −. Expected: the TV's own volume, as usual.
-- [ ] **F5** Settings › Sound › Volume limit to 50. Volume + on the speaker. Expected: it stops
-      at 50. Set it back to No limit.
+With the sound off the TV, Couch takes over the TV remote's volume buttons (it tells the TV
+it's the sound system). Settings › Sound › "TV remote controls volume" must be on (it is by
+default).
+
+- [ ] **F1** Red to the Bluetooth speaker. Expected: the TV's own speakers go quiet.
+- [ ] **F2** Press the TV remote's Volume + and −, then hold Volume +. Expected: the speaker
+      gets louder and quieter, and keeps going while you hold. Note whether the TV shows its
+      own volume bar. (Couch's own volume panel is **(pending merge)**.)
+- [ ] **F3** Mute, then Mute again. Expected: the speaker goes quiet, then comes back.
+- [ ] **F4** With the sound still on the speaker, move around Home with the arrows, OK and
+      Return. Expected: they all still work. If they don't, note it, turn "TV remote controls
+      volume" off and carry on.
+- [ ] **F5** Red to Headphone jack, Volume + and −. Expected: the same as F2, for the jack, and
+      the TV's speakers stay quiet.
+- [ ] **F6** Still on the jack, switch the TV to another input, then back to the Pi's. Expected:
+      on the other input the TV's speakers work as usual; back on Couch, the volume buttons
+      drive the jack again.
+- [ ] **F7** Red to TV speakers. Expected: the TV's speakers are back, not muted, and Volume +
+      and − work the TV's own volume as usual.
+- [ ] **F8** Settings › Sound › Volume limit to 50. Red to the jack, hold Volume +. Expected:
+      it stops at 50. Set the limit back to No limit and Red back to where you want it.
 
 ## G. Plex (5 min)
 
@@ -141,11 +155,13 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       Expected: also back on Home.
 - [ ] **G7** Open Plex again and hold Return for about a second. Expected: Couch's Home.
 
-## H. TV off and on, inputs (3 min)
+## H. TV off and on, inputs (4 min)
 
 - [ ] **H1** Play a YouTube video, then turn the TV off with its remote. Turn it back on.
       Expected: the TV shows Couch and the video is paused.
-- [ ] **H2** Switch the TV to another input (TV, another HDMI), then back to the Pi's. Expected:
+- [ ] **H2** Same in Plex: play something, turn the TV off with its remote, turn it back on.
+      Expected: Couch or Plex on screen, and the video is paused.
+- [ ] **H3** Switch the TV to another input (TV, another HDMI), then back to the Pi's. Expected:
       Couch is where you left it, and the remote still works straight away.
 
 ## I. When things go wrong (4 min)
@@ -160,19 +176,24 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 - [ ] **I5** Turn the Bluetooth speaker off while YouTube plays. Expected: a message, and the
       sound carries on from the TV.
 
-## J. Idle clock and evening colours (4 min) (pending merge)
+## J. Idle clock and evening colours (5 min)
 
 - [ ] **J1** Settings › Display › Dim to clock after: 1 minute. Go to Home and don't touch
       anything for a minute. Expected: a dark screen with the time and date.
-- [ ] **J2** Wait a few minutes more (or come back to it later). Expected: the clock has moved
-      a little, so nothing burns in.
-- [ ] **J3** Press any button. Expected: Home comes back. That press only wakes the screen; it
-      doesn't also move focus or open anything.
+- [ ] **J2** Leave it for 3 minutes more (or come back to it later). Expected: the clock has
+      moved to another spot, so nothing burns in.
+- [ ] **J3** Press any button. Expected: Home comes back as you left it. That press only wakes
+      the screen; it doesn't also move focus or open anything.
 - [ ] **J4** Play a YouTube video and leave it for over a minute. Expected: no clock while it
-      plays.
-- [ ] **J5** Evening colors: Off, then Always. Expected: Home's colours change between the two.
-      With After sunset, they switch on their own after sunset.
-- [ ] **J6** Set Dim to clock after back to 5 minutes.
+      plays. Do the same in Plex.
+- [ ] **J5** Settings › Display: under Evening colors it says today's sunset and sunrise (or
+      "18:00 to 07:00 until the timezone is set"). Switch Off, then Always. Expected: Home's
+      colours change between the two. With After sunset, they follow the sunset time shown.
+- [ ] **J6** Set Dim to clock after back to 5 minutes. Then leave Home alone for 5 minutes:
+      the clock comes up, and one press brings Home back without moving anything.
+- [ ] **J7** "Turn the TV off when idle" is off by default. It turns the TV off after 2 hours on
+      Couch with no buttons pressed, never while something plays. Leave it off unless you want
+      it; it's too slow to test here.
 
 ## K. Updates (2 min) (pending merge)
 
@@ -194,6 +215,20 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 - [ ] **L7** Unplug and replug the Pi to bring it back. Turn "Turn the TV off too" back off if
       you don't want it.
 
+## Extra, with a laptop (10 min, optional)
+
+The Sony remote's buttons that nobody has recorded yet (#9). With the TV showing Couch, on
+the Pi from a checkout of Couch:
+
+```bash
+sudo ./scripts/cec-button-survey.sh
+sudo ./scripts/cec-button-survey.sh --volume
+```
+
+It asks for each button in turn. Paste the `summary.md` table it writes into the issue, or
+give it to Claude: it fills in the "?" rows of the Sony notes (Home, Options, Guide, i+,
+rewind and fast forward, previous and next, Prog + and −, Input, holds and repeats).
+
 ## When you're done
 
 Tell Claude the step numbers that failed and what you saw. Fill in C3's table too: it
@@ -205,7 +240,7 @@ decides what the remote's buttons do.
 | --- | --- |
 | Boot splash, Full Pixel | #4, PR #42 |
 | Startup, Opening, error screens | #19, PR #44 |
-| CEC, TV off/on | #7 (PR #37), #9 |
+| CEC, TV off/on | #7 (PR #37), #9 (PR #52) |
 | Remote keys, holds | #8, PR #39 |
 | Home | #15, PR #41 |
 | Bluetooth | #12 (PR #35), #16 (PR #40) |
@@ -214,7 +249,7 @@ decides what the remote's buttons do.
 | Plex via Kodi | #22, PR #43 |
 | Sound outputs | #10, PR #34 |
 | Quick menu, messages, volume panel | #18 (pending) |
-| TV remote volume | #11 (pending) |
-| Idle clock, evening colours | #20 (pending) |
+| TV remote volume | #11, PR #53 |
+| Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24 (pending) |
 | Power cuts | #25 (pending) |
