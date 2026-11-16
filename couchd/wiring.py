@@ -18,6 +18,7 @@ from couchd.services import Context, Service
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
+from couchd.tv_volume import TvVolumeService
 from couchd.uinput import UinputKeyboard
 from couchd.updates import FakeUpdates, SystemdUpdates, UpdatesService, quiet_start
 
@@ -29,17 +30,20 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         tv = FakeTv(power="standby", wake_time=2.0)
         audio = FakeAudio()
         bluetooth = FakeBluetooth(audio)
+        sound = AudioService(ctx, audio)
         return [
             StartupService(ctx),
             TvService(ctx, tv),
             RemoteService(ctx, tv, FakeKeyboard()),
-            AudioService(ctx, audio),
+            sound,
+            TvVolumeService(ctx, tv, sound),
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
             SystemService(ctx, FakeSystem()),
             UpdatesService(ctx, FakeUpdates()),
         ]
     tv = CecTv()
+    sound = AudioService(ctx, PipewireAudio())
     # After an overnight update (#24) couchd restarts with the TV off; leave it off.
     quiet = quiet_start()
     if quiet:
@@ -48,7 +52,8 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         StartupService(ctx),
         TvService(ctx, tv, wake_on_start=not quiet),
         RemoteService(ctx, tv, UinputKeyboard()),
-        AudioService(ctx, PipewireAudio()),
+        sound,
+        TvVolumeService(ctx, tv, sound),
         BluetoothService(ctx, BluezBluetooth()),
         *_apps(ctx, dev=False),
         SystemService(ctx, LinuxSystem()),

@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from couchd.backends import BackendError, TvBackend
-from couchd.commands import arg
+from couchd.commands import CommandError, arg
 from couchd.services import Context, Service
 from couchd.systemd import powering_off
 
@@ -17,7 +17,8 @@ STANDBY_ON_POWEROFF = "tv.standby_on_poweroff"  # a setting (couchd/settings.py)
 
 class TvService(Service):
     """Live state section `tv`: power ("on" | "standby" | "unknown"), active (the TV shows
-    Couch), standby_on_poweroff (the setting).
+    Couch), standby_on_poweroff (the setting), system_audio (the TV's volume buttons come
+    to couchd, couchd/tv_volume.py).
 
     On start it wakes the TV and switches it to Couch. When the TV goes to standby, whatever
     is playing gets a Pause, and the UI can dim to the idle clock off `tv.power`.
@@ -47,6 +48,7 @@ class TvService(Service):
         self.ctx.commands.add("tv.power_on", self._power_on)
         self.ctx.commands.add("tv.standby", self._standby)
         self.ctx.commands.add("tv.set_standby_on_poweroff", self._set_standby_on_poweroff)
+        self.ctx.commands.add("tv.simulate", self._simulate)
         if self._wake_on_start:
             self._wake = asyncio.create_task(self._wake_tv())
 
@@ -88,6 +90,7 @@ class TvService(Service):
                 "power": power,
                 "active": self.backend.active(),
                 "standby_on_poweroff": self._standby_on_poweroff(),
+                "system_audio": self.backend.system_audio(),
             },
         )
 
@@ -96,6 +99,18 @@ class TvService(Service):
 
     async def _standby(self, args: dict[str, Any]) -> None:
         await self.backend.standby()
+
+    async def _simulate(self, args: dict[str, Any]) -> None:
+        # A frame "05:44:41" (TV to Audio System: Volume Up), handled as if it came off the
+        # bus. Replies go out for real.
+        text = arg(args, "frame", str)
+        try:
+            frame = bytes.fromhex(text.replace(":", "").replace(" ", ""))
+        except ValueError:
+            raise CommandError("'frame' must be hex bytes like 05:44:41") from None
+        if not 1 <= len(frame) <= 16:
+            raise CommandError("'frame' must be 1-16 bytes")
+        await self.backend.simulate(frame)
 
     async def _set_standby_on_poweroff(self, args: dict[str, Any]) -> None:
         # Kept for older callers; the same as settings.set tv.standby_on_poweroff.
