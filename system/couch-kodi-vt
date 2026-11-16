@@ -11,7 +11,11 @@ Opening screen, until Kodi draws its splash: the same picture.
 leave: Kodi has exited, but the kernel can take a moment to let go of its framebuffers and its
 hold on the display (logind closes its copy of Kodi's device when the session ends). Switching
 back before that, cage can't take the screen again and stays black. So wait until no
-framebuffer of Kodi's is left (at most WAIT seconds), then switch to tty1.
+framebuffer of Kodi's is left (at most WAIT seconds), then switch to tty1. tty2 goes back to
+text mode first: the kernel ignores a switch away from a console in graphics mode.
+
+The unit has no TTYReset: systemd's reset puts the console in text mode as Kodi starts, which
+would draw the black console after all.
 
 Python's standard library only.
 """
@@ -29,6 +33,7 @@ FRAMEBUFFERS = "/sys/kernel/debug/dri"  # <card>/framebuffer: "allocated by = <c
 
 # linux/kd.h and linux/vt.h
 KDSETMODE = 0x4B3A
+KD_TEXT = 0x00
 KD_GRAPHICS = 0x01
 VT_ACTIVATE = 0x5606
 VT_WAITACTIVE = 0x5607
@@ -43,10 +48,10 @@ def switch_to(vt: int) -> None:
         os.close(fd)
 
 
-def graphics_mode(vt: int) -> None:
+def set_mode(vt: int, mode: int) -> None:
     fd = os.open(f"/dev/tty{vt}", os.O_RDWR | os.O_NOCTTY)
     try:
-        fcntl.ioctl(fd, KDSETMODE, KD_GRAPHICS)
+        fcntl.ioctl(fd, KDSETMODE, mode)
     finally:
         os.close(fd)
 
@@ -86,12 +91,16 @@ def wait_for_kodi_to_let_go() -> None:
 def main() -> int:
     if sys.argv[1:] == ["enter"]:
         try:
-            graphics_mode(KODI_VT)
+            set_mode(KODI_VT, KD_GRAPHICS)
         except OSError as e:
             print(f"couldn't put tty{KODI_VT} in graphics mode: {e}", file=sys.stderr)
         switch_to(KODI_VT)
     elif sys.argv[1:] == ["leave"]:
         wait_for_kodi_to_let_go()
+        try:
+            set_mode(KODI_VT, KD_TEXT)
+        except OSError as e:
+            print(f"couldn't put tty{KODI_VT} back in text mode: {e}", file=sys.stderr)
         switch_to(LAUNCHER_VT)
     else:
         print("usage: couch-kodi-vt enter | leave", file=sys.stderr)

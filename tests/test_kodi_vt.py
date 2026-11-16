@@ -57,7 +57,7 @@ def test_leaving_gives_up_waiting(dri, monkeypatch, capsys):
 
 def test_enter_and_leave_switch_the_console(dri, monkeypatch):
     calls = []
-    monkeypatch.setattr(vt, "graphics_mode", lambda n: calls.append(("graphics", n)))
+    monkeypatch.setattr(vt, "set_mode", lambda n, mode: calls.append(("mode", n, mode)))
     monkeypatch.setattr(vt, "switch_to", lambda n: calls.append(("switch", n)))
     dri.write_text(CAGE)
     monkeypatch.setattr("sys.argv", ["couch-kodi-vt", "enter"])
@@ -66,4 +66,11 @@ def test_enter_and_leave_switch_the_console(dri, monkeypatch):
     assert vt.main() == 0
     monkeypatch.setattr("sys.argv", ["couch-kodi-vt"])
     assert vt.main() == 2
-    assert calls == [("graphics", 2), ("switch", 2), ("switch", 1)]
+    # graphics mode before tty2 shows; text mode again before leaving it, or the kernel
+    # ignores the switch
+    assert calls == [
+        ("mode", 2, vt.KD_GRAPHICS),
+        ("switch", 2),
+        ("mode", 2, vt.KD_TEXT),
+        ("switch", 1),
+    ]

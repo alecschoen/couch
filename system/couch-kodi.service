@@ -22,9 +22,9 @@ User=couch
 # through it once tty2 is the console in front.
 PAMName=login
 TTYPath=/dev/tty2
-TTYReset=yes
+# No TTYReset or TTYVTDisallocate: both would draw the (black) text console over the Opening
+# screen as Kodi starts. couch-kodi-vt keeps tty2 in graphics mode while Kodi has it.
 TTYVHangup=yes
-TTYVTDisallocate=yes
 # tty-force: should a login prompt have got to tty2 first, Kodi still gets it (install.sh
 # masks them).
 StandardInput=tty-force

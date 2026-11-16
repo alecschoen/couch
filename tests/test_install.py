@@ -80,6 +80,8 @@ def test_kodi_runs_in_front_of_the_waiting_session():
     # (couch-kodi-vt, which waits for Kodi to let go of the screen first)
     assert "ExecStartPre=+/opt/couch/bin/couch-kodi-vt enter" in kodi
     assert "ExecStopPost=+/opt/couch/bin/couch-kodi-vt leave" in kodi
+    # nothing puts tty2 back in text mode under Kodi: the black console would show
+    assert not re.search(r"^TTY(Reset|VTDisallocate)=yes", kodi, re.M)
     # and no login prompt on tty2 to fight Kodi for it
     script = (ROOT / "install.sh").read_text()
     assert "KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)" in script
