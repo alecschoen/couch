@@ -1,0 +1,32 @@
+# couch-update's settings (#24). Copy to /etc/couch/update.toml and uncomment what you
+# change. Every key is optional; these are the defaults.
+
+# Overnight updates: the timer's nightly run (Couch updates when nobody is using it,
+# security updates, a full upgrade once a week, a reboot if one is needed). Off until this
+# is true; then re-run install.sh, which enables couch-update.timer and installs
+# unattended-upgrades. Settings › Updates › Check now works either way.
+# nightly = false
+
+# Where releases come from: GitHub's API, or any URL (or file:// path) that serves the same
+# JSON, one release (releases/latest) or a list of them (releases). A release with an
+# asset named couch-*.tar.gz installs that; otherwise GitHub's source tarball for the tag.
+# source = "https://api.github.com/repos/alecschoen/couch/releases/latest"
+
+# A GitHub token that can read the repo's releases, if it's private. Root only (chmod 600).
+# Sent to api.github.com, github.com and codeload.github.com only.
+# token_file = "/etc/couch/github-token"
+
+# The nightly run only does anything between these local times.
+# window_start = "01:00"
+# window_end = "05:45"
+
+# After install.sh, couchd and the session must be up and couchd steady for `settle`
+# seconds, within `health_timeout`, or the previous install comes back.
+# health_timeout = 180
+# settle = 20
+
+# Security updates every night (unattended-upgrade), a full upgrade every
+# `full_upgrade_days`, and a reboot at night when an update needs one.
+# system_updates = true
+# full_upgrade_days = 7
+# reboot = true

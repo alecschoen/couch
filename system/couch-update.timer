@@ -1,0 +1,14 @@
+[Unit]
+Description=Couch overnight updates, every half hour at night
+Documentation=https://github.com/alecschoen/couch/blob/main/couchd/updater.py
+
+[Timer]
+# couch-update does one run a night, the first time nothing is playing and nobody is
+# using Couch; the other times it finds it has already run and stops.
+OnCalendar=*-*-* 01..05:00/30
+RandomizedDelaySec=10min
+# A Pi that was off at night doesn't catch up in the morning.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

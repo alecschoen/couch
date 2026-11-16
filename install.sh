@@ -24,6 +24,9 @@
 # in RAM (one journald.conf.d file), puts Chromium's and Kodi's caches on a tmpfs (one mount
 # unit, one tmpfiles.d file), and adds noatime to /etc/fstab through couch-fstab, which keeps
 # the original and undoes its edits on --uninstall.
+# Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
+# /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
+# The timer and unattended-upgrades only with `nightly = true` in /etc/couch/update.toml.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -47,6 +50,14 @@ AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
+# Overnight updates (#24): couch-update (couchd/updater.py) runs as root from the timer, or
+# from couchd's Check now through couch-update-now.service.
+UPDATE_UNITS=(couch-update.service couch-update-now.service couch-update.timer)
+UPDATE_TIMER=couch-update.timer
+UPDATE_STATE=/var/lib/couch-update
+APT_UPDATES_CONF=/etc/apt/apt.conf.d/52couch-updates
+# What install.sh needs from a checkout; copied to /opt/couch/source for a rollback.
+SOURCE_FILES=(install.sh pyproject.toml README.md couchd ui system)
 # Silent boot (#4). couch-bootfiles makes these edits to cmdline.txt and config.txt as the
 # owner "boot", and `revert boot` undoes exactly them. Other boot settings get an owner of
 # their own (see the top of system/couch-bootfiles).
@@ -355,6 +366,79 @@ install_audio() {
     fi
 }
 
+# Overnight updates (#24). couch-update installs a release by running its install.sh, and
+# goes back by running the previous one's, which is this copy. /opt/couch/VERSION says which
+# Couch this is (source_version).
+# Which Couch this is: a checkout says so through git (`v1.2.0`, `v1.2.0-3-gabc1234`, or
+# `dev-abc1234` before the first tag; `-dirty` with local changes), a release through the
+# VERSION file couch-update writes into it. Neither: nothing, and VERSION goes, so Settings
+# never shows a version this isn't (a leftover from a release installed before).
+source_version() {
+    local src=$1 v
+    if [[ -e $src/.git ]]; then
+        command -v git >/dev/null || return 0
+        v=$(git -c safe.directory="$src" -C "$src" describe --tags --always --dirty \
+            --match 'v[0-9]*' 2>/dev/null) || return 0
+        [[ $v == v[0-9]* ]] || v=dev-$v
+        echo "$v"
+    elif [[ -f $src/VERSION ]]; then
+        head -n1 "$src/VERSION"
+    fi
+}
+
+install_updates() {
+    local src_dir=$PREFIX/source version="" f units=0
+    if [[ $(realpath "$SRC") != $(realpath -m "$src_dir") ]]; then
+        local out
+        out=$(cd "$SRC" && rsync -rlp --checksum --delete --exclude=__pycache__ \
+            --chmod=D755,F644 --itemize-changes --relative "${SOURCE_FILES[@]}" "$src_dir/")
+        [[ -z $out ]] || note "kept a copy of this version in $src_dir"
+    fi
+    version=$(source_version "$SRC")
+    for f in "$PREFIX/VERSION" "$src_dir/VERSION"; do
+        if [[ -z $version ]]; then
+            rm -f "$f"
+        elif [[ ! -f $f || $(<"$f") != "$version" ]]; then
+            echo "$version" >"$f"
+            [[ $f == "$PREFIX/VERSION" ]] && note "this is Couch $version"
+        fi
+    done
+    ensure_file "$SRC/system/apt-couch.conf" "$APT_UPDATES_CONF" 644 || true
+    ensure_file "$SRC/system/update.example.toml" "$ETC/update.example.toml" 644 || true
+    for f in "${UPDATE_UNITS[@]}"; do
+        ensure_file "$SRC/system/$f" "$UNIT_DIR/$f" 644 && units=1
+    done
+    ((units)) && systemctl daemon-reload
+    # The night runs are opt-in (`nightly = true` in update.toml): until then no timer and
+    # no unattended-upgrades. apt-couch.conf keeps apt's own daily run off either way.
+    local nightly=0 code=0
+    /usr/bin/python3 -I "$SRC/couchd/updater.py" enabled --config "$ETC/update.toml" \
+        || code=$?
+    case $code in
+        0) nightly=1 ;;
+        1) ;;
+        *) echo "  warning: $ETC/update.toml is broken; overnight updates stay off" >&2 ;;
+    esac
+    if ((nightly)); then
+        ensure_packages unattended-upgrades
+        if ! systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+            systemctl -q enable --now "$UPDATE_TIMER"
+            note "enabled overnight updates ($UPDATE_TIMER)"
+        fi
+    elif systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+        systemctl -q disable --now "$UPDATE_TIMER"
+        note "overnight updates are off ($UPDATE_TIMER disabled)"
+    fi
+}
+
+uninstall_updates() {
+    local u
+    systemctl disable --now "$UPDATE_TIMER" 2>/dev/null || true
+    for u in "${UPDATE_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    rm -f "$APT_UPDATES_CONF" "$ETC/update.example.toml"
+    rm -rf "$UPDATE_STATE"
+}
+
 # The silent boot (#4). The firmware shows nothing (no rainbow square). The kernel draws the
 # Couch splash as soon as there's a framebuffer and prints nothing on the TV. The splash stays
 # until cage takes the screen for the launcher. All of this takes effect at the next boot.
@@ -544,6 +628,7 @@ uninstall() {
     local purge=$1 u
     uninstall_sd_card
     uninstall_boot
+    uninstall_updates
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
@@ -578,7 +663,7 @@ case ${1:-} in
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 --revert-sd) uninstall_sd_card; echo "The SD card protection is off, fully from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system
@@ -597,6 +682,8 @@ install_couch
 install_bluetooth_audio
 say "Boot"
 install_boot
+say "Updates"
+install_updates
 
 echo
 if ((changes)); then
