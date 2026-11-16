@@ -340,14 +340,20 @@ install_couch() {
     ((units)) && systemctl daemon-reload
     # tty2 is Kodi's (couch-kodi.service). logind starts a login prompt on a console as soon
     # as it's switched to, and one on tty2 fights Kodi for the tty and leaves the screen in a
-    # state cage can't take back. So none there.
+    # state cage can't take back. So none there. Masked by hand, under both names logind and
+    # systemd use: `systemctl mask autovt@tty2` resolves the alias and masks getty@tty2 only.
+    local masked=0
     for u in "${KODI_VT_GETTYS[@]}"; do
-        if [[ $(systemctl is-enabled "$u" 2>/dev/null) != masked ]]; then
-            systemctl -q mask "$u"
-            systemctl -q stop "$u" 2>/dev/null || true
+        if [[ $(readlink "$UNIT_DIR/$u") != /dev/null ]]; then
+            ln -sfn /dev/null "$UNIT_DIR/$u"
+            masked=1
             note "masked $u"
         fi
     done
+    if ((masked)); then
+        systemctl daemon-reload
+        systemctl -q stop "${KODI_VT_GETTYS[@]}" 2>/dev/null || true
+    fi
     for u in "${UNITS[@]}"; do
         if ! systemctl -q is-enabled "$u" 2>/dev/null; then
             systemctl -q enable "$u"
@@ -674,7 +680,9 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     for u in "${STATIC_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
-    systemctl -q unmask "${KODI_VT_GETTYS[@]}" 2>/dev/null || true
+    for u in "${KODI_VT_GETTYS[@]}"; do
+        if [[ $(readlink "$UNIT_DIR/$u") == /dev/null ]]; then rm -f "$UNIT_DIR/$u"; fi
+    done
     rm -f "$POLKIT_RULE" "$UINPUT_RULE" "$NO_POINTER_RULE" "$UINPUT_MODULE_CONF"
     rm -f "$WIFI_RULE" "$WIFI_BOOT_UNIT" "$RFKILL_DROPIN"
     rmdir "$(dirname "$RFKILL_DROPIN")" 2>/dev/null || true

@@ -81,8 +81,8 @@ def test_kodi_runs_in_front_of_the_waiting_session():
     # and no login prompt on tty2 to fight Kodi for it
     script = (ROOT / "install.sh").read_text()
     assert "KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)" in script
-    assert 'systemctl -q mask "$u"' in script
-    assert 'systemctl -q unmask "${KODI_VT_GETTYS[@]}"' in script
+    assert 'ln -sfn /dev/null "$UNIT_DIR/$u"' in script
+    assert 'if [[ $(readlink "$UNIT_DIR/$u") == /dev/null ]]; then rm -f "$UNIT_DIR/$u"; fi' in script
     # the launcher comes back however Kodi ends, couchd or not
     assert "OnSuccess=couch-session.service" in kodi
     assert "OnFailure=couch-session.service" in kodi

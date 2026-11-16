@@ -61,6 +61,7 @@ PAGE_LOAD_WAIT = 10.0  # a new tab comes to the front once loaded, or after this
 ERROR_TTL = 120.0  # an error screen nobody answered goes away by itself
 BROWSER_WAIT = 20.0  # how long a launch waits for the browser to come back from Kodi
 SESSION_GRACE = 15.0  # browser unreachable this long, and its session is down: restart it
+DRAW_WAIT = 2.0  # back from Kodi, the launcher draws a frame within this long, or restart
 RETRY_MIN, RETRY_MAX = 0.25, 1.0  # DevTools reconnect backoff; a refused connect is cheap
 CRASH_LIMIT, CRASH_WINDOW = 3, 120.0
 
@@ -68,6 +69,8 @@ PAUSE_MEDIA = 'document.querySelectorAll("video, audio").forEach((m) => m.pause(
 VISIBILITY = "document.visibilityState"
 # A new tab is about:blank (and "complete") until navigation starts.
 READY = 'location.href === "about:blank" ? "loading" : document.readyState'
+# Resolves on the page's next frame, which comes only once cage is drawing the screen again.
+DRAWING = "new Promise((r) => requestAnimationFrame(() => r(true)))"
 
 
 @dataclass(frozen=True)
@@ -521,6 +524,24 @@ class AppService(Service):
         if self.launcher.id in self._pages:
             with contextlib.suppress(CdpError):
                 await self._show(self.launcher.id)
+            if not await self._launcher_draws():
+                # cage didn't take the screen back from Kodi (it can fail its modeset when
+                # the switch races Kodi's exit). Start it again: the slow way, but not black.
+                log.warning("the launcher isn't drawing after Kodi; restarting the session")
+                try:
+                    await self.display.restart_browser()
+                except BackendError as e:
+                    log.error("couldn't restart the launcher", extra={"error": str(e)})
+
+    async def _launcher_draws(self) -> bool:
+        try:
+            async with asyncio.timeout(DRAW_WAIT):
+                await self.chromium.evaluate(self._pages[self.launcher.id], DRAWING)
+        except TimeoutError:
+            return False
+        except CdpError:
+            pass  # Chromium itself went away: the browser loop brings it back
+        return True
 
     # --- the browser connection ----------------------------------------------------------
 

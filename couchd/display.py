@@ -52,6 +52,10 @@ class Display(Backend):
         if it isn't."""
 
     @abstractmethod
+    async def restart_browser(self) -> None:
+        """Start the browser session again from scratch (behind the splash)."""
+
+    @abstractmethod
     async def start_kodi(self, on_exit: KodiExit) -> None:
         """Start Kodi in front of the browser session. Returns once Kodi is running."""
 
@@ -89,6 +93,12 @@ class SystemdDisplay(Display):
         code, out = await _systemctl("start", SESSION_UNIT)
         if code != 0:
             raise BackendError(f"couldn't start the launcher: {out or code}")
+
+    async def restart_browser(self) -> None:
+        await _systemctl("reset-failed", SESSION_UNIT)
+        code, out = await _systemctl("restart", SESSION_UNIT)
+        if code != 0:
+            raise BackendError(f"couldn't restart the launcher: {out or code}")
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await _systemctl("reset-failed", KODI_UNIT)
@@ -169,6 +179,7 @@ class FakeDisplay(Display):
         self.speed = speed
         self.kodi_running = False
         self.kodi_starts = 0
+        self.browser_restarts = 0
         self.fail_next_start = False
         self._on_exit: KodiExit | None = None
 
@@ -178,6 +189,9 @@ class FakeDisplay(Display):
     async def show_browser(self) -> None:
         if self.kodi_running:
             self.exit_kodi(crashed=False)
+
+    async def restart_browser(self) -> None:
+        self.browser_restarts += 1
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await asyncio.sleep(0.5 * self.speed)

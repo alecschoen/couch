@@ -116,6 +116,12 @@ async def test_a_session_that_died_behind_kodi_is_started_again(systemd):
     await display.stop()
 
 
+async def test_restarting_the_browser_session(systemd):
+    display = SystemdDisplay()
+    await display.restart_browser()
+    assert f"restart {SESSION_UNIT}" in (systemd / "log").read_text()
+
+
 async def test_stopping_couchd_leaves_kodi_running(systemd):
     display = SystemdDisplay()
     await display.start_kodi(lambda failed: None)
