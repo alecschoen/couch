@@ -10,8 +10,16 @@ export function reduced() {
   return root.dataset.motion === "reduced";
 }
 
+// Is the launcher off the TV (an app in front)? createApp() says how to tell. Nothing animates
+// then: nobody would see it, and an animation held up while Kodi has the screen would play
+// when the launcher comes back, such as Home's colour flooding in over Plex's.
+let unseen = () => false;
+export function whenUnseen(test) {
+  unseen = test;
+}
+
 export function duration(name) {
-  if (reduced()) return 0;
+  if (reduced() || unseen()) return 0;
   const value = getComputedStyle(root).getPropertyValue(`--dur-${name}`).trim();
   return value.endsWith("ms") ? parseFloat(value) : parseFloat(value) * 1000 || 0;
 }
@@ -20,7 +28,8 @@ export function easing(name = "out") {
   return getComputedStyle(root).getPropertyValue(`--ease-${name}`).trim() || "ease-out";
 }
 
-// el.animate() with token timings. Returns null (and does nothing) under reduced motion.
+// el.animate() with token timings. Returns null (and does nothing) under reduced motion, or
+// while the launcher isn't on the TV.
 export function animate(el, keyframes, { dur = "quick", ease = "out", ...options } = {}) {
   const ms = duration(dur);
   if (!ms) return null;

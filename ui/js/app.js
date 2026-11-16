@@ -21,6 +21,7 @@ import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { IdleClock } from "./idle.js";
 import { useKeyboardAsRemote } from "./keys.js";
+import { whenUnseen } from "./motion.js";
 import { useOverlays } from "./overlay.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
@@ -35,6 +36,10 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   const app = new EventTarget();
 
   app.couch = new Couch();
+  whenUnseen(() => {
+    const front = app.couch.state?.apps?.foreground;
+    return Boolean(front) && front !== "launcher";
+  });
   settings.bind(app.couch); // settings live in couchd; see settings.js
   app.theme = new Theme($(flood));
   app.focus = new FocusEngine(document.body);

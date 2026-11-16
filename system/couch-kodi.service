@@ -32,11 +32,11 @@ StandardOutput=journal
 StandardError=journal
 UtmpIdentifier=tty2
 UtmpMode=user
-# chvt runs as root (+). tty2 first, so cage lets go of the screen before Kodi opens it;
-# back to tty1 however Kodi ended, so cage takes the screen again.
-ExecStartPre=+/usr/bin/chvt 2
+# couch-kodi-vt runs as root (+). tty2 first, so cage lets go of the screen before Kodi opens
+# it; back to tty1 however Kodi ended, once Kodi has let go, so cage takes the screen again.
+ExecStartPre=+/opt/couch/bin/couch-kodi-vt enter
 ExecStart=/opt/couch/bin/couch-kodi
-ExecStopPost=+/usr/bin/chvt 1
+ExecStopPost=+/opt/couch/bin/couch-kodi-vt leave
 # couchd decides what runs next; never restart Kodi on our own.
 Restart=no
 TimeoutStopSec=10

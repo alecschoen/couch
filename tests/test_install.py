@@ -33,6 +33,7 @@ def test_every_system_file_it_installs_exists():
         "couch-splash",
         "couch-kodi.service",
         "couch-kodi",
+        "couch-kodi-vt",
         "couch.rules",
         "kodi",
         "60-couch-uinput.rules",
@@ -76,13 +77,15 @@ def test_kodi_runs_in_front_of_the_waiting_session():
     assert not re.search(r"^Conflicts=.*couch-session\.service", kodi, re.M)
     assert re.search(r"^Conflicts=.*autovt@tty2\.service", kodi, re.M)  # no login prompt
     # the console goes to tty2 before Kodi opens the screen, and back to tty1 however it ends
-    assert "ExecStartPre=+/usr/bin/chvt 2" in kodi
-    assert "ExecStopPost=+/usr/bin/chvt 1" in kodi
+    # (couch-kodi-vt, which waits for Kodi to let go of the screen first)
+    assert "ExecStartPre=+/opt/couch/bin/couch-kodi-vt enter" in kodi
+    assert "ExecStopPost=+/opt/couch/bin/couch-kodi-vt leave" in kodi
     # and no login prompt on tty2 to fight Kodi for it
     script = (ROOT / "install.sh").read_text()
     assert "KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)" in script
     assert 'ln -sfn /dev/null "$UNIT_DIR/$u"' in script
-    assert 'if [[ $(readlink "$UNIT_DIR/$u") == /dev/null ]]; then rm -f "$UNIT_DIR/$u"; fi' in script
+    unmask = 'if [[ $(readlink "$UNIT_DIR/$u") == /dev/null ]]; then rm -f "$UNIT_DIR/$u"; fi'
+    assert unmask in script
     # the launcher comes back however Kodi ends, couchd or not
     assert "OnSuccess=couch-session.service" in kodi
     assert "OnFailure=couch-session.service" in kodi

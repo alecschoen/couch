@@ -313,6 +313,7 @@ install_couch() {
     ensure_file "$SRC/system/couch-session-start" "$PREFIX/bin/couch-session-start" 755 && session=1
     ensure_file "$SRC/system/couch-splash" "$PREFIX/bin/couch-splash" 755 && session=1
     ensure_file "$SRC/system/couch-kodi" "$PREFIX/bin/couch-kodi" 755 || true
+    ensure_file "$SRC/system/couch-kodi-vt" "$PREFIX/bin/couch-kodi-vt" 755 || true
     # polkitd picks up rule changes by itself.
     ensure_file "$SRC/system/couch.rules" "$POLKIT_RULE" 644 || true
     # The config is yours: written once, never overwritten.
