@@ -45,6 +45,7 @@ export function startupScreen(_params, app) {
   }, SLOW_MS);
   couch.addEventListener("state", render);
   couch.addEventListener("connection", render);
+  render();
 
   return {
     el,

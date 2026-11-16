@@ -10,6 +10,9 @@
 //   2. Opening, while `apps.opening` is set
 //   3. an error screen, while `apps.error` is set
 //
+// When couchd restarts under a running launcher, Startup waits RESTART_GRACE_MS before it goes
+// up: a restart with the TV already on is done within a second, and Home shouldn't flash.
+//
 // couchd times all three out itself. In case it doesn't (or a message is lost), each also has
 // a limit here, after which the screen under it shows again.
 
@@ -22,6 +25,7 @@ const LIMITS_MS = {
   opening: 40_000, // a tab gets 10 s to load; Kodi 10 s to start
   error: 150_000, // couchd clears errors after 2 minutes
 };
+const RESTART_GRACE_MS = 1500;
 
 // What couchd's state calls for: { name, params, key } or null. `key` changes whenever the
 // screen should be rebuilt.
@@ -38,12 +42,20 @@ export function systemScreens(app) {
   router.register("startup", startupScreen).register("opening", openingScreen).register("error", errorScreen);
 
   let heard = false; // had a full snapshot from couchd
+  let graceUntil = 0; // after a reconnect, Startup holds off until then
+  let graceTimer = null;
   let shown = null; // key of the takeover up now
   let timer = null;
   const expired = new Set(); // keys whose limit ran out while couchd still wanted them
 
   const update = () => {
-    const raw = wanted(couch.state, { heard });
+    let raw = wanted(couch.state, { heard });
+    const wait = graceUntil - Date.now();
+    if (raw?.name === "startup" && shown !== "startup" && wait > 0) {
+      clearTimeout(graceTimer);
+      graceTimer = setTimeout(update, wait);
+      raw = null;
+    }
     for (const key of expired) if (key !== raw?.key) expired.delete(key);
     const want = raw && !expired.has(raw.key) ? raw : null;
     const key = want?.key ?? null;
@@ -63,7 +75,10 @@ export function systemScreens(app) {
   };
 
   couch.addEventListener("state", (e) => {
-    if (e.detail.patch === null) heard = true;
+    if (e.detail.patch === null) {
+      if (heard) graceUntil = Date.now() + RESTART_GRACE_MS;
+      heard = true;
+    }
     update();
   });
 
