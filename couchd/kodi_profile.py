@@ -394,6 +394,10 @@ def _skin_addon_xml(estuary_addon: Path) -> bytes:
 
 def _load_xml(path: Path, tag: str, attrib: dict[str, str]) -> ET.Element:
     try:
+        # Kodi rewrites its settings in place when it quits, so a power cut then can leave
+        # an empty file (#25). Kodi itself starts over from defaults; so do we.
+        if not path.read_bytes().strip():
+            return ET.Element(tag, attrib)
         root = ET.parse(path).getroot()
     except FileNotFoundError:
         return ET.Element(tag, attrib)

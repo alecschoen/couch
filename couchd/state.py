@@ -5,7 +5,8 @@ app is up). It lives in memory, is grouped into sections, and every change goes 
 bus as a patch.
 
 `SavedState` is what must survive a reboot (preferred output, paired speakers). It is a
-small JSON file, written atomically (couchd/files.py) and debounced so a burst of changes is one SD card write.
+small JSON file, written atomically (couchd/files.py) and debounced so a burst of changes is
+one SD card write.
 """
 
 import asyncio

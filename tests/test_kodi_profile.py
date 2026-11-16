@@ -215,6 +215,17 @@ def test_settings_merge_keeps_kodis_own(world):
     assert "default" not in skin.attrib  # or Kodi would put its default back
 
 
+def test_settings_emptied_by_a_power_cut_are_written_again(world):
+    # Kodi rewrites guisettings.xml in place when it quits; a cut then leaves it empty (#25).
+    gui = world["home"] / "userdata" / "guisettings.xml"
+    gui.parent.mkdir(parents=True)
+    gui.write_bytes(b"")
+    world["make"]().apply()
+    assert settings(gui)["lookandfeel.skin"] == "skin.couch"
+    leftovers = [p for p in world["home"].rglob("*") if ".couch-tmp." in p.name]
+    assert leftovers == []
+
+
 def test_plex_sign_in_survives(world):
     path = world["home"] / "userdata" / "addon_data" / "script.plexmod" / "settings.xml"
     path.parent.mkdir(parents=True)
