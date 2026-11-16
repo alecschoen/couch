@@ -1,12 +1,8 @@
 # Test on the real TV
 
-One run through everything Couch does, with only the Sony remote, in about an hour (a few
-minutes more with the pending features). Each step has a box and what should happen. If
+One run through everything Couch does, with only the Sony remote, in about an hour. Each step has a box and what should happen. If
 something doesn't, note the step's number (say **D4**) and what you saw, and carry on.
 Section times are rough.
-
-Steps marked **(pending merge)** are features still in review. Skip them if they aren't on
-the Pi yet.
 
 ## Before you start (3 min)
 
@@ -84,10 +80,11 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 - [ ] **C6** Power: press OK once on Restart. Expected: it changes to "Press OK again to
       restart". Wait 4 s without pressing. Expected: it goes back to Restart.
 - [ ] **C7** Compare the screen with the design, especially the Display and Power panels.
-- [ ] **C8** Network **(pending merge)**: Connection says Ethernet, and Wi-Fi is off ("Off. Couch
+- [ ] **C8** Network: Connection says Ethernet, and Wi-Fi is off ("Off. Couch
       uses the network cable."). Couch is meant to be on the cable, so Wi-Fi stays off unless
-      you want it. To try it: OK turns it on, and it joins a network the Pi already knows
-      within a few seconds; OK again turns it off. Leave it off.
+      you want it. To try it: OK turns it on ("On. Not connected to a network." if the Pi
+      knows no Wi-Fi network; one it knows, it joins within a few seconds); OK again turns
+      it off. Leave it off.
 
 ## D. Bluetooth (5 min)
 
@@ -363,4 +360,4 @@ decides what the remote's buttons do.
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
-| Wi-Fi option | #31, PR #57 (pending) |
+| Wi-Fi option | #31, PR #57 |

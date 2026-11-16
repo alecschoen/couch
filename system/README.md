@@ -45,6 +45,8 @@ The boot needed a fix. At boot, systemd-rfkill puts back each radio's saved bloc
 - `systemd-rfkill-couch.conf` removes the saved Wi-Fi state (`/var/lib/systemd/rfkill/*:wlan`) before systemd-rfkill starts. Without a saved state systemd-rfkill leaves that radio alone. Bluetooth's saved state stays, and is still restored.
 - `70-couch-wifi.rules` starts `couch-wifi-boot.service` when wlan0 appears, once the chip is up. `couch-wifi-boot` reads NetworkManager's state file and, if it says `WirelessEnabled=false`, soft-blocks the Wi-Fi radio. It never unblocks anything and always exits 0.
 
+What actually happens on Raspberry Pi OS (seen on the Pi, 16 Nov 2026): `raspberrypi-sys-mods` ships `/etc/modprobe.d/rfkill_default.conf` (`options rfkill default_state=0`), so every radio is registered soft-blocked, and systemd-rfkill unblocks the ones with a saved state (Bluetooth). With Wi-Fi's saved state gone, Wi-Fi stays blocked from the start: no write, no hang, and `couch-wifi-boot` logs "Wi-Fi is off and already blocked". Its own block is the backstop for a system without that file. With Wi-Fi on, NetworkManager unblocks the radio itself when wlan0 appears (about 10 s in, "Wi-Fi now enabled by radio killswitch"). Checked with three reboots with Wi-Fi off and one with it on: no failed units, and Bluetooth was unblocked every time.
+
 The other ways considered, and why not:
 
 - **Order or delay systemd-rfkill until wlan is up.** It's socket-activated by `/dev/rfkill` and restores each radio as it appears, so there's nothing to order it after: wlan0 isn't a dependency it can wait for. Delaying the whole unit would delay Bluetooth's restore too, and couchd powers Bluetooth on at start.

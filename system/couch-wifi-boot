@@ -9,8 +9,10 @@ fails. So Couch tells systemd-rfkill to leave Wi-Fi alone (system/systemd-rfkill
 and this blocks the radio instead, once wlan0 exists and the chip is up:
 couch-wifi-boot.service runs it when wlan0 appears (system/70-couch-wifi.rules).
 
-It only ever blocks. When Wi-Fi is on, the kernel leaves the radio unblocked and
-NetworkManager uses it. It never fails the boot: problems are printed and it exits 0.
+It only ever blocks. On Raspberry Pi OS the radio is already blocked by then (its
+rfkill_default.conf registers every radio blocked), so this is the backstop; with Wi-Fi on,
+NetworkManager unblocks the radio itself when wlan0 appears. It never fails the boot:
+problems are printed and it exits 0.
 
 Python's standard library only.
 """
