@@ -19,19 +19,25 @@ from couchd.systemd import jobs_power_off
 from couchd.tv import STANDBY_ON_POWEROFF, TvService
 
 US = 0x4  # Playback 1
+AUDIO = 0x5  # Audio System
 PA = 0x1000  # 1.0.0.0, TV input 1
 
 
 class FakeAdapter:
     """A CEC adapter on a bus with a TV at 0. Records what we send; acks unless told not to."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_log_addrs: int = 1) -> None:
+        self.max_las = max_log_addrs
+        self.roles: tuple[str, ...] = ()
+        self.claims = 0
+        self._phys: int | None = None
         self._r, self._w = os.pipe()
         os.set_blocking(self._r, False)
         self._events: deque[cec.Event] = deque()
         self._rx: deque[cec.Received] = deque()
         self._seq = 0
         self._la: int | None = None
+        self._las: list[int] = []
         self.sent: list[bytes] = []
         self.claimed: tuple[str, int] | None = None
         self.nack = False
@@ -39,14 +45,20 @@ class FakeAdapter:
 
     # test controls
     def connect(self, phys_addr: int = PA, log_addr: int = US) -> None:
-        self._la = log_addr
-        self._push_event(cec.Event(cec.EVENT_STATE_CHANGE, phys_addr, 1 << log_addr))
+        self._phys = phys_addr
+        self._las = [AUDIO if r == cec.AUDIO else log_addr for r in self.roles or ("playback",)]
+        self._la = self._las[0]
+        mask = sum(1 << a for a in self._las)
+        self._push_event(cec.Event(cec.EVENT_STATE_CHANGE, phys_addr, mask))
 
     def disconnect(self) -> None:
         self._la = None
+        self._las = []
+        self._phys = None
         self._push_event(cec.Event(cec.EVENT_STATE_CHANGE, cec.NO_PHYS_ADDR, 0))
 
     def from_tv(self, dest: int, *payload: int) -> None:
+        """A message from the TV. The kernel only hands us those for our own addresses."""
         self._push_rx(cec.Received(bytes([cec.TV << 4 | dest, *payload])))
 
     def clear(self) -> None:
@@ -64,8 +76,20 @@ class FakeAdapter:
     def fileno(self) -> int:
         return self._r
 
-    def claim(self, osd_name: str, vendor_id: int) -> None:
+    def max_log_addrs(self) -> int:
+        return self.max_las
+
+    def claim(self, osd_name: str, vendor_id: int, roles=("playback",)) -> None:
+        if len(roles) > self.max_las:
+            raise OSError(errno.EINVAL, "too many addresses")
         self.claimed = (osd_name, vendor_id)
+        self.roles = tuple(roles)
+        self.claims += 1
+        if self._phys is not None:  # a new claim while connected: drop, then take the new
+            phys = self._phys
+            self._la, self._las = None, []
+            self._push_event(cec.Event(cec.EVENT_STATE_CHANGE, phys, 0))
+            self.connect(phys)
 
     def phys_addr(self) -> int:
         return PA
@@ -76,6 +100,8 @@ class FakeAdapter:
     def transmit(self, data: bytes) -> int:
         if self._la is None:
             raise OSError(errno.ENONET, "no logical address")
+        if data[0] >> 4 not in self._las:
+            raise OSError(errno.EINVAL, "initiator is not ours")
         self._seq += 1
         self.sent.append(data)
         broadcast = data[0] & 0xF == cec.BROADCAST
@@ -412,7 +438,12 @@ async def _service(ctx, adapter, *, powering_off=False):
 async def test_service_wakes_the_tv_on_start(ctx, adapter):
     service = await _service(ctx, adapter)
     assert frame(US, cec.TV, cec.IMAGE_VIEW_ON) in adapter.sent
-    assert ctx.state.get("tv") == {"power": "on", "active": True, "standby_on_poweroff": False}
+    assert ctx.state.get("tv") == {
+        "power": "on",
+        "active": True,
+        "standby_on_poweroff": False,
+        "system_audio": False,
+    }
     await service.stop()
 
 
@@ -482,3 +513,210 @@ def test_describe():
 def test_missing_device_fails_to_open(tmp_path):
     with pytest.raises(OSError):
         cec.KernelAdapter(str(tmp_path / "cec9")).open()
+
+
+# --- the Audio System (#11) ------------------------------------------------------------------
+
+
+async def _audio_tv(adapter, *, max_las=1):
+    adapter.max_las = max_las
+    backend = CecTv(adapter, claim_timeout=0.5, tx_timeout=0.5, poll_interval=3600)
+    await backend.start()
+    adapter.connect()
+    await settle()
+    await backend.power_on()
+    adapter.clear()
+    return backend
+
+
+async def test_one_address_adapter_becomes_the_audio_system(adapter):
+    tv = await _audio_tv(adapter)
+    changes = []
+    tv.on_change(lambda: changes.append(tv.system_audio()))
+    tv.set_audio_status(30, False)
+    await tv.set_system_audio(True)
+    await settle()
+    assert adapter.roles == (cec.AUDIO,)
+    assert tv.system_audio()
+    assert True in changes
+    # Still the active source, now from 5, then System Audio Mode on and our volume.
+    sent = [f for f in adapter.sent if f[1:] != bytes([cec.GIVE_DEVICE_POWER_STATUS])]
+    assert sent[:3] == [
+        frame(AUDIO, cec.BROADCAST, cec.ACTIVE_SOURCE, 0x10, 0x00),
+        frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1),
+        frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 30),
+    ]
+    # Reclaiming isn't the TV going away.
+    assert tv.power() == "on"
+    assert tv.active()
+    await tv.stop()
+
+
+async def test_two_address_adapter_keeps_playback_and_adds_5(adapter):
+    tv = await _audio_tv(adapter, max_las=2)
+    await tv.set_system_audio(True)
+    await settle()
+    assert adapter.roles == (cec.PLAYBACK, cec.AUDIO)
+    assert frame(US, cec.BROADCAST, cec.ACTIVE_SOURCE, 0x10, 0x00) in adapter.sent
+    assert frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1) in adapter.sent
+    adapter.clear()
+    # Playback queries still answered from 4, audio ones from 5.
+    adapter.from_tv(US, cec.GIVE_DEVICE_POWER_STATUS)
+    adapter.from_tv(AUDIO, cec.GIVE_SYSTEM_AUDIO_MODE_STATUS)
+    await settle()
+    assert adapter.sent == [
+        frame(US, cec.TV, cec.REPORT_POWER_STATUS, 0),
+        frame(AUDIO, cec.TV, cec.SYSTEM_AUDIO_MODE_STATUS, 1),
+    ]
+    await tv.stop()
+
+
+async def test_handing_sound_back_to_the_tv(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    await tv.set_system_audio(False)
+    await settle()
+    assert adapter.sent[0] == frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 0)
+    assert adapter.roles == (cec.PLAYBACK,)
+    assert frame(US, cec.BROADCAST, cec.ACTIVE_SOURCE, 0x10, 0x00) in adapter.sent
+    assert not tv.system_audio()
+    await tv.stop()
+
+
+async def test_answers_audio_queries(adapter):
+    tv = await _audio_tv(adapter)
+    tv.set_audio_status(42, True)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    adapter.from_tv(AUDIO, cec.GIVE_AUDIO_STATUS)
+    adapter.from_tv(AUDIO, cec.GIVE_SYSTEM_AUDIO_MODE_STATUS)
+    adapter.from_tv(AUDIO, cec.GIVE_PHYSICAL_ADDR)
+    await settle()
+    assert adapter.sent == [
+        frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 0x80 | 42),
+        frame(AUDIO, cec.TV, cec.SYSTEM_AUDIO_MODE_STATUS, 1),
+        frame(AUDIO, cec.BROADCAST, cec.REPORT_PHYSICAL_ADDR, 0x10, 0x00, 5),
+    ]
+    await tv.stop()
+
+
+async def test_system_audio_mode_request(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    # Asked to turn it on (the TV gives its own address): yes, again.
+    adapter.from_tv(AUDIO, cec.SYSTEM_AUDIO_MODE_REQUEST, 0x00, 0x00)
+    await settle()
+    assert adapter.sent == [
+        frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1),
+        frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 0),
+    ]
+    adapter.clear()
+    # Asked with no operand: the TV wants its speakers back.
+    adapter.from_tv(AUDIO, cec.SYSTEM_AUDIO_MODE_REQUEST)
+    await settle()
+    assert adapter.sent == [frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 0)]
+    assert not tv.system_audio()
+    await tv.stop()
+
+
+async def test_refuses_system_audio_on_another_input(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    # The user picks another input: the TV's speakers are its own again.
+    adapter.from_tv(cec.BROADCAST, cec.ROUTING_CHANGE, 0x10, 0x00, 0x20, 0x00)
+    await settle()
+    assert adapter.sent == [frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 0)]
+    adapter.clear()
+    adapter.from_tv(AUDIO, cec.SYSTEM_AUDIO_MODE_REQUEST, 0x00, 0x00)
+    await settle()
+    assert adapter.sent == [
+        frame(AUDIO, cec.TV, cec.FEATURE_ABORT, cec.SYSTEM_AUDIO_MODE_REQUEST, cec.ABORT_REFUSED)
+    ]
+    # And back to us: on again.
+    adapter.clear()
+    adapter.from_tv(cec.BROADCAST, cec.SET_STREAM_PATH, 0x10, 0x00)
+    await settle()
+    assert frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1) in adapter.sent
+    await tv.stop()
+
+
+async def test_audio_queries_to_a_playback_address_are_aborted(tv, adapter):
+    adapter.from_tv(US, cec.GIVE_AUDIO_STATUS)
+    await settle()
+    assert adapter.sent == [
+        frame(US, cec.TV, cec.FEATURE_ABORT, cec.GIVE_AUDIO_STATUS, cec.ABORT_UNRECOGNIZED_OP)
+    ]
+
+
+async def test_volume_buttons(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    volume, keys = [], _record(tv)
+    tv.on_volume_key(volume.append)
+    for code in (0x41, 0x42, 0x43, 0x65, 0x66):
+        adapter.from_tv(AUDIO, cec.USER_CONTROL_PRESSED, code)
+    adapter.from_tv(AUDIO, cec.USER_CONTROL_RELEASED)
+    await settle()
+    assert volume == ["up", None, "down", None, "mute", None, "mute_on", None, "mute_off", None]
+    # Not remote keys (the first one lets go of whatever remote key was down).
+    assert keys == [("release", None)]
+    keys.clear()
+    # Navigation keys still work from address 5.
+    adapter.from_tv(AUDIO, cec.USER_CONTROL_PRESSED, 0x01)
+    await settle()
+    assert keys == [("press", "up")]
+    await tv.stop()
+
+
+async def test_set_audio_status_reports_changes_only_in_system_audio_mode(adapter):
+    tv = await _audio_tv(adapter)
+    tv.set_audio_status(10, False)
+    await settle()
+    assert adapter.sent == []
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    tv.set_audio_status(10, False)  # unchanged
+    tv.set_audio_status(12, False)
+    tv.set_audio_status(12, False, report=True)  # a button at the limit still reports
+    await settle()
+    assert adapter.sent == [
+        frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 12),
+        frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 12),
+    ]
+    await tv.stop()
+
+
+async def test_simulate_runs_a_frame_through_the_handlers(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.clear()
+    await tv.simulate(bytes([0x05, cec.GIVE_AUDIO_STATUS]))
+    await settle()
+    assert adapter.sent == [frame(AUDIO, cec.TV, cec.REPORT_AUDIO_STATUS, 0)]
+    await tv.stop()
+
+
+async def test_system_audio_is_told_again_after_a_hotplug_blip(adapter):
+    tv = await _audio_tv(adapter)
+    await tv.set_system_audio(True)
+    await settle()
+    adapter.disconnect()
+    await settle()
+    assert not tv.system_audio()
+    adapter.clear()
+    adapter.connect()
+    adapter.from_tv(AUDIO, cec.REPORT_POWER_STATUS, cec.POWER_ON)
+    await settle()
+    assert frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1) in adapter.sent
+    assert tv.system_audio()
+    await tv.stop()
