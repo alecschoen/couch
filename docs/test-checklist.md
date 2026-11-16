@@ -353,8 +353,8 @@ files under `perf-results/<date>/`, for that page.
       hardware decoder. If the picker comes back during the run, pick your profile again
       and run it again. With time to spare, `--minutes 30` instead of `--short`.
 - [ ] **P2** The boot recording. Overnight, every frame from the session splash to Home was
-      recorded (480 × 270). It's on the PC in the COUCH-23 worktree,
-      `.claude/worktrees/nostalgic-euclid-f7f555/perf-results/2026-11-16/session-072302-15.27.mkv`.
+      recorded (480 × 270). It's in the main Couch checkout on the PC,
+      `perf-results/2026-11-16/session-072302-15.27.mkv`.
       Open it in a video player that steps one frame at a time (VLC: E; mpv: `.`).
       Expected: the logo, then the Startup screen's logo on the same pixels with its bar and
       "Turning on the TV", then Home fading in. No black or white frame, and the logo doesn't jump. (The recording starts at the
