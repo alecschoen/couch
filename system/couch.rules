@@ -1,5 +1,6 @@
 // Lets couchd (the couch user) hand the screen between the browser session and Kodi:
-// start, stop and reset those two units, and nothing else.
+// start, stop and reset those two units, and start Settings > Updates' Check now
+// (couch-update-now.service), and nothing else.
 polkit.addRule(function (action, subject) {
     if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "couch") {
         return polkit.Result.NOT_HANDLED;
@@ -9,6 +10,9 @@ polkit.addRule(function (action, subject) {
     var units = ["couch-session.service", "couch-kodi.service"];
     var verbs = ["start", "stop", "restart", "reset-failed"];
     if (units.indexOf(unit) >= 0 && verbs.indexOf(verb) >= 0) {
+        return polkit.Result.YES;
+    }
+    if (unit === "couch-update-now.service" && verb === "start") {
         return polkit.Result.YES;
     }
     return polkit.Result.NOT_HANDLED;
