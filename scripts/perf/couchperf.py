@@ -870,6 +870,10 @@ YT_STATS_JS = """(() => {
   };
 })()"""
 
+# YouTube TV's "Who's watching?" screen: its guest button is there and no video is loaded.
+YT_PICKER_JS = """(() => /Watch as guest/i.test(document.body.innerText)
+  && !(document.querySelector('video') || {}).currentSrc)()"""
+
 YT_QUALITY_JS = """(() => {
   const p = document.querySelector('.html5-video-player') || document.getElementById('movie_player');
   const out = {};
@@ -966,6 +970,13 @@ async def check_youtube(args) -> dict[str, Any]:
             )
             if not await wait_playing(page, 60):
                 result["error"] = "the video didn't start"
+                with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
+                    if await page.evaluate(YT_PICKER_JS):
+                        # Seen on the Pi: a watch link brings up "Who's watching?" and
+                        # YouTube goes back to #/. Picking a profile is for a person.
+                        result["error"] += (
+                            ": YouTube is showing its account picker; pick a profile on the TV"
+                        )
         result["quality_request"] = await page.evaluate(YT_QUALITY_JS)
         sampler = Sampler(args.interval).start()
         stats: list[dict[str, Any]] = []
@@ -1843,7 +1854,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--label", default="playback", help="watch: a name for this run, e.g. 4k-hevc")
     s.add_argument("--interval", type=float, default=5, help="watch: system sample interval")
     s.add_argument("--pause", type=float, default=0.8, help="nav: seconds after each step")
-    s.add_argument("--file", help="play: a make-clips.sh clip on the Pi, e.g. ~/couch-perf/...")
+    s.add_argument(
+        "--file", help="play: a make-clips.sh clip on the Pi, e.g. /var/tmp/couch-perf/..."
+    )
     return p
 
 
