@@ -8,8 +8,11 @@ The rule is simple, and re-applied whenever the backend reports a change:
 
 So a Bluetooth speaker that drops out sends sound back to the TV, and when it comes back
 the sound goes back to it. Volume is remembered per output and put back on each switch.
-Every change of output, whatever caused it, gets one "Sound now on X" toast. The Red
-button cycles through the outputs that are available.
+Every change of output, whatever caused it, gets one "Sound now on X" toast. A change the
+user made is announced at once. One that just happened is announced once it has held for
+ANNOUNCE_DELAY: the TV's HDMI sink vanishes for under a second whenever the TV switches to
+our input, and that blip shouldn't produce two toasts. The Red button cycles through the
+outputs that are available.
 
 The real backend is `couchd/pipewire.py`; the dev-mode fake is in `couchd/fakes.py`.
 """
@@ -30,6 +33,7 @@ SAVED_OUTPUT = "audio.output"
 SAVED_VOLUMES = "audio.volumes"
 FALLBACK = "tv"
 CYCLE_KEY = "red"
+ANNOUNCE_DELAY = 1.5
 
 
 class AudioService(Service):
@@ -46,6 +50,7 @@ class AudioService(Service):
         # The output last announced with a toast. None until the first one is settled at
         # startup, which isn't announced (nobody needs "Sound now on TV" at every boot).
         self._announced: str | None = None
+        self._announcing: tuple[str, asyncio.Task] | None = None  # a delayed toast
         self._volume_for: str | None = None  # output whose saved volume was last applied
         self._gave_up: tuple | None = None  # (target, outputs) a switch failed for
 
@@ -72,6 +77,7 @@ class AudioService(Service):
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self._tasks = []
+        self._cancel_announcement()
         await self.backend.stop()
 
     # --- keeping state and the output in line ----------------------------------------------
@@ -100,8 +106,9 @@ class AudioService(Service):
             except Exception:
                 log.exception("couldn't settle the audio output")
 
-    async def reconcile(self) -> None:
-        """Put sound where the rule says, with that output's volume, and announce it."""
+    async def reconcile(self, *, chosen: bool = False) -> None:
+        """Put sound where the rule says, with that output's volume, and announce it:
+        at once if the user `chosen` it, else once it has held for ANNOUNCE_DELAY."""
         async with self._lock:
             outputs = self.backend.outputs()
             if not outputs:
@@ -115,7 +122,7 @@ class AudioService(Service):
             if current is None:
                 return
             await self._apply_saved_volume(current)
-            self._announce(current)
+            self._announce(current, now=chosen)
 
     def _target(self, outputs: list[Output]) -> str | None:
         available = [o.id for o in outputs if o.available]
@@ -150,14 +157,34 @@ class AudioService(Service):
             except BackendError as e:
                 log.warning("couldn't restore volume", extra={"output": current, "error": str(e)})
 
-    def _announce(self, current: str) -> None:
+    def _announce(self, current: str, *, now: bool) -> None:
         if current == self._announced:
+            self._cancel_announcement()  # it came back before anyone was told it left
             return
-        first = self._announced is None
-        self._announced = current
-        if first:
+        if self._announced is None:
+            self._announced = current
             return
-        output = self._output(current)
+        if now:
+            self._cancel_announcement()
+            self._toast(current)
+        elif self._announcing is None or self._announcing[0] != current:
+            self._cancel_announcement()
+            self._announcing = (current, asyncio.create_task(self._announce_later(current)))
+
+    async def _announce_later(self, output_id: str) -> None:
+        await asyncio.sleep(ANNOUNCE_DELAY)
+        self._announcing = None
+        if self.backend.current() == output_id != self._announced:
+            self._toast(output_id)
+
+    def _cancel_announcement(self) -> None:
+        if self._announcing is not None:
+            self._announcing[1].cancel()
+            self._announcing = None
+
+    def _toast(self, output_id: str) -> None:
+        self._announced = output_id
+        output = self._output(output_id)
         if output is not None:
             self.ctx.bus.toast(f"Sound now on {output.name}")
 
@@ -201,7 +228,7 @@ class AudioService(Service):
         except BackendError:
             self.ctx.saved.set(SAVED_OUTPUT, previous)
             raise
-        await self.reconcile()
+        await self.reconcile(chosen=True)
 
     async def _cycle_output(self, args: dict[str, Any]) -> None:
         available = [o for o in self.backend.outputs() if o.available]

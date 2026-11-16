@@ -19,6 +19,7 @@ from fakepulse import (
     until,
 )
 
+from couchd import audio as audio_module
 from couchd import pipewire
 from couchd.audio import SAVED_OUTPUT, SAVED_VOLUMES, AudioService
 from couchd.backends import BackendError, Device, Output
@@ -30,12 +31,14 @@ from couchd.services import Context
 from couchd.state import LiveState, SavedState
 
 BT = f"bluetooth:{SPEAKER_ADDRESS}"
+HELD = 0.05  # ANNOUNCE_DELAY in these tests
 
 
 @pytest.fixture(autouse=True)
 def fast(monkeypatch):
     monkeypatch.setattr(pipewire, "SETTLE", 0)
     monkeypatch.setattr(pipewire, "RETRY_MIN", 0.01)
+    monkeypatch.setattr(audio_module, "ANNOUNCE_DELAY", HELD)
 
 
 @pytest.fixture
@@ -243,7 +246,7 @@ async def test_bluetooth_drops_out_to_the_tv_and_comes_back(ctx, pi):
     # couchd puts sound on the TV, with one toast.
     server.remove_sink(SPEAKER)
     await until(lambda: server.default == PI_HDMI0)
-    await settle()
+    await asyncio.sleep(HELD * 2)
     assert server.stream_sinks() == {100: PI_HDMI0}
     assert ctx.saved.get(SAVED_OUTPUT) == BT  # still the user's choice
 
@@ -251,12 +254,39 @@ async def test_bluetooth_drops_out_to_the_tv_and_comes_back(ctx, pi):
     server.add_sink(speaker())
     await until(lambda: server.default == SPEAKER)
     assert server.stream_sinks() == {100: SPEAKER}
-    await settle()
+    await asyncio.sleep(HELD * 2)
     assert toasts(sub) == [
         "Sound now on Kitchen Speaker",
         "Sound now on TV speakers",
         "Sound now on Kitchen Speaker",
     ]
+
+
+async def test_hdmi_blip_when_the_tv_switches_input_is_quiet(ctx, pi):
+    # Seen on the Pi: as the TV switches to our input, the HDMI sink vanishes for ~0.65 s.
+    # WirePlumber sends sound to the highest-priority sink (a connected speaker), and back.
+    server, _ = pi
+    server.add_sink(speaker())
+    await until(lambda: BT in [o["id"] for o in ctx.state.get("audio")["outputs"]])
+    sub = ctx.bus.subscribe()
+    hdmi = server.sinks[PI_HDMI0]
+    server.remove_sink(PI_HDMI0)
+    await until(lambda: ctx.state.get("audio")["current"] == BT)
+    server.add_sink(hdmi)
+    await until(lambda: server.default == PI_HDMI0)
+    await asyncio.sleep(HELD * 2)
+    assert ctx.state.get("audio")["current"] == "tv"
+    assert toasts(sub) == []
+
+
+async def test_a_fallback_that_holds_is_announced_after_the_delay(ctx, pi):
+    server, _ = pi
+    sub = ctx.bus.subscribe()
+    server.remove_sink(PI_HDMI0)  # the TV is really gone: the jack is all there is
+    await until(lambda: ctx.state.get("audio")["current"] == "jack")
+    assert toasts(sub) == []
+    await asyncio.sleep(HELD * 2)
+    assert toasts(sub) == ["Sound now on Headphone jack"]
 
 
 async def test_pipewire_restart_is_quiet(ctx, pi):

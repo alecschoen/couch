@@ -12,10 +12,11 @@ from typing import Any
 
 from couchd.pipewire import Pactl, PactlError
 
-# Sink names as the Pi 4 shows them (vc4-hdmi and the bcm2835 headphone card).
+# Sink names as the Pi 4 shows them (seen on couch.local, Pi OS Trixie): vc4-hdmi-0 and the
+# bcm2835 headphone card, which comes up through the firmware mailbox.
 PI_HDMI0 = "alsa_output.platform-fef00700.hdmi.hdmi-stereo"
 PI_HDMI1 = "alsa_output.platform-fef05700.hdmi.hdmi-stereo"
-PI_JACK = "alsa_output.platform-bcm2835_audio.stereo-fallback"
+PI_JACK = "alsa_output.platform-fe00b840.mailbox.stereo-fallback"
 USB_DAC = "alsa_output.usb-FiiO_K3-00.analog-stereo"
 SPEAKER_ADDRESS = "AA:BB:CC:DD:EE:01"
 SPEAKER = f"bluez_output.{SPEAKER_ADDRESS.replace(':', '_')}.1"
@@ -28,7 +29,7 @@ def sink(
     api: str | None = "alsa",
     bus: str = "platform",
     description: str = "Built-in Audio",
-    port_type: str = "Headphones",
+    port_type: str = "Analog",
     availability: str = "availability unknown",
     volume: int = 40,
     mute: bool = False,
