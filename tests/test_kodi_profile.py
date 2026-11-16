@@ -427,13 +427,14 @@ def test_plex_exit_quits_kodi(svc):
     assert at(1) is None  # PM4K loading; Home (the Opening screen) is in front
     kodi.started = True
     assert at(5) is None  # rendering templates, no window yet: not "minimised"
+    assert not at.watch.closing  # Home is still the Opening screen
     kodi.active, kodi.home = True, False
     assert at(8) is None
-    assert not at.watch.leaving
+    assert at.watch.closing  # Plex is up: from now on Home is black, behind it
     kodi.started = kodi.active = False  # Exit
     kodi.home = True
     assert at(100) is None
-    assert at.watch.leaving  # Home drops "Opening" straight away
+    assert at.watch.closing
     assert at(100.2) is None
     assert at(100.6) == "Plex exited"
 
@@ -445,10 +446,8 @@ def test_a_blink_of_started_is_not_an_exit(svc):
     at(1)
     kodi.started = False  # a blink between PM4K's own windows
     assert at(2) is None
-    assert at.watch.leaving
     kodi.started = True
     assert at(2.3) is None
-    assert not at.watch.leaving
     assert at(10) is None
 
 
@@ -460,6 +459,16 @@ def test_minimise_quits_kodi(svc):
     kodi.active, kodi.home = False, True  # Minimize: Kodi's Home with PM4K loaded
     assert at(2) is None
     assert at(3) == "Plex was minimised"
+
+
+def test_plex_leaving_before_its_window_is_up_turns_home_black(svc):
+    _, kodi, at = svc
+    kodi.started = True
+    at(1)
+    assert not at.watch.closing
+    kodi.started = False  # gone before its first window: closing, not opening
+    assert at(2) is None
+    assert at.watch.closing
 
 
 def test_plex_that_never_starts_quits_kodi(svc):

@@ -166,7 +166,7 @@ default).
 ## G. Plex (5 min)
 
 - [ ] **G1** OK on Plex. Expected: a gold Opening screen, then Plex. Watch the moment Plex takes
-      over: the "Plex" title and the bar shouldn't jump. Kodi's own menus and home screen (plain
+      over: the "Plex" title and the bar shouldn't jump, and no black between them. Kodi's own menus and home screen (plain
       Kodi) never show, here or anywhere below.
 - [ ] **G2** Arrows, OK and Return move around Plex as you'd expect.
 - [ ] **G3** Play a movie for a minute. Expected: picture and sound are fine (sound on whichever
@@ -180,8 +180,8 @@ default).
 - [ ] **G4b** If the sound isn't on the TV speakers (Red to the speaker or the jack first),
       press the TV remote's Volume + and −. Expected: Couch's volume panel over Plex, as in F2.
 - [ ] **G5** Stop, then Return until Plex asks "Are you ready to exit Plex?". Choose Exit.
-      Expected: back on Couch's Home after a brief Couch logo (about half a second). It should
-      read as a calm hand-over, not a flicker.
+      Expected: Plex goes, a moment of black, then Couch's Home as you left it: no gold
+      Opening screen, no Couch logo, no gold corner on Home.
 - [ ] **G6** (If there's time.) Open Plex again, then choose Minimize in that question.
       Expected: also back on Home.
 - [ ] **G7** Open Plex again and hold Return for about a second. Expected: Couch's Home.

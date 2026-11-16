@@ -19,7 +19,8 @@ What it sets up, and why:
   nothing updates behind our back.
 - skin.couch: Estuary, linked file by file from the system's copy, with its Home replaced by
   the Opening screen. Kodi shows Home before it starts any addon, and for a moment while it
-  quits; PM4K draws everything else with its own windows.
+  quits (black by then: service.couch says when); PM4K draws everything else with its own
+  windows.
 - media/splash.png: Kodi's splash, the same Opening screen.
 - guisettings.xml: that skin, DRM PRIME decoding, refresh rate matched on start/stop, sound
   through PulseAudio (so it follows couchd's PipeWire routing), no screensaver,

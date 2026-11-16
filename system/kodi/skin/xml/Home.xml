@@ -5,8 +5,9 @@
   Plex opening, and again for a moment while it quits, so Home is the "Opening Plex" screen:
   the same picture as the splash (system/kodi/make_art.py), with the bar moving.
 
-  service.couch sets Window(home).Property(couch.closing) just before it quits Kodi; the bar
-  and "Opening" go away then, so closing doesn't say "Opening".
+  service.couch sets Window(home).Property(couch.closing) once Plex's first window is up. From
+  then on Home is black: whatever shows of it now is Plex closing, and black is what comes
+  next anyway (the switch back to the launcher), not the Opening screen flashing up again.
 
   No controls: arrows and Enter do nothing here. Back on Home does nothing in Kodi either.
 -->
@@ -14,14 +15,22 @@
 	<backgroundcolor>0xFFB57D09</backgroundcolor>
 	<controls>
 		<control type="image">
+			<visible>!String.IsEmpty(Window(home).Property(couch.closing))</visible>
 			<left>0</left>
 			<top>0</top>
 			<width>1920</width>
 			<height>1080</height>
-			<texture>plex.png</texture>
+			<texture colordiffuse="FF000000">couch-white.png</texture>
 		</control>
 		<control type="group">
 			<visible>String.IsEmpty(Window(home).Property(couch.closing))</visible>
+			<control type="image">
+				<left>0</left>
+				<top>0</top>
+				<width>1920</width>
+				<height>1080</height>
+				<texture>plex.png</texture>
+			</control>
 			<control type="image">
 				<left>0</left>
 				<top>0</top>
