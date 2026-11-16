@@ -30,6 +30,7 @@ class FakeAdapter:
         self.max_las = max_log_addrs
         self.roles: tuple[str, ...] = ()
         self.claims = 0
+        self.audio_taken = False  # another Audio System holds 5
         self._phys: int | None = None
         self._r, self._w = os.pipe()
         os.set_blocking(self._r, False)
@@ -46,7 +47,8 @@ class FakeAdapter:
     # test controls
     def connect(self, phys_addr: int = PA, log_addr: int = US) -> None:
         self._phys = phys_addr
-        self._las = [AUDIO if r == cec.AUDIO else log_addr for r in self.roles or ("playback",)]
+        audio = cec.UNREGISTERED if self.audio_taken else AUDIO
+        self._las = [audio if r == cec.AUDIO else log_addr for r in self.roles or ("playback",)]
         self._la = self._las[0]
         mask = sum(1 << a for a in self._las)
         self._push_event(cec.Event(cec.EVENT_STATE_CHANGE, phys_addr, mask))
@@ -719,4 +721,18 @@ async def test_system_audio_is_told_again_after_a_hotplug_blip(adapter):
     await settle()
     assert frame(AUDIO, cec.BROADCAST, cec.SET_SYSTEM_AUDIO_MODE, 1) in adapter.sent
     assert tv.system_audio()
+    await tv.stop()
+
+
+async def test_another_audio_system_has_5(adapter):
+    tv = await _audio_tv(adapter)
+    adapter.audio_taken = True
+    await tv.set_system_audio(True)
+    await settle()
+    await settle()
+    # Back to plain Playback, still the active source, and never in System Audio Mode.
+    assert adapter.roles == (cec.PLAYBACK,)
+    assert not tv.system_audio()
+    assert frame(US, cec.BROADCAST, cec.ACTIVE_SOURCE, 0x10, 0x00) in adapter.sent
+    assert not any(f[1] == cec.SET_SYSTEM_AUDIO_MODE for f in adapter.sent)
     await tv.stop()

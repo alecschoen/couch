@@ -143,6 +143,7 @@ class CecTv(TvBackend):
         self._reported: tuple[int, bool] | None = None
         self._roles: tuple[str, ...] = (cec.PLAYBACK,)
         self._reclaiming = False
+        self._claiming = asyncio.Lock()
         self._volume_held = False
         self._phys_addr = cec.NO_PHYS_ADDR
         self._claimed = asyncio.Event()
@@ -248,11 +249,12 @@ class CecTv(TvBackend):
         self.adapter.close()
 
     async def power_on(self) -> None:
-        await self._wait_claimed()
-        self._set(ours=True)
-        await self._transmit(cec.TV, cec.IMAGE_VIEW_ON)
-        await self._announce()
-        self._set(power="on")
+        async with self._claiming:  # not while our address is changing under us
+            await self._wait_claimed()
+            self._set(ours=True)
+            await self._transmit(cec.TV, cec.IMAGE_VIEW_ON)
+            await self._announce()
+            self._set(power="on")
 
     async def standby(self) -> None:
         await self._wait_claimed()
@@ -285,10 +287,16 @@ class CecTv(TvBackend):
         self._phys_addr = event.phys_addr
         mask = event.log_addr_mask
         if mask:
-            addrs = [a for a in range(15) if mask & (1 << a)]
-            self._audio_addr = cec.AUDIO_SYSTEM if cec.AUDIO in self._roles else None
+            addrs = [a for a in range(16) if mask & (1 << a)]
+            has_5 = cec.AUDIO_SYSTEM in addrs
+            self._audio_addr = cec.AUDIO_SYSTEM if cec.AUDIO in self._roles and has_5 else None
             others = [a for a in addrs if a != self._audio_addr]
             self._log_addr = others[0] if others else addrs[0]
+            if cec.AUDIO in self._roles and not has_5:
+                # Another Audio System (a soundbar) has 5. It's the TV's, not ours.
+                log.warning("CEC address 5 is taken; Couch can't be the TV's Audio System")
+                self._roles = (cec.PLAYBACK,)
+                self._spawn(self._reclaim_quietly(self._roles))
             if not self._claimed.is_set():
                 log.info(
                     "claimed CEC address",
@@ -449,20 +457,27 @@ class CecTv(TvBackend):
         return (cec.AUDIO,)
 
     async def _reclaim(self, roles: tuple[str, ...]) -> None:
-        log.info("claiming CEC addresses", extra={"roles": ",".join(roles)})
-        self._roles = roles
-        self._reclaiming = True
-        self._claimed.clear()
+        async with self._claiming:
+            log.info("claiming CEC addresses", extra={"roles": ",".join(roles)})
+            self._roles = roles
+            self._reclaiming = True
+            self._claimed.clear()
+            try:
+                self.adapter.claim(self.osd_name, self.vendor_id, roles)
+                await self._wait_claimed()
+            except OSError as e:
+                raise BackendError(f"Couldn't claim a CEC address: {e.strerror}") from e
+            finally:
+                self._reclaiming = False
+            if self._ours:
+                # Keys follow the active source's logical address, which may have changed.
+                await self._announce()
+
+    async def _reclaim_quietly(self, roles: tuple[str, ...]) -> None:
         try:
-            self.adapter.claim(self.osd_name, self.vendor_id, roles)
-            await self._wait_claimed()
-        except OSError as e:
-            raise BackendError(f"Couldn't claim a CEC address: {e.strerror}") from e
-        finally:
-            self._reclaiming = False
-        if self._ours:
-            # Keys follow the active source's logical address, which may have changed.
-            await self._announce()
+            await self._reclaim(roles)
+        except BackendError as e:
+            log.warning("couldn't claim a CEC address", extra={"error": str(e)})
 
     def _system_audio_wanted(self) -> bool:
         return self._audio_wanted and self._audio_addr is not None and self.active()
