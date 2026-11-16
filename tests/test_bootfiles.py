@@ -304,3 +304,9 @@ def test_cloud_init_done_is_read_from_its_output_not_its_exit_status():
     install = (ROOT / "install.sh").read_text()
     assert "status=$(cloud-init status 2>/dev/null) || true" in install
     assert "cloud-init status 2>/dev/null |" not in install
+
+
+def test_revert_removes_the_udev_rule_before_rebuilding_the_initramfs():
+    install = (ROOT / "install.sh").read_text()
+    body = install[install.index("uninstall_boot() {") :]
+    assert body.index('rm -f "$FBSPLASH_RULE"') < body.index("update-initramfs")

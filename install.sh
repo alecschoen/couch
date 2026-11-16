@@ -400,15 +400,16 @@ uninstall_boot() {
         echo "warning: couch-bootfiles is missing, so cmdline.txt and config.txt keep Couch's" \
             "boot settings. The originals are the .couch-orig files next to them." >&2
     fi
-    if [[ -e $INITRAMFS_HOOK || -e $SPLASH_TGA ]]; then
-        rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
-        update-initramfs -u -k all >/dev/null
-        echo "Took the splash out of the initramfs."
-    fi
+    # The rule first: initramfs-tools copies /etc/udev/rules.d into the initramfs.
     if [[ -e $FBSPLASH_RULE || -e $FBSPLASH_UNIT ]]; then
         rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT" "$PREFIX/bin/couch-fbsplash"
         udevadm control --reload 2>/dev/null || true
         systemctl daemon-reload
+    fi
+    if [[ -e $INITRAMFS_HOOK || -e $SPLASH_TGA ]]; then
+        rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
+        update-initramfs -u -k all >/dev/null
+        echo "Took the splash out of the initramfs."
     fi
     # Only if Couch turned cloud-init off; someone else's cloud-init.disabled stays.
     if [[ -f $CLOUD_INIT_OFF ]] && [[ $(<"$CLOUD_INIT_OFF") == "$CLOUD_INIT_MARK" ]]; then
