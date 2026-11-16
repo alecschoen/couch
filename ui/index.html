@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="css/home.css">
   <link rel="stylesheet" href="css/bluetooth.css">
   <link rel="stylesheet" href="css/settings.css">
+  <link rel="stylesheet" href="css/screens/system.css">
 </head>
 <body>
   <div class="flood" id="flood"></div>
@@ -32,6 +33,7 @@
     import { bluetoothScreen } from "./js/screens/bluetooth.js";
     import { homeScreen } from "./js/screens/home.js";
     import { settingsScreen } from "./js/screens/settings.js";
+    import { systemScreens } from "./js/screens/system.js";
 
     const app = createApp();
     app.router
@@ -44,6 +46,7 @@
       .register("type", typeScreen);
     app.addEventListener("key", (e) => e.detail.key === "blue" && !e.detail.taken && openQuickMenu(app));
     window.couchApp = app; // for poking at it from devtools
+    systemScreens(app); // Startup, Opening and errors: couchd decides. First, so Startup is frame one.
     app.start("home");
   </script>
 </body>
