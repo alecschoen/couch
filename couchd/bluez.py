@@ -184,9 +184,10 @@ def is_audio(props: dict[str, Any]) -> bool:
 
 
 class BluezBluetooth(BluetoothBackend):
-    def __init__(self, link: BluezLink | None = None) -> None:
+    def __init__(self, link: BluezLink | None = None, *, paired_grace: float = 3.0) -> None:
         super().__init__()
         self._link = link if link is not None else DBusLink()
+        self._paired_grace = paired_grace
         self._objects: dict[str, dict[str, dict[str, Any]]] = {}
         self._adapter: str | None = None
         self._scan_wanted = False
@@ -426,6 +427,13 @@ class BluezBluetooth(BluetoothBackend):
             try:
                 async with self._quiet():
                     await self._device_call(path, "Pair", name, "pair", max_wait=PAIR_TIMEOUT)
+            except BackendError:
+                # Some speakers start pairing from their side at the same moment. BlueZ's own
+                # attempt then fails (AuthenticationFailed) while theirs goes through, and our
+                # agent is still there to say yes to it.
+                if not await self._becomes_paired(path):
+                    raise
+                log.info("paired from the device's side", extra={"device": address})
             finally:
                 self.agent.expect(None)
         if not props.get("Trusted"):
@@ -434,6 +442,15 @@ class BluezBluetooth(BluetoothBackend):
                 await self._set(path, DEVICE, "Trusted", "b", True)
             except BackendError:
                 log.warning("couldn't mark device trusted", extra={"device": address})
+
+    async def _becomes_paired(self, path: str) -> bool:
+        try:
+            async with asyncio.timeout(self._paired_grace):
+                while not self._is_paired(path):  # noqa: ASYNC110 - Paired arrives as a signal
+                    await asyncio.sleep(min(0.1, self._paired_grace / 5))
+        except TimeoutError:
+            return False
+        return True
 
     async def connect(self, address: str) -> None:
         path, props = self._find(address)

@@ -30,7 +30,7 @@ async def settle():
 @pytest.fixture
 async def rig():
     bluez = FakeBluez()
-    backend = BluezBluetooth(bluez)
+    backend = BluezBluetooth(bluez, paired_grace=0.05)
     changes = []
     backend.on_change(lambda: changes.append(1))
     await backend.start()
@@ -255,6 +255,17 @@ async def test_pair_errors_read_well(rig, error, message):
         await backend.pair(SPEAKER)
     assert bluez.agent.expected is None
     assert bluez.discovering  # resumed even though pairing failed
+
+
+async def test_pairing_finished_by_the_device_counts(rig):
+    # Seen with real headphones: our Pair fails while theirs, at the same moment, succeeds.
+    bluez, backend = rig
+    path = bluez.add_device(SPEAKER, "Soundbar")
+    bluez.fail[(path, "Pair")] = BluezError("org.bluez.Error.AuthenticationFailed")
+    asyncio.get_running_loop().call_later(0.01, lambda: bluez.update(path, Paired=True))
+    await backend.pair(SPEAKER)  # no error
+    assert bluez.objects[path]["org.bluez.Device1"]["Trusted"] is True
+    assert bluez.agent.expected is None
 
 
 async def test_pair_already_exists_counts_as_paired(rig):
