@@ -1,0 +1,147 @@
+/* Design tokens: the evening B3 design, drawn at 1280×720 and scaled ×1.5 to the TV's
+   1920×1080. Every screen uses these; don't hard-code colours, sizes or timings. */
+
+:root {
+  /* ---- Palettes. One per app or screen: vivid (daytime), deep (evening), and the ink drawn
+     on it. Pick one with data-palette="…" on any element; see the bottom of this file. */
+  --yt-vivid: #c4302b;
+  --yt-deep: #8a201c;
+  --yt-ink: #ffffff;
+
+  --plex-vivid: #e5a00d;
+  --plex-deep: #b57d09;
+  --plex-ink: #1f1600;
+
+  --audio-vivid: #1b6e8c;
+  --audio-deep: #134f64;
+  --audio-ink: #ffffff;
+
+  --bt-vivid: #2e4ab0;
+  --bt-deep: #213684;
+  --bt-ink: #ffffff;
+
+  --settings-vivid: #3c3c42;
+  --settings-deep: #2b2b30;
+  --settings-ink: #ffffff;
+
+  --system-vivid: #121214; /* startup, and anything that isn't an app */
+  --system-deep: #121214;
+  --system-ink: #ffffff;
+
+  --idle-vivid: #0c0d12; /* the dimmed clock */
+  --idle-deep: #0c0d12;
+  --idle-ink: #e9e6e0;
+
+  /* The remote's colour keys, for on-screen hints. */
+  --key-red: #c23b32;
+  --key-blue: #2f5fd0;
+
+  /* ---- Ink alphas. Mixed from currentColor, so they follow the ink of whatever they sit
+     on, including the inverted colours of a focused element. */
+  --a-outline: 40%; /* card and pill borders */
+  --a-hairline: 14%; /* list dividers */
+  --a-track: 20%; /* progress tracks, switches when off */
+  --a-tint: 12%; /* unselected segments */
+  --a-muted: 0.85; /* secondary text: opacity */
+  --a-faint: 0.75; /* tertiary text: opacity */
+
+  /* ---- Type */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-text: "Inter", system-ui, sans-serif;
+
+  --text-hero: 210px; /* app name while it opens */
+  --text-clock-idle: 300px;
+  --text-clock: 168px;
+  --text-wordmark: 120px;
+  --text-title: 96px; /* screen title, home headline */
+  --text-heading: 45px; /* sheet title */
+  --text-row: 35px; /* list row title */
+  --text-card: 32px; /* card label, settings category */
+  --text-lg: 33px; /* long body text */
+  --text-md: 31px; /* row labels, blurbs */
+  --text-base: 29px; /* buttons, pills, values */
+  --text-sm: 27px; /* breadcrumbs, status */
+  --text-xs: 24px; /* sub-lines under a row title */
+
+  --track-hero: -0.035em;
+  --track-clock: -0.03em;
+  --track-title: -0.025em;
+
+  /* ---- Space */
+  --s-1: 6px;
+  --s-2: 12px;
+  --s-3: 18px;
+  --s-4: 24px;
+  --s-5: 36px;
+  --s-6: 54px;
+  --s-7: 72px;
+  --s-8: 96px;
+
+  --screen-pad-top: 80px;
+  --screen-pad-x: 108px;
+  --screen-pad-bottom: 90px;
+
+  /* ---- Shapes and sizes */
+  --radius-card: 30px;
+  --radius-row: 27px;
+  --radius-tab: 24px;
+  --radius-pill: 999px;
+  --border: 3px;
+
+  --card-h: 198px;
+  --card-w: 255px;
+  --card-w-focus: 450px;
+  --row-h: 120px;
+  --tab-h: 87px;
+  --pill-h: 78px;
+  --segment-h: 69px;
+  --switch-w: 87px;
+  --switch-h: 48px;
+  --knob: 36px;
+
+  /* ---- Motion. JS reads these too (motion.js), so they're the one place to tune timing.
+     Only transform and opacity animate per frame; colour changes are short and small. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-quick: 200ms; /* fills, focus */
+  --dur-card: 280ms; /* card width */
+  --dur-ink: 300ms; /* text colour after a flood */
+  --dur-sheet: 320ms; /* sheets sliding in */
+  --dur-screen: 240ms; /* one screen to the next */
+  --dur-flood: 500ms; /* background colour flood */
+}
+
+/* Reduced motion: things change at once instead. Set by settings (data-motion), or follows the
+   system when the setting is left on "auto". */
+:root[data-motion="reduced"] {
+  --dur-quick: 0ms;
+  --dur-card: 0ms;
+  --dur-ink: 0ms;
+  --dur-sheet: 0ms;
+  --dur-screen: 0ms;
+  --dur-flood: 0ms;
+}
+
+/* ---- Palette selection. Anything with data-palette gets:
+     --palette-bg   the ground: deep in the evening, vivid otherwise
+     --palette-ink  text and focus fill
+     --ground       the colour under the current element; a focused element swaps it to ink, so
+                    anything inside (a switch knob, say) can be drawn "in the ground colour". */
+[data-palette="yt"] { --tone-vivid: var(--yt-vivid); --tone-deep: var(--yt-deep); --palette-ink: var(--yt-ink); }
+[data-palette="plex"] { --tone-vivid: var(--plex-vivid); --tone-deep: var(--plex-deep); --palette-ink: var(--plex-ink); }
+[data-palette="audio"] { --tone-vivid: var(--audio-vivid); --tone-deep: var(--audio-deep); --palette-ink: var(--audio-ink); }
+[data-palette="bt"] { --tone-vivid: var(--bt-vivid); --tone-deep: var(--bt-deep); --palette-ink: var(--bt-ink); }
+[data-palette="settings"] { --tone-vivid: var(--settings-vivid); --tone-deep: var(--settings-deep); --palette-ink: var(--settings-ink); }
+[data-palette="system"] { --tone-vivid: var(--system-vivid); --tone-deep: var(--system-deep); --palette-ink: var(--system-ink); }
+[data-palette="idle"] { --tone-vivid: var(--idle-vivid); --tone-deep: var(--idle-deep); --palette-ink: var(--idle-ink); }
+
+[data-palette] {
+  --palette-bg: var(--tone-vivid);
+  --ground: var(--palette-bg);
+  color: var(--palette-ink);
+}
+
+:root[data-evening="on"] [data-palette],
+:root[data-evening="on"][data-palette] {
+  --palette-bg: var(--tone-deep);
+}
