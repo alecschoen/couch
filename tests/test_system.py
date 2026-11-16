@@ -84,3 +84,21 @@ async def test_linux_systemctl_failure_is_a_backend_error(monkeypatch):
     monkeypatch.setattr(system, "_run", fake_run)
     with pytest.raises(BackendError):
         await system.LinuxSystem().restart()
+
+
+async def test_linux_wifi_name_falls_back_to_networkmanager(monkeypatch, tmp_path):
+    (tmp_path / "wlan0" / "wireless").mkdir(parents=True)
+    route = '[{"dst":"1.1.1.1","dev":"wlan0","prefsrc":"192.168.0.9"}]'
+
+    async def fake_run(*argv, limit=5.0):
+        if argv[0] == "ip":
+            return 0, route, ""
+        if argv[0] == "iw":
+            return 127, "", "No such file or directory"
+        assert argv == ("nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0")
+        return 0, "Living room\n", ""
+
+    monkeypatch.setattr(system, "_run", fake_run)
+    monkeypatch.setattr(system, "SYS_NET", tmp_path)
+    network = await system.LinuxSystem().network()
+    assert network == {"kind": "wifi", "name": "Living room", "address": "192.168.0.9"}

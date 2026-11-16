@@ -148,9 +148,16 @@ class LinuxSystem(SystemBackend):
         dev, address = route
         if not (SYS_NET / dev / "wireless").exists():
             return {"kind": "ethernet", "name": None, "address": address}
+        return {"kind": "wifi", "name": await self._ssid(dev), "address": address}
+
+    async def _ssid(self, dev: str) -> str | None:
+        # iw isn't always installed; NetworkManager (Raspberry Pi OS) names the connection
+        # after the network, which is close enough for About.
         code, out, _ = await _run("iw", "dev", dev, "link")
-        ssid = parse_iw_ssid(out) if code == 0 else None
-        return {"kind": "wifi", "name": ssid, "address": address}
+        if code == 0 and (ssid := parse_iw_ssid(out)):
+            return ssid
+        code, out, _ = await _run("nmcli", "-g", "GENERAL.CONNECTION", "device", "show", dev)
+        return (out.strip() or None) if code == 0 else None
 
     async def restart(self) -> None:
         await self._systemctl("reboot")
