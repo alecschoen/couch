@@ -14,6 +14,7 @@ css/
   base.css            page basics, the colour flood, screens, type classes, layout helpers
   bluetooth.css       the Bluetooth screen's layout
   home.css            Home's layout
+  overlay.css         the quick menu, the volume panel and their corner (also in YouTube)
   components.css      cards, pills, segmented controls, rows, tabs, setting lines,
                       switches, progress, toasts, sheet, key hints
   settings.css        the Settings screen's own pieces (steppers, remote test, power)
@@ -28,9 +29,12 @@ js/
   motion.js           animate() that respects Reduce motion; durations come from tokens.css
   settings.js         user settings, kept by couchd (docs/protocol.md), and their hooks
   components.js       h(), icons and the component builders
+  overlay-view.js     the overlays' drawing: quick menu, toasts, volume panel. Also injected
+                      into YouTube's page by couchd, so: no imports, DOM only, no keys
+  overlay.js          draws couchd's overlays in the launcher (docs/protocol.md, Overlays)
   screens/            the launcher's screens, one module each: home.js (the first screen),
                       bluetooth.js, settings.js
-  demo/               the foundation demo: home cards, Components, Type, Console, quick menu
+  demo/               the foundation demo: home cards, Components, Type, Console
 ```
 
 ## Palettes
@@ -65,7 +69,8 @@ app.router.register("bluetooth", (params, app) => ({
 app.router.go("bluetooth");
 ```
 
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press. The app then fires its own `key` event with `taken: true` if a scope or screen took the key, so global handlers (Blue for the quick menu) can stand aside.
+Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press. The app then fires its own `key` event with `taken: true` if a scope or screen took the key, so global handlers can stand aside. The quick menu isn't one of them: couchd runs it, and
+the keys it takes come marked `overlay: true` and never reach a screen.
 
 ## Motion
 
@@ -73,4 +78,5 @@ Only `transform` and `opacity` animate (no blur, no big shadows). Durations are 
 
 ## Dev mode
 
-`uv run couchd --dev` opens the UI with fake hardware. Keyboard: arrows, Enter = OK, Backspace = Back, H = Home, Space = play/pause, F1–F4 = colour keys (F4 = blue opens the quick menu).
+`uv run couchd --dev` opens the UI with fake hardware. Keyboard: arrows, Enter = OK, Backspace = Back, H = Home, Space = play/pause, F1–F4 = colour keys (F4 = blue opens the quick menu). `scripts/overlay-demo.sh` walks
+through the overlays: the quick menu, toasts and the volume panel, over each app.

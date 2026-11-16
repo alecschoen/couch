@@ -205,6 +205,12 @@ class AppService(Service):
     def foreground(self) -> str:
         return self._foreground
 
+    def page(self, app_id: str | None) -> str | None:
+        """The tab (DevTools target id) of a Chromium app that has one open."""
+        if app_id is None or self.apps.get(app_id, self.launcher).kind != "chromium":
+            return None
+        return self._pages.get(app_id)
+
     async def launch(self, app_id: str) -> None:
         """Start `app_id`, or bring it to the front if it's already running."""
         app = self._app(app_id)

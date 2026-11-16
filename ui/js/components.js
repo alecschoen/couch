@@ -5,6 +5,7 @@
 //   h("div", { class: "stack gap-3" }, h("span", { class: "t-title" }, "Bluetooth"), list);
 
 import { animate, duration, easing, reduced, settle } from "./motion.js";
+import { TOAST_MS, toastIcon } from "./overlay-view.js";
 
 // ---- h(): a tiny element builder. Attributes: class, dataset, style (object), on<Event>
 // handlers, and anything else as an attribute. Children: nodes, strings, arrays, null.
@@ -36,6 +37,8 @@ const ICONS = {
   minus: '<path d="M5 12h14"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   chevron: '<path d="M9 5l7 7-7 7"/>',
+  update: '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+  muted: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 10l4 4M21 10l-4 4"/>',
   usb: '<path d="M12 3v14"/><path d="M8 7l4-4 4 4"/><circle cx="12" cy="19" r="2"/><path d="M12 13l-4-2V8M12 11l4-2V7"/>',
 };
 
@@ -190,18 +193,19 @@ export function replace(container, ...children) {
   requestAnimationFrame(() => requestAnimationFrame(() => container.classList.remove("no-transition")));
 }
 
-// ---- Toasts: top right, gone after a few seconds.
+// ---- Toasts: top right, gone after TOAST_MS. couchd's own toasts come here too, with an
+// icon name (or none, and one is picked from the text).
 export class Toasts {
-  constructor(container, { max = 3, ms = 3000 } = {}) {
+  constructor(container, { max = 3, ms = TOAST_MS } = {}) {
     this.container = container;
     this.max = max;
     this.ms = ms;
   }
 
-  show(text, level = "info") {
+  show(text, level = "info", iconName = null) {
     // couchd's "Sound now on X" gets the speaker and a bold X, as in the design.
     const sound = level === "info" && /^(Sound now on )(.+)$/.exec(text);
-    const iconName = level !== "info" ? "info" : sound ? "speaker" : "check";
+    iconName = toastIcon({ text, level, icon: iconName });
     const body = sound ? h("span", {}, sound[1], h("b", { class: "toast__em" }, sound[2])) : h("span", {}, text);
     const el = h("div", { class: `toast${level === "error" ? " is-error" : ""}`, role: "status" }, icon(iconName), body);
     this.container.prepend(el);

@@ -11,7 +11,9 @@ from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv
 from couchd.idle import IdleService
+from couchd.kodi import FakeKodi, KodiRpc
 from couchd.network import FakeConnectivity, NetConnectivity
+from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
@@ -28,30 +30,44 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         tv = FakeTv(power="standby", wake_time=2.0)
         audio = FakeAudio()
         bluetooth = FakeBluetooth(audio)
+        apps, overlay = _apps(ctx, dev=True)
         return [
             StartupService(ctx),
             TvService(ctx, tv),
-            RemoteService(ctx, tv, FakeKeyboard()),
+            RemoteService(ctx, tv, FakeKeyboard(), overlay=overlay),
             AudioService(ctx, audio),
             BluetoothService(ctx, bluetooth),
-            *_apps(ctx, dev=True),
+            *apps,
+            overlay,
             SystemService(ctx, FakeSystem()),
         ]
     tv = CecTv()
+    apps, overlay = _apps(ctx, dev=False)
     return [
         StartupService(ctx),
         TvService(ctx, tv),
-        RemoteService(ctx, tv, UinputKeyboard()),
+        RemoteService(ctx, tv, UinputKeyboard(), overlay=overlay),
         AudioService(ctx, PipewireAudio()),
         BluetoothService(ctx, BluezBluetooth()),
-        *_apps(ctx, dev=False),
+        *apps,
+        overlay,
         SystemService(ctx, LinuxSystem()),
     ]
 
 
-def _apps(ctx: Context, *, dev: bool) -> list[Service]:
+def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
     """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend. Before an
-    app opens, the internet and the Plex server are checked (#19)."""
+    app opens, the internet and the Plex server are checked (#19). The overlays (#18) draw
+    over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode)."""
     display = FakeDisplay() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
-    return [AppService(ctx, display, Chromium(), connectivity=net), IdleService(ctx)]
+    chromium = Chromium()
+    apps = AppService(ctx, display, chromium, connectivity=net)
+    overlay = OverlayService(
+        ctx,
+        chromium=chromium,
+        pages=apps.page,
+        kodi=FakeKodi() if dev else KodiRpc(),
+        go_home=apps.home,
+    )
+    return [apps, IdleService(ctx)], overlay

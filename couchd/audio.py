@@ -193,7 +193,7 @@ class AudioService(Service):
         self._announced = output_id
         output = self._output(output_id)
         if output is not None:
-            self.ctx.bus.toast(f"Sound now on {output.name}")
+            self.ctx.bus.toast(f"Sound now on {output.name}", icon="speaker")
 
     def _output(self, output_id: str) -> Output | None:
         return next((o for o in self.backend.outputs() if o.id == output_id), None)
@@ -249,7 +249,7 @@ class AudioService(Service):
         ids = [o.id for o in available]
         current = self.backend.current()
         if len(available) == 1 and current == ids[0]:
-            self.ctx.bus.toast(f"Sound is on {available[0].name}, the only output")
+            self.ctx.bus.toast(f"Sound is on {available[0].name}, the only output", icon="speaker")
             return
         nxt = ids[(ids.index(current) + 1) % len(ids)] if current in ids else ids[0]
         await self.choose(nxt)

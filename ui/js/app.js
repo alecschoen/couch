@@ -7,7 +7,8 @@
 //   app.start("home");
 //
 // Keys meant for an app in front of the launcher (`app` isn't "launcher") are ignored, except
-// Home, which also takes the launcher back to its first screen.
+// Home, which also takes the launcher back to its first screen. So are keys couchd's quick
+// menu took (`overlay: true`): couchd moves the menu itself (overlay.js, couchd/overlay.py).
 //
 // Keys, in order, until something takes them:
 //   1. the innermost focus scope (an open sheet: Back closes it)
@@ -18,6 +19,7 @@ import { Couch } from "./couch.js";
 import { Toasts } from "./components.js";
 import { FocusEngine } from "./focus.js";
 import { useKeyboardAsRemote } from "./keys.js";
+import { useOverlays } from "./overlay.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
@@ -49,12 +51,14 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   };
 
   app.couch.addEventListener("key", (e) => {
-    const { key, app: target } = e.detail;
+    const { key, app: target, overlay } = e.detail;
+    if (overlay) return;
     if (target && target !== "launcher" && key !== "home") return;
     const taken = app.handleKey(key, e.detail);
     app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
-  app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
+  app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level, e.detail.icon));
+  useOverlays(app);
   app.couch.addEventListener("state", (e) => {
     const mode = e.detail.state.system?.mode;
     if (mode) document.documentElement.dataset.mode = mode;

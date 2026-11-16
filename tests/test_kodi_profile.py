@@ -119,6 +119,8 @@ def test_fresh_profile_then_nothing_to_do(world):
     assert plex["auto_update_check"] == "false"
     assert plex["ensure_lastused"] == "false"  # else Kodi's Programs window shows on exit
     assert gui["services.wsdiscovery"] == "false"
+    assert gui["services.esenabled"] == "true"  # JSON-RPC on 9090, for the overlays
+    assert gui["services.esallinterfaces"] == "false"
     cec = ET.parse(home / "userdata" / "peripheral_data" / "cec_CEC_Adapter.xml").getroot()
     assert [(s.get("id"), s.get("value")) for s in cec] == [("enabled", "0")]
 
@@ -331,6 +333,25 @@ def test_home_and_splash_exist():
     assert (KODI_SRC / "splash.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_overlay_dialog_draws_from_couch_properties():
+    path = KODI_SRC / "skin" / "xml" / "Custom_1190_CouchOverlay.xml"
+    window = ET.parse(path).getroot()
+    assert (window.get("type"), window.get("id")) == ("dialog", "1190")
+    # It opens on its own condition, and nothing in it can take focus or a key.
+    assert "couch.menu" in window.findtext("visible")
+    kinds = {c.get("type") for c in window.iter("control")}
+    assert kinds <= {"group", "grouplist", "image", "label"}
+    for t in {t.text for t in window.iter("texture")}:
+        assert (KODI_SRC / "skin" / "media" / t).is_file(), t
+    text = path.read_text()
+    service = load_service()
+    for item in service.MENU_ITEMS:
+        assert f"couch.menu.{item}.value" in text
+        assert f"couch.menu.focus),{item})" in text
+    for step in range(5, 101, 5):  # every step the service can set has a bar
+        assert f"couch.volume.step),{step})" in text
+
+
 def test_gui_settings_cover_the_issue():
     for key in (
         "videoplayer.adjustrefreshrate",
@@ -434,3 +455,77 @@ def test_plex_that_never_starts_quits_kodi(svc):
     service, _, at = svc
     assert at(service.START_TIMEOUT - 1) is None
     assert at(service.START_TIMEOUT + 1) == "Plex didn't start"
+
+
+# --- service.couch's overlay -----------------------------------------------------------------
+
+
+@pytest.fixture
+def overlay():
+    service = load_service()
+    props = {}
+    now = [0.0]
+    ov = service.Overlay(props.__setitem__, clock=lambda: now[0])
+    ov.now = now
+    return service, ov, props
+
+
+MENU = {
+    "open": True,
+    "title": "Plex",
+    "focus": "volume",
+    "evening": False,
+    "items": [
+        {"id": "home", "label": "Go to", "value": "Home"},
+        {"id": "sound", "label": "Sound", "value": "TV speakers"},
+        {"id": "volume", "label": "Volume", "value": "\u2212 40 +"},
+        {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"},
+        {"id": "nope", "label": "x", "value": "y"},
+    ],
+}
+
+
+def test_overlay_draws_couchds_menu(overlay):
+    _, ov, props = overlay
+    ov.up(True)
+    assert props["couch.overlay"] == "1"
+    ov.handle({"menu": MENU})
+    assert props["couch.menu"] == "1"
+    assert props["couch.menu.title"] == "Plex"
+    assert props["couch.menu.focus"] == "volume"
+    assert props["couch.menu.volume.value"] == "\u2212 40 +"
+    assert props["couch.menu.sound.value"] == "TV speakers"
+    assert props["couch.evening"] == ""
+    assert "couch.menu.nope.value" not in props
+    ov.handle({"menu": {"open": False}})
+    assert props["couch.menu"] == ""
+    ov.handle({"menu": None})
+    assert props["couch.menu"] == ""
+
+
+def test_overlay_volume_panel_goes_after_a_while(overlay):
+    service, ov, props = overlay
+    ov.handle({"volume": {"name": "TV speakers", "volume": 42, "muted": False}})
+    assert props["couch.volume"] == "1"
+    assert (props["couch.volume.value"], props["couch.volume.step"]) == ("42", "40")
+    ov.now[0] = 2.0
+    ov.tick()
+    assert props["couch.volume"] == "1"
+    ov.handle({"volume": {"name": "TV speakers", "volume": 43, "muted": True}})  # re-armed
+    assert (props["couch.volume.value"], props["couch.volume.step"]) == ("Muted", "0")
+    ov.now[0] = 2.0 + service.VOLUME_MS / 1000 - 0.1
+    ov.tick()
+    assert props["couch.volume"] == "1"
+    ov.now[0] += 0.2
+    ov.tick()
+    assert props["couch.volume"] == ""
+
+
+def test_overlay_ignores_junk_and_clears_on_exit(overlay):
+    _, ov, props = overlay
+    ov.handle("nope")
+    ov.handle({"volume": {"volume": 250}})
+    assert props["couch.volume.step"] == "100"
+    ov.handle({"menu": MENU})
+    ov.up(False)
+    assert (props["couch.overlay"], props["couch.menu"], props["couch.volume"]) == ("", "", "")

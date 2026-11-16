@@ -29,6 +29,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never) |
+| `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
@@ -77,13 +78,25 @@ and `bluetooth:<address>`, the same address as in the `bluetooth` section. A sec
 analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); an output with
 `available: false` is listed but can't be picked.
 
-**`toast`**: a short notice to show on screen.
+**`toast`**: a short notice to show on screen, for 2.4 s.
 
 ```json
-{"type": "toast", "data": {"text": "Speaker connected", "level": "info"}}
+{"type": "toast", "data": {"text": "Speaker connected", "level": "info", "icon": "bluetooth"}}
 ```
 
-`level` is `info`, `warning` or `error`.
+`level` is `info`, `warning` or `error`. `icon` is optional: `speaker`, `bluetooth`, `check`,
+`info`, `update` or `muted`; without one, a toast gets `info` for a warning or an error,
+`speaker` for "Sound now on X", and `check` otherwise. couchd shows it over the app in front
+too (see [Overlays](#overlays)); the launcher shows it itself.
+
+**`volume_panel`**: the volume changed; show the volume panel for 2.4 s after the last one.
+
+```json
+{"type": "volume_panel", "data": {"output": "tv", "name": "TV speakers", "volume": 60, "muted": false}}
+```
+
+**`open_screen`**: the quick menu's Home or Bluetooth was picked, and the launcher is in
+front again: show that screen (`home` or `bluetooth`) on top of Home.
 
 **`key`**: a remote button.
 
@@ -97,26 +110,20 @@ Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `b
 
 `app` is the app the key was for: the one in front (`apps.foreground`). Keys for any other
 app than the launcher were typed into that app on couchd's virtual keyboard; the launcher
-ignores them, except `home`. `repeat` is true for the repeats of a held arrow key: couchd
+ignores them, except `home`. `overlay: true` marks a key the quick menu took: it went to no
+app, and screens should ignore it. `repeat` is true for the repeats of a held arrow key: couchd
 repeats them itself, after 400 ms and then faster and faster. Back and OK are sent when
 they're released. Held for 800 ms, Back is `home` instead, and OK is a long press: `select`
 with `hold: true` (only once, and nothing on release).
 
 Some keys are couchd's, wherever you are, and are never typed into apps: `home` goes back
-to the launcher, `red` moves the sound to the next available output, `blue` asks for the
-quick menu (below), and `green` and `yellow` are kept for later. Screens shouldn't give
+to the launcher, `red` moves the sound to the next available output, `blue` opens the
+quick menu (see [Overlays](#overlays)), and `green` and `yellow` are kept for later. Screens shouldn't give
 `red` or `blue` another meaning. A keyboard (in dev mode, or plugged into the Pi) is turned
 into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
 the TV remote.
 
 When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops.
-
-**`quick_menu`**: the Blue button was pressed; show the quick menu (#18). `app` is the app
-in front.
-
-```json
-{"type": "quick_menu", "data": {"app": "youtube"}}
-```
 
 **`result`**: the reply to a command, matched by `id`.
 
@@ -161,6 +168,8 @@ The text `ping` gets `pong`.
 | `settings.reset` | `key`. Back to its default |
 | `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
 | `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
+| `overlay.toast` | `text`; `level`, `icon` (optional, as in `toast`). Shows a toast over whatever is in front, like `ctx.bus.toast()` inside couchd |
+| `overlay.menu` | `open` (bool). Opens or closes the quick menu, as Blue and Back do |
 | `system.restart`, `system.power_off` | Reboot or shut down the Pi, after a "Restarting" / "Turning off" toast. On a shutdown the TV goes to standby too if `tv.standby_on_poweroff` is on |
 
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of
@@ -176,6 +185,53 @@ no audio device is connected, at boot and after it drops out of range (backing o
 a minute, and not while scanning). `bluetooth.disconnect` and `bluetooth.forget` make it stop.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
+
+## Overlays
+
+The quick menu, toasts and the volume panel show over every app: the launcher, YouTube and
+Plex (#18, `couchd/overlay.py`). couchd decides what they show; each app draws it.
+
+**Quick menu.** Blue opens it, over the app in front, as a sheet in that app's colour:
+Home, Sound, Volume and Bluetooth. While it's open the remote is the menu's: Left and Right
+move between the cards, Up and Down on Volume change the volume by 5, OK picks (Home goes
+home, Sound moves to the next output, Volume mutes or unmutes, Bluetooth opens the
+Bluetooth screen), and Back or Blue close it. Home closes it and goes home. Other keys
+(play/pause, Red) work as always. It closes by itself after 30 s without a key, and when
+the app in front changes. `overlay.menu`:
+
+```json
+{"open": true, "app": "youtube", "host": "chromium", "title": "YouTube", "palette": "yt",
+ "evening": true, "focus": "volume", "items": [
+   {"id": "home", "label": "Go to", "value": "Home"},
+   {"id": "sound", "label": "Sound", "value": "TV speakers"},
+   {"id": "volume", "label": "Volume", "value": "− 60 +"},
+   {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"}]}
+```
+
+`host` says who draws it:
+
+- `launcher`: the launcher, from this state (`ui/js/overlay.js`).
+- `chromium`: YouTube. couchd injects the launcher's own overlay code
+  (`ui/js/overlay-view.js` with its CSS and fonts) into the page over DevTools, in a closed
+  shadow root that can't take focus or keys (`couchd/overlay_page.py`). It's part of the
+  tab's setup, so a reload or a navigation gets it again.
+- `kodi`: Plex. service.couch draws it through skin.couch
+  (`system/kodi/skin/xml/Custom_1190_CouchOverlay.xml`), from state couchd sends with Kodi's
+  JSON-RPC `JSONRPC.NotifyAll` on 127.0.0.1:9090 (`couchd/kodi.py`). The dialog has nothing
+  focusable, so it never takes a key from Plex. If service.couch isn't there to draw it (it
+  sets `Window(home).Property(couch.overlay)`), Blue goes back to the launcher and opens the
+  menu there: Plex stops, but the menu still works.
+
+**Toasts** go to the app in front as well as to the `toast` message: into YouTube's page,
+or to Kodi as its own notification (`GUI.ShowNotification`, 2.4 s). Any feature can show
+one: `ctx.bus.toast(text, level, icon=...)` inside couchd, the `overlay.toast` command, or
+`POST /api/toast`.
+
+**Volume panel**: the output's name and volume, top right, while the volume changes and
+2.4 s after. For now a change of `audio.volume` or `audio.muted` shows it (not the change
+that comes with a new output: that has its "Sound now on X" toast). The TV remote's own
+volume (#11) will publish a message of its own; `VOLUME_EVENT` in `couchd/overlay.py` is
+then that message's type. Over Plex without service.couch it's a Kodi notification.
 
 If a client falls more than 256 messages behind, couchd closes it with code 1013 and it
 should reconnect.
@@ -214,7 +270,7 @@ keys. To add a setting, add it to `SCHEMA` in `couchd/settings.py`; services rea
 | --- | --- | --- |
 | `GET` | `/api/state` | Same object as a full `state` snapshot's `data` |
 | `GET` | `/api/health` | `{"status": "ok" \| "degraded", "version", "services"}` |
-| `POST` | `/api/toast` | Body `{"text": "...", "level": "info"}` → 204; shows a toast |
+| `POST` | `/api/toast` | Body `{"text": "...", "level": "info", "icon": "check"}` (`level`, `icon` optional) → 204; shows a toast over whatever is in front |
 | `GET` | `/api/commands` | Names of the commands available right now |
 | `POST` | `/api/command/{name}` | Body = args (optional) → `{"ok": true, "data"}`, or 400 with `{"ok": false, "error"}` |
 

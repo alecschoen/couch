@@ -51,16 +51,14 @@ def in_front(ctx, app_id):
 
 
 def keys(sub):
-    """Key messages (and quick menu requests) published so far, oldest first."""
+    """Key messages published so far, oldest first, with their flags."""
     out = []
     while not sub._queue.empty():
         message = sub._queue.get_nowait()
         if message["type"] == "key":
             d = message["data"]
-            flags = tuple(f for f in ("repeat", "hold") if d[f])
+            flags = tuple(f for f in ("repeat", "hold", "overlay") if d.get(f))
             out.append((d["key"], d["app"], *flags))
-        elif message["type"] == "quick_menu":
-            out.append(("quick_menu", message["data"]["app"]))
     return out
 
 
@@ -119,12 +117,44 @@ async def test_couchd_keys_are_never_typed_into_apps(ctx, remote, key):
     assert remote.keyboard.typed == []
 
 
-async def test_blue_asks_for_the_quick_menu(ctx, remote):
-    in_front(ctx, "plex")
+class Taker:
+    """Stands in for the overlay: takes the keys in `takes`."""
+
+    def __init__(self, *takes):
+        self.takes = set(takes)
+        self.seen = []
+
+    def take_key(self, key, *, repeat=False, hold=False):
+        self.seen.append((key, repeat, hold))
+        return key in self.takes
+
+
+async def test_the_overlay_sees_every_key_first(ctx, remote):
+    remote.overlay = taker = Taker("blue", "down")
+    in_front(ctx, "youtube")
     sub = ctx.bus.subscribe()
-    remote.tv.key_pressed("blue")
+    for key in ("blue", "down", "play_pause"):
+        remote.tv.key_tapped(key)
+    assert taker.seen == [
+        ("blue", False, False),
+        ("down", False, False),
+        ("play_pause", False, False),
+    ]
+    # Taken keys go to no app, and say so to the launcher.
+    assert remote.keyboard.typed == [uinput.KEY_PLAYPAUSE]
+    assert keys(sub) == [
+        ("blue", "youtube", "overlay"),
+        ("down", "youtube", "overlay"),
+        ("play_pause", "youtube"),
+    ]
+
+
+async def test_a_taken_key_isnt_typed_into_kodi_either(ctx, remote):
+    remote.overlay = Taker("select")
+    in_front(ctx, "plex")
+    remote.tv.key_pressed("select")
     remote.tv.key_released()
-    assert keys(sub) == [("blue", "plex"), ("quick_menu", "plex")]
+    assert remote.keyboard.typed == []
 
 
 async def test_keyboard_presses_stay_in_the_launcher(ctx, remote):

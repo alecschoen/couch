@@ -8,8 +8,10 @@ Where a key goes depends on the app in front (`apps.foreground`):
   see every key; the launcher, hidden behind the app, ignores it.
 - Some keys are couchd's wherever you are and are never typed into an app: `home` (back to
   the launcher, couchd/apps.py), `red` (next audio output, couchd/audio.py), `blue` (the
-  quick menu: a `quick_menu` message for the UI), and `green` and `yellow` (kept for
-  couchd's own uses).
+  quick menu, couchd/overlay.py), and `green` and `yellow` (kept for couchd's own uses).
+- While the quick menu is open, the overlay takes the keys it uses before anything else
+  (`KeyTaker.take_key`): they go to no app, and their `key` message says `overlay: true`
+  so the launcher leaves them alone too.
 
 Timing is couchd's, because TVs differ in whether, and how often, they repeat a held button:
 
@@ -32,7 +34,7 @@ through the same press and release as the TV's, to try repeat with curl.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from couchd import uinput
 from couchd.backends import BackendError, KeyAction, KeyboardBackend, TvBackend
@@ -75,6 +77,12 @@ APP_KEYMAPS: dict[str, dict[str, int]] = {
 }
 
 
+class KeyTaker(Protocol):
+    """Gets every key first (the overlay, couchd/overlay.py). True: the key is taken."""
+
+    def take_key(self, key: str, *, repeat: bool = False, hold: bool = False) -> bool: ...
+
+
 @dataclass(frozen=True)
 class Timing:
     delay: float = 0.4  # held this long before the first repeat
@@ -95,11 +103,13 @@ class RemoteService(Service):
         keyboard: KeyboardBackend | None = None,
         *,
         timing: Timing = Timing(),
+        overlay: KeyTaker | None = None,
     ) -> None:
         self.ctx = ctx
         self.tv = tv
         self.keyboard = keyboard
         self.timing = timing
+        self.overlay = overlay
         self._held: str | None = None
         self._held_task: asyncio.Task | None = None
         self._held_long = False  # the held Back or OK already acted as a long press
@@ -208,10 +218,12 @@ class RemoteService(Service):
         foreground = apps.get("foreground") or LAUNCHER
         app_id = LAUNCHER if keyboard else foreground
         kind = next((a["kind"] for a in apps.get("list", ()) if a["id"] == app_id), LAUNCHER)
-        self.ctx.bus.publish("key", {"key": key, "repeat": repeat, "hold": hold, "app": app_id})
-        if key == "blue" and not repeat:
-            self.ctx.bus.publish("quick_menu", {"app": app_id})
-        if kind == LAUNCHER or key in COUCHD_KEYS:
+        taken = self.overlay is not None and self.overlay.take_key(key, repeat=repeat, hold=hold)
+        message = {"key": key, "repeat": repeat, "hold": hold, "app": app_id}
+        if taken:
+            message["overlay"] = True
+        self.ctx.bus.publish("key", message)
+        if taken or kind == LAUNCHER or key in COUCHD_KEYS:
             return
         code = APP_KEYMAPS.get(app_id, {}).get(key, KEYMAPS.get(kind, {}).get(key))
         if code is None:

@@ -3,12 +3,21 @@ and tabs set up over a session that stays attached (user agent, injected script,
 
 import itertools
 import json
+import re
 from dataclasses import dataclass, field
 
 from aiohttp import web
 
 from couchd.apps import PAUSE_MEDIA, READY, VISIBILITY
 from couchd.chromium import BINDING
+from couchd.overlay_page import GLOBAL, HELLO
+from couchd.overlay_page import SCRIPT as OVERLAY_SCRIPT
+
+# overlay_page.call(): "(() => { const o = window.__couchOverlay; ... o.menu({...}); ... })()"
+OVERLAY_CALL = re.compile(
+    rf"^\(\(\) => \{{ const o = window\.{GLOBAL};.*? o\.(\w+)\((.*)\); return true; \}}\)\(\)$",
+    re.S,
+)
 
 
 @dataclass
@@ -22,6 +31,8 @@ class Tab:
     bindings: set[str] = field(default_factory=set)
     domains: set[str] = field(default_factory=set)  # enabled on the setup session
     session: str = ""  # the setup session, while attached
+    overlay: bool = False  # the page has window.__couchOverlay
+    drawn: list[tuple[str, object]] = field(default_factory=list)  # overlay calls it got
 
 
 @dataclass
@@ -76,6 +87,14 @@ class FakeChromium:
         if BINDING in tab.bindings:
             params = {"name": BINDING, "payload": payload, "executionContextId": 1}
             await self._event("Runtime.bindingCalled", params, session=tab.session)
+
+    async def reload(self, tab_id: str) -> None:
+        """A fresh document: it gets the tab's injected scripts, and says hello if one
+        of them is couchd's overlay."""
+        tab = self.tabs[tab_id]
+        tab.overlay = any(OVERLAY_SCRIPT in s for s in tab.scripts)
+        if tab.overlay:
+            await self.page_calls(tab_id, HELLO)
 
     async def crash(self, tab_id: str) -> None:
         await self._event("Target.targetCrashed", {"targetId": tab_id, "status": "crashed"})
@@ -187,6 +206,13 @@ class FakeChromium:
                 if params["expression"] == PAUSE_MEDIA:
                     tab.paused += 1
                     return {"result": {"type": "undefined"}}
+                if params["expression"] == OVERLAY_SCRIPT:
+                    tab.overlay = True
+                    return {"result": {"type": "undefined"}}
+                if m := OVERLAY_CALL.match(params["expression"]):
+                    if tab.overlay:
+                        tab.drawn.append((m[1], json.loads(m[2])))
+                    return {"result": {"type": "boolean", "value": tab.overlay}}
                 return {
                     "result": {"type": "object"},
                     "exceptionDetails": {"text": "Uncaught ReferenceError"},

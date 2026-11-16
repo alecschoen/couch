@@ -143,9 +143,10 @@ async def test_switch_output_saves_and_toasts(rig):
     assert rig.state.get("audio")["current"] == "jack"
     assert rig.saved.get("audio.output") == "jack"
     messages = [m async for m in _drain(sub)]
-    assert {"type": "toast", "data": {"text": "Sound now on Headphone jack", "level": "info"}} in (
-        messages
-    )
+    assert {
+        "type": "toast",
+        "data": {"text": "Sound now on Headphone jack", "level": "info", "icon": "speaker"},
+    } in (messages)
 
 
 async def _drain(sub):

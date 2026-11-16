@@ -94,6 +94,9 @@ GUI_SETTINGS: dict[str, tuple[str, Callable[[str | None], bool]]] = {
     # Nothing to announce on the network. WS-Discovery alone takes ~2 s of Kodi's quit.
     "services.wsdiscovery": ("false", _always("false")),
     "services.zeroconf": ("false", _always("false")),
+    # JSON-RPC on 127.0.0.1:9090, for couchd's overlays and toasts (#18), and nothing more.
+    "services.esenabled": ("true", _always("true")),
+    "services.esallinterfaces": ("false", _always("false")),
 }
 
 # PM4K's settings (it keeps them in Kodi's addon settings, most of them undeclared).
