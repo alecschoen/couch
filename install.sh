@@ -10,7 +10,7 @@
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
 #
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the two units in
-# /etc/systemd/system, the couch user, and apt packages.
+# /etc/systemd/system, one WirePlumber drop-in, the couch user, and apt packages.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -19,6 +19,7 @@ ETC=/etc/couch
 STATE=/var/lib/couch
 UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
+WIREPLUMBER_BT_CONF=/etc/wireplumber/wireplumber.conf.d/51-couch-bluetooth.conf
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
@@ -92,10 +93,14 @@ unblock_bluetooth() {
     return $changed
 }
 
-# WirePlumber looks for PipeWire's Bluetooth plugin only when it starts. Without it BlueZ
-# has nothing to send a speaker's sound to and drops the connection.
-restart_wireplumber_for_bluetooth() {
-    ((HAD_BT_AUDIO)) && return 0
+# WirePlumber reads its config and looks for PipeWire's Bluetooth plugin only when it
+# starts. Without the plugin BlueZ has nothing to send a speaker's sound to and drops the
+# connection; the config is in system/wireplumber-bluetooth.conf.
+install_bluetooth_audio() {
+    local restart=0
+    ((HAD_BT_AUDIO)) || restart=1
+    ensure_file "$SRC/system/wireplumber-bluetooth.conf" "$WIREPLUMBER_BT_CONF" 644 && restart=1
+    ((restart)) || return 0
     systemctl --user -M "$COUCH_USER@" -q is-active wireplumber.service 2>/dev/null || return 0
     systemctl --user -M "$COUCH_USER@" restart wireplumber.service
     note "restarted WirePlumber so it picks up Bluetooth audio"
@@ -224,6 +229,7 @@ uninstall() {
     done
     systemctl daemon-reload
     rm -rf "$PREFIX"
+    rm -f "$WIREPLUMBER_BT_CONF"
     if ((purge)); then
         rm -rf "$ETC" "$STATE"
         if id -u "$COUCH_USER" >/dev/null 2>&1; then userdel "$COUCH_USER"; fi
@@ -258,7 +264,7 @@ say "User"
 ensure_user
 say "Couch"
 install_couch
-restart_wireplumber_for_bluetooth
+install_bluetooth_audio
 
 echo
 if ((changes)); then
