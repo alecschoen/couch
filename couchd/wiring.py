@@ -15,6 +15,7 @@ from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
+from couchd.splash import SplashService
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import TvService
@@ -51,7 +52,12 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
 
 def _apps(ctx: Context, *, dev: bool) -> list[Service]:
     """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend. Before an
-    app opens, the internet and the Plex server are checked (#19)."""
+    app opens, the internet and the Plex server are checked (#19). The splash service ends
+    the session's boot splash once the launcher has drawn (#23)."""
     display = FakeDisplay() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
-    return [AppService(ctx, display, Chromium(), connectivity=net), IdleService(ctx)]
+    return [
+        AppService(ctx, display, Chromium(), connectivity=net),
+        IdleService(ctx),
+        SplashService(ctx),
+    ]

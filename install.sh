@@ -38,6 +38,7 @@ COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
+    swayimg                              # the session's splash until Chromium draws (#23)
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
@@ -225,6 +226,9 @@ install_couch() {
     fi
 
     ensure_file "$SRC/system/couch-browser" "$PREFIX/bin/couch-browser" 755 && session=1
+    # cage's client: the Startup frame with swayimg, then Chromium (#23).
+    ensure_file "$SRC/system/couch-session-start" "$PREFIX/bin/couch-session-start" 755 && session=1
+    ensure_file "$SRC/system/couch-swayimg.conf" "$PREFIX/share/swayimg/config" 644 && session=1
     ensure_file "$SRC/system/couch-kodi" "$PREFIX/bin/couch-kodi" 755 || true
     # polkitd picks up rule changes by itself.
     ensure_file "$SRC/system/couch.rules" "$POLKIT_RULE" 644 || true
