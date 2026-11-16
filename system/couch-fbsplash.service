@@ -1,0 +1,12 @@
+[Unit]
+Description=Couch boot splash on vc4's framebuffer
+Documentation=https://github.com/alecschoen/couch
+# Started by system/couch-fbsplash.rules the moment vc4's framebuffer appears, early in the
+# boot, so it can't wait for the usual basic.target.
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target couch-session.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/couch/bin/couch-fbsplash fb0

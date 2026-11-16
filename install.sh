@@ -52,6 +52,8 @@ BOOT_CMDLINE=(
 BOOT_CMDLINE_DROP=(console=tty1)
 SPLASH_TGA=/lib/firmware/couch-splash.tga
 INITRAMFS_HOOK=/etc/initramfs-tools/hooks/couch-splash
+FBSPLASH_UNIT=$UNIT_DIR/couch-fbsplash.service
+FBSPLASH_RULE=/etc/udev/rules.d/70-couch-fbsplash.rules
 CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
 CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
 PACKAGES=(
@@ -299,6 +301,17 @@ install_boot() {
             REBOOT=1
         fi
     fi
+    # The kernel draws it only until vc4 takes the screen over; couch-fbsplash draws it on
+    # vc4's framebuffer from then until cage.
+    ensure_file "$SRC/system/couch-fbsplash" "$PREFIX/bin/couch-fbsplash" 755 || true
+    if ensure_file "$SRC/system/couch-fbsplash.service" "$FBSPLASH_UNIT" 644; then
+        systemctl daemon-reload
+        REBOOT=1
+    fi
+    if ensure_file "$SRC/system/couch-fbsplash.rules" "$FBSPLASH_RULE" 644; then
+        udevadm control --reload 2>/dev/null || true
+        REBOOT=1
+    fi
     local args=() t out line
     for t in "${BOOT_CMDLINE[@]}"; do args+=(--set "$t"); done
     for t in "${BOOT_CMDLINE_DROP[@]}"; do args+=(--drop "$t"); done
@@ -337,6 +350,11 @@ uninstall_boot() {
         rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
         update-initramfs -u -k all >/dev/null
         echo "Took the splash out of the initramfs."
+    fi
+    if [[ -e $FBSPLASH_RULE || -e $FBSPLASH_UNIT ]]; then
+        rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT" "$PREFIX/bin/couch-fbsplash"
+        udevadm control --reload 2>/dev/null || true
+        systemctl daemon-reload
     fi
     # Only if Couch turned cloud-init off; someone else's cloud-init.disabled stays.
     if [[ -f $CLOUD_INIT_OFF ]] && [[ $(<"$CLOUD_INIT_OFF") == "$CLOUD_INIT_MARK" ]]; then

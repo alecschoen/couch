@@ -4,6 +4,9 @@ import importlib.machinery
 import importlib.util
 import json
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -193,3 +196,103 @@ def test_cloud_init_comes_back_only_if_couch_turned_it_off():
     assert 'echo "$CLOUD_INIT_MARK" >"$CLOUD_INIT_OFF"' in script
     body = re.search(r"^uninstall_boot\(\) \{(.*?)^\}", script, re.M | re.S).group(1)
     assert '== "$CLOUD_INIT_MARK"' in body and 'rm -f "$CLOUD_INIT_OFF"' in body
+
+
+# --- the real thing: the Pi's own boot files, install.sh's own tokens, the script as a CLI --
+
+PI_BOOT = ROOT / "tests/data/pi-boot"  # copied from the Pi (Pi OS Lite Trixie, 16 Nov 2026)
+
+
+def install_tokens(name):
+    """An array from install.sh, as bash itself reads it (comments and all)."""
+    script = (ROOT / "install.sh").read_text()
+    # one line, or many up to a lone ")" (comments in it may hold parentheses)
+    block = re.search(rf"^{name}=\((?:[^\n]*\)$|.*?^\)$)", script, re.M | re.S).group(0)
+    out = subprocess.run(
+        ["bash", "-c", f'{block}\nprintf "%s\\n" "${{{name}[@]}}"'],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout.split()
+
+
+def cli(boot, *args):
+    cmd = [sys.executable, str(ROOT / "system/couch-bootfiles"), "--boot", str(boot), *args]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_install_sh_edits_on_the_real_pi_files_revert_byte_for_byte(tmp_path):
+    for f in PI_BOOT.iterdir():
+        shutil.copy(f, tmp_path / f.name)
+    original = {f.name: f.read_bytes() for f in PI_BOOT.iterdir()}
+    sets, drops = install_tokens("BOOT_CMDLINE"), install_tokens("BOOT_CMDLINE_DROP")
+    assert "fullscreen_logo=1" in sets and drops == ["console=tty1"]
+    args = ["apply", "boot", "--config", str(ROOT / "system/boot-config.txt")]
+    args += [a for t in sets for a in ("--set", t)] + [a for t in drops for a in ("--drop", t)]
+
+    assert cli(tmp_path, *args)  # it says what it changed
+    cmdline = (tmp_path / "cmdline.txt").read_text()
+    assert cmdline.count("\n") == 1 and cmdline.endswith("\n")
+    tokens = cmdline.split()
+    assert "console=tty1" not in tokens and "root=PARTUUID=21f4d5e7-02" in tokens
+    assert tokens[-len(sets) :] == sets
+    config = (tmp_path / "config.txt").read_text()
+    assert config.startswith(original["config.txt"].decode())
+    assert "\ndisable_splash=1\n" in config and "dtoverlay=vc4-kms-v3d" in config
+
+    assert cli(tmp_path, *args) == ""  # a second install changes nothing
+    cli(tmp_path, "revert", "boot")
+    assert {f.name: f.read_bytes() for f in tmp_path.iterdir()} == original
+
+
+_fb_loader = importlib.machinery.SourceFileLoader("fbsplash", str(ROOT / "system/couch-fbsplash"))
+fbsplash = importlib.util.module_from_spec(importlib.util.spec_from_loader("fbsplash", _fb_loader))
+_fb_loader.exec_module(fbsplash)
+
+RGB565 = (16, (11, 5), (5, 6), (0, 5))  # vc4drmfb on the Pi: bpp, then (offset, length) of r, g, b
+XRGB8888 = (32, (16, 8), (8, 8), (0, 8))
+
+
+@pytest.mark.parametrize("layout", [RGB565, XRGB8888], ids=["rgb565", "xrgb8888"])
+def test_fbsplash_draws_the_tga_centred_like_the_kernel(layout):
+    bpp, *rgb = layout
+    w, h, rows = fbsplash.read_tga((ROOT / "ui/brand/splash.tga").read_bytes())
+    xres, yres, size = 1920, 1080, bpp // 8
+    stride = xres * size + 64  # padding at the end of each line stays untouched
+    pack = fbsplash.packer(bpp, *rgb)
+    frame = fbsplash.render(w, h, rows, xres, yres, stride, pack)
+    assert len(frame) == stride * yres
+
+    def px(x, y):
+        return frame[y * stride + x * size : y * stride + (x + 1) * size]
+
+    fill = pack(*rows[0][0])
+    for x, y in [(0, 0), (xres - 1, yres - 1), (759, 540), (1160, 540), (960, 379), (960, 700)]:
+        assert px(x, y) == fill, (x, y)
+    dx, dy = (xres - w) // 2, (yres - h) // 2
+    for iy in range(0, h, 7):
+        for ix in range(0, w, 11):
+            assert px(dx + ix, dy + iy) == pack(*rows[iy][ix])
+    # Not all fill: the mark is in there.
+    assert sum(px(dx + ix, dy + iy) != fill for iy in range(h) for ix in range(w)) > 1000
+
+
+def test_fbsplash_packs_rgb565():
+    pack = fbsplash.packer(*RGB565)
+    assert pack(255, 255, 255) == b"\xff\xff"
+    assert pack(255, 0, 0) == (0xF800).to_bytes(2, "little")
+    assert pack(0, 255, 0) == (0x07E0).to_bytes(2, "little")
+    assert pack(18, 18, 20) == ((18 >> 3) << 11 | (18 >> 2) << 5 | 20 >> 3).to_bytes(2, "little")
+
+
+def test_fbsplash_runs_as_vc4s_framebuffer_appears():
+    rule = (ROOT / "system/couch-fbsplash.rules").read_text()
+    assert 'ATTR{name}=="vc4drmfb"' in rule and "couch-fbsplash.service" in rule
+    unit = (ROOT / "system/couch-fbsplash.service").read_text()
+    assert "DefaultDependencies=no" in unit
+    assert "Before=shutdown.target couch-session.service" in unit
+    install = (ROOT / "install.sh").read_text()
+    assert '"$SRC/system/couch-fbsplash.rules" "$FBSPLASH_RULE"' in install
+    assert 'rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT"' in install
