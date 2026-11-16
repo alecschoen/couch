@@ -101,8 +101,9 @@ service, does the work and couchd reads its status file:
                          "version": "v0.2.0", "kept": null}}
 ```
 
-- `version`: the installed release (`/opt/couch/VERSION`); null if Couch wasn't installed
-  from a release or a tagged checkout.
+- `version`: which Couch is installed (`/opt/couch/VERSION`): a release's tag (`v1.2.0`), or
+  for a git checkout `git describe` (`v1.2.0-3-gabc1234`, `dev-abc1234` before the first tag,
+  `-dirty` with local changes); null for a copy without git.
 - `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
 - `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
   its health check and the previous install is back), `broken` (going back failed too),

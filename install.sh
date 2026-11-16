@@ -368,8 +368,24 @@ install_audio() {
 
 # Overnight updates (#24). couch-update installs a release by running its install.sh, and
 # goes back by running the previous one's, which is this copy. /opt/couch/VERSION says which
-# release this is: the updater writes VERSION into a release, and a git checkout gets
-# `git describe`.
+# Couch this is (source_version).
+# Which Couch this is: a checkout says so through git (`v1.2.0`, `v1.2.0-3-gabc1234`, or
+# `dev-abc1234` before the first tag; `-dirty` with local changes), a release through the
+# VERSION file couch-update writes into it. Neither: nothing, and VERSION goes, so Settings
+# never shows a version this isn't (a leftover from a release installed before).
+source_version() {
+    local src=$1 v
+    if [[ -e $src/.git ]]; then
+        command -v git >/dev/null || return 0
+        v=$(git -c safe.directory="$src" -C "$src" describe --tags --always --dirty \
+            --match 'v[0-9]*' 2>/dev/null) || return 0
+        [[ $v == v[0-9]* ]] || v=dev-$v
+        echo "$v"
+    elif [[ -f $src/VERSION ]]; then
+        head -n1 "$src/VERSION"
+    fi
+}
+
 install_updates() {
     local src_dir=$PREFIX/source version="" f units=0
     if [[ $(realpath "$SRC") != $(realpath -m "$src_dir") ]]; then
@@ -378,12 +394,7 @@ install_updates() {
             --chmod=D755,F644 --itemize-changes --relative "${SOURCE_FILES[@]}" "$src_dir/")
         [[ -z $out ]] || note "kept a copy of this version in $src_dir"
     fi
-    if [[ -f $SRC/VERSION ]]; then
-        version=$(<"$SRC/VERSION")
-    elif command -v git >/dev/null && [[ -e $SRC/.git ]]; then
-        version=$(git -c safe.directory="$SRC" -C "$SRC" describe --tags --always --dirty \
-            2>/dev/null) || version=""
-    fi
+    version=$(source_version "$SRC")
     for f in "$PREFIX/VERSION" "$src_dir/VERSION"; do
         if [[ -z $version ]]; then
             rm -f "$f"
