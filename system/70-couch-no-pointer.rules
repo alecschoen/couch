@@ -1,0 +1,6 @@
+# Installed as /etc/udev/rules.d/70-couch-no-pointer.rules. No mouse cursor on the TV.
+# The kernel's CEC remote inputs (vc4-hdmi-0 and vc4-hdmi-1, made by rc-core) have mouse axes,
+# as every rc-core remote does, so udev calls them pointing sticks, libinput hands them to cage
+# as pointers, and cage draws its cursor in the middle of the screen. Nothing needs them:
+# couchd reads the remote from /dev/cec0 and types through its own "Couch remote" keyboard.
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="vc4-hdmi-[0-9]", ENV{LIBINPUT_IGNORE_DEVICE}="1"

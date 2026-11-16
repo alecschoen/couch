@@ -83,6 +83,12 @@ To update, pull and run it again. It only changes what's different, and restarts
 
 Logs: `journalctl -u couchd -u couch-session`.
 
+It also sets up a silent boot: from power-on the TV goes from black to the Couch splash, then the launcher, and a reboot or power-off shows the splash too. There's no rainbow square and no text. It edits `cmdline.txt` and `config.txt`, and `--uninstall` undoes that; see [system/README.md](system/README.md#boot). This takes effect from the next boot, so reboot once after the first install.
+
+### The TV
+
+Couch draws to the edge of the screen, so turn off the TV's overscan. On the Sony Bravia, with the Pi's input showing, set Screen → Display Area to **Full Pixel**. Without it the TV crops the edges of the launcher.
+
 ### YouTube sign-in
 
 Open YouTube from the launcher and choose **Sign in with your phone**, then go to [yt.be/activate](https://yt.be/activate) on your phone and enter the code on the TV. The sign-in is kept in Chromium's profile, `/var/lib/couch/chromium`, so it's needed once. **Watch as guest** works without an account.

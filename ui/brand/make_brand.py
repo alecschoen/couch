@@ -117,6 +117,33 @@ def png(svg_text, out, w, h):
     )
 
 
+# The boot splash (#4) is drawn by the Raspberry Pi kernel's fullscreen logo: an
+# uncompressed 24-bit TGA, at most 224 colours, centred on the screen, with the rest of the
+# screen filled with its top-left pixel. So it only needs the middle of splash.png: a box
+# centred on the screen with even margins, so it lands on the same pixels as splash.png.
+TGA_BOX = (400, 320)
+TGA_LEVELS = 128  # grey steps from night to white; the kernel allows 224 colours
+
+
+def boot_tga(splash_png, out):
+    im = Image.open(splash_png).convert("RGB")
+    (w, h), (sw, sh) = TGA_BOX, im.size
+    x0, y0 = (sw - w) // 2, (sh - h) // 2
+    crop = im.crop((x0, y0, x0 + w, y0 + h))
+    night = tuple(int(NIGHT[i : i + 2], 16) for i in (1, 3, 5))
+    span = 255 - night[1]
+    data = bytearray()
+    for g in crop.tobytes()[1::3]:
+        # The lockup is white on night, so every pixel sits on that ramp; snap it to a step.
+        t = round(max(0, min(1, (g - night[1]) / span)) * (TGA_LEVELS - 1)) / (TGA_LEVELS - 1)
+        r, g, b = (round(c + (255 - c) * t) for c in night)
+        data += bytes((b, g, r))  # TGA stores BGR
+    # Header: no ID, no colour map, type 2 (uncompressed true colour), 24 bpp, top-to-bottom.
+    header = bytes((0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    header += w.to_bytes(2, "little") + h.to_bytes(2, "little") + bytes((24, 0x20))
+    out.write_bytes(header + data)
+
+
 def main():
     default = HERE.parent / "fonts" / "space-grotesk-latin.woff2"
     font = Path(sys.argv[1]) if len(sys.argv) > 1 else default
@@ -167,6 +194,7 @@ def main():
     )
     (HERE / "splash.svg").write_text(splash)
     png(splash, HERE / "splash.png", W, H)
+    boot_tga(HERE / "splash.png", HERE / "splash.tga")
 
     # App icon / favicon: night tile, white mark.
     k = 0.76
