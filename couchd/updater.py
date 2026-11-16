@@ -460,7 +460,10 @@ class Updater:
             return "failed"
         if reason := self._busy(nightly):
             self.say(f"not now: {reason}")
-            self.status.set(waiting=reason)
+            if nightly:
+                self.status.set(waiting=reason)
+            else:  # Check now: say so in Settings, instead of the last run's result
+                self.status.set(waiting=reason, result="waiting", message=None, last_check=now)
             return "waiting"
         self.status.set(waiting=None, state="checking", last_check=now)
         result = self.update_couch(nightly=nightly, force=force)
@@ -716,7 +719,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     result = updater.run(nightly=args.mode == "nightly", force=args.force)
     print(result)
-    ok = ("installed", "up-to-date", "skipped", "waiting", "busy", "no-access")
+    # A rollback did its job: not a failed unit. "broken" (it couldn't go back) and "failed" are.
+    ok = ("installed", "up-to-date", "skipped", "waiting", "busy", "no-access", "rolled-back")
     return 0 if result in ok else 1
 
 

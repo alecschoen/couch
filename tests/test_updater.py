@@ -629,3 +629,30 @@ def test_enabled_reads_the_config(tmp_path):
     assert updater.main(["enabled", "--config", str(toml)]) == 0
     toml.write_text("nightly = 1\n")
     assert updater.main(["enabled", "--config", str(toml)]) == 2
+
+
+def test_check_now_while_playing_says_so(tmp_path, server, box):
+    u, system = box
+    u.status.set(result="rolled-back", message="v0.3.0 didn't work")
+    system.state = PLAYING_YOUTUBE
+    assert u.run(nightly=False) == "waiting"
+    assert u.status.data["result"] == "waiting"
+    assert u.status.data["waiting"] == "something is playing"
+    assert u.status.data["message"] is None
+    # the timer keeps the last run's result: it waits quietly
+    u.status.set(result="rolled-back", message="v0.3.0 didn't work")
+    assert u.run(nightly=True) == "waiting"
+    assert u.status.data["result"] == "rolled-back"
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [("installed", 0), ("rolled-back", 0), ("no-access", 0), ("broken", 1), ("failed", 1)],
+)
+def test_exit_codes(tmp_path, monkeypatch, result, code):
+    """A failed unit means someone should look: not after a rollback that worked."""
+    toml = tmp_path / "update.toml"
+    toml.write_text(f'work = "{tmp_path / "work"}"\nprefix = "{tmp_path / "opt"}"\n')
+    monkeypatch.setattr(updater.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(updater.Updater, "run", lambda self, **kw: result)
+    assert updater.main(["now", "--config", str(toml)]) == code
