@@ -9,7 +9,7 @@
 //   paired, not connected      connect it
 //   connected, sound elsewhere move the sound to it
 //   connected, sound here      Options: Disconnect, Forget
-// Holding OK on a paired device opens Options too. couchd's "Sound now on X" toast says when
+// Holding OK on a paired device (a `select` key with `hold: true`) opens Options too. couchd's "Sound now on X" toast says when
 // sound has moved; this screen only toasts what couchd doesn't (a non-audio device, Forget).
 //
 // The radio scans only while this screen is on top: couchd stops a scan after two minutes,
@@ -23,7 +23,6 @@ const NOTHING_NEARBY_MS = 6_000;
 // How long to keep a device "Connecting" while waiting for its sound to arrive. couchd waits
 // 15 s for the output before it gives up.
 const SOUND_WAIT_MS = 16_000;
-const OPTIONS_GUARD_MS = 600;
 
 // Is this audio output that device? Same rule as couchd's _output_matches: compare the hex
 // digits only, so `bluetooth:AA:BB:…` and `bluez_output.AA_BB_….1` both match.
@@ -43,7 +42,6 @@ export function bluetoothScreen(_params, app) {
   let scanSince = 0;
   let nothingTimer = null;
   let options = null; // close() of the open Options sheet
-  let holding = false; // this OK hold has already opened Options
 
   // ---- Reading state
 
@@ -214,11 +212,7 @@ export function bluetoothScreen(_params, app) {
 
   function openOptions(d) {
     if (options || !d?.paired) return;
-    // A held OK that arrives as plain repeated presses (no `repeat` flag) mustn't go on to
-    // press Disconnect: ignore OK for a moment after Options opens.
-    const openedAt = Date.now();
     const act = (fn) => async () => {
-      if (Date.now() - openedAt < OPTIONS_GUARD_MS) return;
       options?.();
       await fn();
       render();
@@ -295,15 +289,12 @@ export function bluetoothScreen(_params, app) {
     el,
     palette: "bt",
     onKey(key, detail = {}) {
-      if (key !== "select" || !detail.repeat) {
-        holding = false;
-        return false;
-      }
-      // Holding OK: the first press already did its thing; the first repeat opens Options.
-      if (!holding) {
-        holding = true;
-        openOptions(focusedDevice());
-      }
+      // A held OK (sent once, instead of the press) on a paired device opens Options. Held
+      // anywhere else, it's an ordinary OK.
+      if (key !== "select" || !detail.hold) return false;
+      const d = focusedDevice();
+      if (!d?.paired) return false;
+      openOptions(d);
       return true;
     },
     onShow() {

@@ -31,11 +31,10 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   app.toasts = new Toasts($(toasts));
   app.router = new Router({ container: $(screens), focus: app.focus, theme: app.theme, app });
 
-  // detail is the key message's data: { key, repeat? }. A held OK clicks once.
+  // detail is the key message's data, e.g. { key: "select", hold: true } for a held OK.
   app.handleKey = (key, detail = { key }) => {
     if (app.focus.scopeKey(key, detail)) return;
     if (app.router.handleKey(key, detail)) return;
-    if (key === "select" && detail.repeat) return;
     if (ARROWS.has(key)) app.focus.move(key);
     else if (key === "select") app.focus.activate();
     else if (key === "back") app.router.back();

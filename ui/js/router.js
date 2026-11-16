@@ -4,7 +4,7 @@
 //     el,                         // the screen's root element (class="screen")
 //     palette: "bt",              // flood colour while it's on top
 //     onKey(key, detail) {},      // optional: return true to take a key before focus does;
-//                                 // detail is the key message ({ key, repeat? })
+//                                 // detail is the key message ({ key, hold?, … })
 //     onShow() {}, onHide() {},   // optional: on top / covered or closed
 //     destroy() {},               // optional: closed for good (stop timers, listeners)
 //   }));

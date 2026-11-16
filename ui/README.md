@@ -62,7 +62,7 @@ app.router.register("bluetooth", (params, app) => ({
 app.router.go("bluetooth");
 ```
 
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data; `detail.repeat` is set on the remote's auto-repeats. Holding OK clicks once; a screen that wants a long press (Bluetooth: Options on a device) takes the repeated `select` in `onKey`.
+Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press.
 
 ## Motion
 
