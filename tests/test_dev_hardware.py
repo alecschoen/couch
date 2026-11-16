@@ -12,9 +12,10 @@ from couchd.bus import EventBus
 from couchd.commands import CommandError, Commands
 from couchd.fakes import ALREADY_PAIRED, NEARBY, REFUSES_TO_PAIR, FakeAudio, FakeBluetooth, FakeTv
 from couchd.keys import REMOTE_KEYS
+from couchd.remote import RemoteService
 from couchd.services import Context, ServiceRegistry
 from couchd.state import LiveState, SavedState
-from couchd.tv import RemoteService, TvService
+from couchd.tv import TvService
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEAKER = NEARBY[0][1]
@@ -102,13 +103,19 @@ async def test_tv_power(rig):
 async def test_tv_standby_pauses_whatever_is_playing(rig):
     sub = rig.bus.subscribe()
     await run(rig, "tv.standby")
-    assert await sub.get() == {"type": "key", "data": {"key": "pause"}}
+    assert await sub.get() == {
+        "type": "key",
+        "data": {"key": "pause", "repeat": False, "app": "launcher"},
+    }
 
 
 async def test_remote_press_becomes_a_key_message(rig):
     sub = rig.bus.subscribe()
     await run(rig, "remote.press", key="red")
-    assert await sub.get() == {"type": "key", "data": {"key": "red"}}
+    assert await sub.get() == {
+        "type": "key",
+        "data": {"key": "red", "repeat": False, "app": "launcher"},
+    }
 
 
 async def test_remote_rejects_unknown_keys(rig):

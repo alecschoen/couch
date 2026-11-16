@@ -6,6 +6,9 @@
 //   app.router.register("home", homeScreen);
 //   app.start("home");
 //
+// Keys meant for an app in front of the launcher (`app` isn't "launcher") are ignored, except
+// Home, which also takes the launcher back to its first screen.
+//
 // Keys, in order, until something takes them:
 //   1. the innermost focus scope (an open sheet: Back closes it)
 //   2. the top screen's onKey()
@@ -41,7 +44,9 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
   };
 
   app.couch.addEventListener("key", (e) => {
-    app.handleKey(e.detail.key);
+    const { key, app: target } = e.detail;
+    if (target && target !== "launcher" && key !== "home") return;
+    app.handleKey(key);
     app.dispatchEvent(new CustomEvent("key", { detail: e.detail }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));

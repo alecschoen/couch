@@ -1,5 +1,7 @@
 // The keyboard as a TV remote. Keys go to couchd as `remote.press` and come back as `key`
 // messages, the same path the real remote takes over CEC. Screens only ever listen for `key`.
+// `keyboard: true` tells couchd the key was typed into the launcher, so it stays here even
+// if couchd thinks another app is in front (couchd/remote.py).
 //
 // Key names must be in couchd/keys.py (a test checks this).
 
@@ -43,6 +45,6 @@ export function useKeyboardAsRemote(couch) {
     const key = KEYBOARD[event.key];
     if (!key) return;
     event.preventDefault();
-    couch.command("remote.press", { key }).catch(() => {});
+    couch.command("remote.press", { key, keyboard: true }).catch(() => {});
   });
 }

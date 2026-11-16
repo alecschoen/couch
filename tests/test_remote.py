@@ -1,0 +1,336 @@
+"""The remote: key repeat, hold Back for Home, and routing keys to the app in front."""
+
+import asyncio
+import itertools
+
+import pytest
+
+from couchd import uinput
+from couchd.apps import AppService
+from couchd.audio import AudioService
+from couchd.backends import BackendError
+from couchd.bus import EventBus
+from couchd.chromium import Chromium
+from couchd.commands import CommandError, Commands
+from couchd.display import FakeDisplay
+from couchd.fakes import FakeAudio, FakeKeyboard, FakeTv
+from couchd.keys import REMOTE_KEYS
+from couchd.remote import APP_KEYMAPS, KEYMAPS, RemoteService, Timing
+from couchd.services import Context
+from couchd.state import LiveState, SavedState
+from tests.fake_chromium import FakeChromium
+
+# Fast enough for tests, far enough apart that the event loop's jitter doesn't matter.
+FAST = Timing(delay=0.08, first=0.04, speedup=0.5, fastest=0.01, home_after=0.15, max_hold=0.6)
+
+APPS = [
+    {"id": "launcher", "name": "Home", "kind": "launcher"},
+    {"id": "youtube", "name": "YouTube", "kind": "chromium"},
+    {"id": "plex", "name": "Plex", "kind": "kodi"},
+]
+
+
+@pytest.fixture
+def ctx(tmp_path):
+    bus = EventBus()
+    return Context(bus, LiveState(bus), SavedState(tmp_path / "state.json"), Commands())
+
+
+@pytest.fixture
+async def remote(ctx):
+    tv, keyboard = FakeTv(speed=0), FakeKeyboard()
+    service = RemoteService(ctx, tv, keyboard, timing=FAST)
+    await service.start()
+    yield service
+    await service.stop()
+
+
+def in_front(ctx, app_id):
+    ctx.state.update("apps", {"list": APPS, "foreground": app_id})
+
+
+def keys(sub):
+    """Key messages (and quick menu requests) published so far, oldest first."""
+    out = []
+    while not sub._queue.empty():
+        message = sub._queue.get_nowait()
+        if message["type"] == "key":
+            d = message["data"]
+            out.append((d["key"], d["app"]) + (("repeat",) if d["repeat"] else ()))
+        elif message["type"] == "quick_menu":
+            out.append(("quick_menu", message["data"]["app"]))
+    return out
+
+
+async def settle():
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+# --- routing ---------------------------------------------------------------------------------
+
+
+async def test_the_launcher_gets_keys_over_the_websocket_only(ctx, remote):
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("down")
+    remote.tv.key_released()
+    assert keys(sub) == [("down", "launcher")]
+    assert remote.keyboard.typed == []
+
+
+async def test_no_apps_service_means_the_launcher(ctx, remote):
+    sub = ctx.bus.subscribe()
+    remote.tv.key_tapped("select")
+    assert keys(sub) == [("select", "launcher")]
+    assert remote.keyboard.typed == []
+
+
+@pytest.mark.parametrize(
+    ("app", "key", "code"),
+    [
+        ("youtube", "down", uinput.KEY_DOWN),
+        ("youtube", "select", uinput.KEY_ENTER),
+        ("youtube", "back", uinput.KEY_BACK),
+        ("youtube", "play_pause", uinput.KEY_PLAYPAUSE),
+        ("youtube", "7", uinput.KEY_7),
+        ("plex", "back", uinput.KEY_BACKSPACE),
+        ("plex", "stop", uinput.KEY_STOPCD),
+        ("plex", "0", uinput.KEY_0),
+    ],
+)
+async def test_apps_get_keys_typed(ctx, remote, app, key, code):
+    in_front(ctx, app)
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed(key)
+    remote.tv.key_released()
+    assert remote.keyboard.typed == [code]
+    # The message still goes out, for couchd's own services, marked as the app's.
+    assert keys(sub) == [(key, app)]
+
+
+@pytest.mark.parametrize("key", ["home", "red", "green", "yellow", "blue"])
+async def test_couchd_keys_are_never_typed_into_apps(ctx, remote, key):
+    in_front(ctx, "youtube")
+    remote.tv.key_tapped(key)
+    assert remote.keyboard.typed == []
+
+
+async def test_blue_asks_for_the_quick_menu(ctx, remote):
+    in_front(ctx, "plex")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("blue")
+    remote.tv.key_released()
+    assert keys(sub) == [("blue", "plex"), ("quick_menu", "plex")]
+
+
+async def test_keyboard_presses_stay_in_the_launcher(ctx, remote):
+    # couchd thinks YouTube is in front, but the key was typed into the launcher: typing it
+    # into "YouTube" would put it straight back into the launcher, and round again.
+    in_front(ctx, "youtube")
+    sub = ctx.bus.subscribe()
+    await ctx.commands.run("remote.press", {"key": "down", "keyboard": True})
+    assert keys(sub) == [("down", "launcher")]
+    assert remote.keyboard.typed == []
+
+
+async def test_remote_press_acts_like_the_remote(ctx, remote):
+    in_front(ctx, "youtube")
+    await ctx.commands.run("remote.press", {"key": "back"})
+    assert remote.keyboard.typed == [uinput.KEY_BACK]
+
+
+async def test_remote_press_checks_its_args(ctx, remote):
+    with pytest.raises(CommandError, match="unknown key"):
+        await ctx.commands.run("remote.press", {"key": "self_destruct"})
+    with pytest.raises(CommandError, match="keyboard"):
+        await ctx.commands.run("remote.press", {"key": "up", "keyboard": "yes"})
+
+
+async def test_unknown_keys_from_the_tv_are_ignored(ctx, remote):
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("self_destruct")
+    assert keys(sub) == []
+
+
+def test_keymaps_only_use_remote_keys():
+    for keymap in (*KEYMAPS.values(), *APP_KEYMAPS.values()):
+        assert set(keymap) <= REMOTE_KEYS
+
+
+async def test_without_a_virtual_keyboard_the_launcher_still_works(ctx):
+    class Broken(FakeKeyboard):
+        async def start(self):
+            raise BackendError("no /dev/uinput")
+
+    service = RemoteService(ctx, FakeTv(speed=0), Broken(), timing=FAST)
+    await service.start()
+    sub = ctx.bus.subscribe()
+    in_front(ctx, "youtube")
+    service.tv.key_tapped("select")
+    assert keys(sub) == [("select", "youtube")]
+    assert service.keyboard.typed == []
+    await service.stop()
+
+
+# --- repeat ----------------------------------------------------------------------------------
+
+
+async def test_a_quick_press_doesnt_repeat(ctx, remote):
+    in_front(ctx, "youtube")
+    remote.tv.key_pressed("down")
+    await asyncio.sleep(FAST.delay / 2)
+    remote.tv.key_released()
+    await asyncio.sleep(FAST.delay * 2)
+    assert remote.keyboard.typed == [uinput.KEY_DOWN]
+
+
+async def test_held_arrows_repeat_faster_and_faster(ctx, remote):
+    in_front(ctx, "youtube")
+    loop = asyncio.get_running_loop()
+    times = []
+    real_tap = remote.keyboard.tap
+    remote.keyboard.tap = lambda code: (times.append(loop.time()), real_tap(code))
+    remote.tv.key_pressed("down")
+    await asyncio.sleep(FAST.delay + 0.2)
+    remote.tv.key_released()
+    typed = len(remote.keyboard.typed)
+    await asyncio.sleep(0.1)
+    assert len(remote.keyboard.typed) == typed  # stopped on release
+    assert set(remote.keyboard.typed) == {uinput.KEY_DOWN}
+    assert typed >= 6
+    gaps = [b - a for a, b in itertools.pairwise(times)]
+    assert gaps[0] == pytest.approx(FAST.delay, abs=0.03)
+    assert gaps[1] == pytest.approx(FAST.first, abs=0.02)
+    assert gaps[-1] < gaps[1]
+
+
+async def test_repeats_are_marked_for_the_launcher(ctx, remote):
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("up")
+    await asyncio.sleep(FAST.delay + FAST.first / 2)
+    remote.tv.key_released()
+    assert keys(sub) == [("up", "launcher"), ("up", "launcher", "repeat")]
+
+
+async def test_the_tvs_own_repeats_are_ignored(ctx, remote):
+    in_front(ctx, "youtube")
+    for _ in range(3):
+        remote.tv.key_pressed("select")
+        remote.tv.key_pressed("left")
+    remote.tv.key_released()
+    # select, left, select, left...: each new button is a new press. The same one again isn't.
+    assert len(remote.keyboard.typed) == 6
+    remote.keyboard.typed.clear()
+    remote.tv.key_pressed("left")
+    remote.tv.key_pressed("left")
+    remote.tv.key_pressed("left")
+    remote.tv.key_released()
+    assert remote.keyboard.typed == [uinput.KEY_LEFT]
+
+
+async def test_select_doesnt_repeat(ctx, remote):
+    in_front(ctx, "youtube")
+    remote.tv.key_pressed("select")
+    await asyncio.sleep(FAST.delay * 3)
+    remote.tv.key_released()
+    assert remote.keyboard.typed == [uinput.KEY_ENTER]
+
+
+async def test_a_lost_release_stops_the_repeat_eventually(ctx, remote):
+    in_front(ctx, "youtube")
+    remote.tv.key_pressed("down")
+    await asyncio.sleep(FAST.max_hold + 0.1)
+    typed = len(remote.keyboard.typed)
+    await asyncio.sleep(0.1)
+    assert len(remote.keyboard.typed) == typed
+    # And the same button works again without a release in between.
+    remote.tv.key_pressed("down")
+    assert len(remote.keyboard.typed) == typed + 1
+    remote.tv.key_released()
+
+
+# --- Back and Home ---------------------------------------------------------------------------
+
+
+async def test_back_acts_on_release(ctx, remote):
+    in_front(ctx, "plex")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("back")
+    await settle()
+    assert keys(sub) == []
+    remote.tv.key_released()
+    assert keys(sub) == [("back", "plex")]
+    assert remote.keyboard.typed == [uinput.KEY_BACKSPACE]
+
+
+async def test_holding_back_is_home(ctx, remote):
+    in_front(ctx, "youtube")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("back")
+    await asyncio.sleep(FAST.home_after + 0.05)
+    assert keys(sub) == [("home", "youtube")]
+    remote.tv.key_released()
+    assert keys(sub) == []
+    assert remote.keyboard.typed == []
+
+
+async def test_another_button_during_back_ends_it(ctx, remote):
+    in_front(ctx, "launcher")
+    sub = ctx.bus.subscribe()
+    remote.tv.key_pressed("back")
+    remote.tv.key_pressed("down")
+    remote.tv.key_released()
+    assert keys(sub) == [("back", "launcher"), ("down", "launcher")]
+
+
+async def test_a_tap_ends_a_hold(ctx, remote):
+    in_front(ctx, "youtube")
+    remote.tv.key_pressed("down")
+    remote.tv.key_tapped("pause")  # the TV went to standby
+    await asyncio.sleep(FAST.delay * 2)
+    assert remote.keyboard.typed == [uinput.KEY_DOWN, uinput.KEY_PAUSECD]
+
+
+# --- with the app manager and audio ---------------------------------------------------------
+
+
+async def test_held_back_takes_you_home_and_red_moves_the_sound(ctx, remote):
+    browser = FakeChromium()
+    browser.add_tab("http://127.0.0.1:8765/")
+    await browser.start()
+    audio = AudioService(ctx, FakeAudio(speed=0))
+    await audio.start()
+    apps = AppService(
+        ctx,
+        FakeDisplay(speed=0),
+        Chromium(browser.port),
+        launcher_url="http://127.0.0.1:8765/",
+        opening_delay=0,
+    )
+    await apps.start()
+    try:
+        await until(lambda: ctx.state.get("apps")["browser"] == "connected")
+        await apps.launch("plex")
+        assert ctx.state.get("apps")["foreground"] == "plex"
+        remote.tv.key_pressed("red")
+        remote.tv.key_released()
+        await until(lambda: ctx.state.get("audio")["current"] == "jack")
+        remote.tv.key_pressed("back")
+        await asyncio.sleep(FAST.home_after + 0.05)
+        remote.tv.key_released()
+        await until(lambda: ctx.state.get("apps")["foreground"] == "launcher")
+        assert remote.keyboard.typed == []
+    finally:
+        await apps.stop()
+        await audio.stop()
+        await browser.stop()
+
+
+async def until(condition):
+    for _ in range(200):
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("timed out waiting")
