@@ -5,6 +5,7 @@
 #   sudo ./install.sh              # install or update from this checkout
 #   sudo ./install.sh --uninstall  # remove Couch, keep /etc/couch and /var/lib/couch
 #   sudo ./install.sh --purge      # remove Couch with its config, state and user
+#   sudo ./install.sh --revert-boot  # only put the boot files back (Couch stays)
 #
 # Without a checkout next to it (curl ... | sudo bash) it clones the repo into
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
@@ -14,7 +15,8 @@
 # packages. It also turns on PipeWire's user units for every user (they come enabled; this
 # makes sure). For the silent boot it edits cmdline.txt and config.txt through
 # couch-bootfiles, which keeps the originals and undoes its edits on --uninstall. It also puts
-# the splash in the initramfs: /lib/firmware/couch-splash.tga and one initramfs hook.
+# the splash in the initramfs (/lib/firmware/couch-splash.tga and one initramfs hook) and
+# turns cloud-init off once the first boot is done (/etc/cloud/cloud-init.disabled).
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -50,6 +52,8 @@ BOOT_CMDLINE=(
 BOOT_CMDLINE_DROP=(console=tty1)
 SPLASH_TGA=/lib/firmware/couch-splash.tga
 INITRAMFS_HOOK=/etc/initramfs-tools/hooks/couch-splash
+CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
+CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -299,9 +303,19 @@ install_boot() {
     for t in "${BOOT_CMDLINE[@]}"; do args+=(--set "$t"); done
     for t in "${BOOT_CMDLINE_DROP[@]}"; do args+=(--drop "$t"); done
     out=$("$BOOTFILES" apply boot --config "$SRC/system/boot-config.txt" "${args[@]}")
-    [[ -n $out ]] || return 0
-    while IFS= read -r line; do note "$line"; done <<<"$out"
-    REBOOT=1
+    if [[ -n $out ]]; then
+        while IFS= read -r line; do note "$line"; done <<<"$out"
+        REBOOT=1
+    fi
+    # cloud-init only matters on a card's first boot, where it sets up the user and SSH key
+    # (docs/sd-card.md). After that it adds about 2.5 s to every boot, before anything else
+    # starts. Pi OS's network doesn't come from it: NetworkManager configures eth0 itself.
+    if [[ -d /etc/cloud && ! -e $CLOUD_INIT_OFF ]] \
+        && cloud-init status 2>/dev/null | grep -qx 'status: done'; then
+        echo "$CLOUD_INIT_MARK" >"$CLOUD_INIT_OFF"
+        note "turned cloud-init off after its first boot ($CLOUD_INIT_OFF)"
+        REBOOT=1
+    fi
 }
 
 # --- uninstall ----------------------------------------------------------------------------
@@ -309,8 +323,10 @@ install_boot() {
 # Undo the silent boot: couch-bootfiles puts back what it changed in cmdline.txt and
 # config.txt, then the splash leaves the initramfs.
 uninstall_boot() {
-    local tool=$BOOTFILES
-    [[ -x $tool ]] || tool=$(dirname "${BASH_SOURCE[0]:-$0}")/system/couch-bootfiles
+    # The copy next to this script first: it can undo what an older installed copy can't.
+    local tool
+    tool=$(dirname "${BASH_SOURCE[0]:-$0}")/system/couch-bootfiles
+    [[ -x $tool ]] || tool=$BOOTFILES
     if [[ -x $tool ]]; then
         "$tool" revert boot
     elif [[ -e /boot/firmware/couch-boot.json ]]; then
@@ -321,6 +337,11 @@ uninstall_boot() {
         rm -f "$INITRAMFS_HOOK" "$SPLASH_TGA"
         update-initramfs -u -k all >/dev/null
         echo "Took the splash out of the initramfs."
+    fi
+    # Only if Couch turned cloud-init off; someone else's cloud-init.disabled stays.
+    if [[ -f $CLOUD_INIT_OFF ]] && [[ $(<"$CLOUD_INIT_OFF") == "$CLOUD_INIT_MARK" ]]; then
+        rm -f "$CLOUD_INIT_OFF"
+        echo "Turned cloud-init back on."
     fi
 }
 
@@ -358,8 +379,9 @@ uninstall() {
 case ${1:-} in
 --uninstall) uninstall 0; exit 0 ;;
 --purge) uninstall 1; exit 0 ;;
+--revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system

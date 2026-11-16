@@ -172,3 +172,24 @@ def test_splash_tga_is_what_the_kernel_reads():
     colours = {pixels[i : i + 3] for i in range(0, len(pixels), 3)}
     assert len(colours) <= 224
     assert pixels[:3] == bytes((0x14, 0x12, 0x12))  # night (BGR): the kernel fills with it
+
+
+def test_boot_can_be_reverted_on_its_own():
+    script = (ROOT / "install.sh").read_text()
+    assert re.search(r"^--revert-boot\) uninstall_boot;", script, re.M)
+    body = re.search(r"^uninstall_boot\(\) \{(.*?)^\}", script, re.M | re.S).group(1)
+    assert "update-initramfs" in body and "$INITRAMFS_HOOK" in body and "$SPLASH_TGA" in body
+
+
+def test_session_keeps_the_splash_on_tty1():
+    unit = (ROOT / "system/couch-session.service").read_text()
+    settings = [ln for ln in unit.splitlines() if not ln.startswith("#")]
+    assert not any(ln.startswith(("TTYReset=", "TTYVTDisallocate=")) for ln in settings)
+    assert "TTYPath=/dev/tty1" in settings
+
+
+def test_cloud_init_comes_back_only_if_couch_turned_it_off():
+    script = (ROOT / "install.sh").read_text()
+    assert 'echo "$CLOUD_INIT_MARK" >"$CLOUD_INIT_OFF"' in script
+    body = re.search(r"^uninstall_boot\(\) \{(.*?)^\}", script, re.M | re.S).group(1)
+    assert '== "$CLOUD_INIT_MARK"' in body and 'rm -f "$CLOUD_INIT_OFF"' in body
