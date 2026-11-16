@@ -22,6 +22,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | Section | Keys |
 | --- | --- |
 | `system` | `version`, `mode` (`device` or `dev`) |
+| `startup` | `done` (bool), `progress` (0–1), `step`: `tv` (the TV is turning on), `services`, or `null` once done. See below |
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
@@ -31,6 +32,11 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true) |
 
 `system` also has `url`, the launcher's own address.
+
+`startup` is for the Startup screen. The launcher appears while couchd is still starting
+services and waking the TV over CEC. `done` turns true once every service has started (or
+failed) and the TV says it's on. The TV gets 15 s to say so, and after 30 s startup is
+done regardless, so nothing holds Home back for long. After a couchd restart it starts over.
 
 `apps` says what's on screen:
 
@@ -48,11 +54,21 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 
 - `foreground`: the app in front. Starts as `launcher`.
 - `running`: apps with an open tab, plus the Kodi app while it has the screen.
-- `opening`: the app being started, else `null`. For Plex the launcher is in front for a
-  moment with this set, then Kodi takes the screen: show the Opening screen.
-- `error`: `{"app", "message"}` after an app died or didn't start, else `null`. couchd is
-  back on the launcher by then. A launch or `apps.clear_error` clears it. An `error` toast
-  goes out at the same time.
+- `opening`: the app being started, else `null`. The launcher is in front while it's set:
+  show the Opening screen. A new YouTube tab loads behind it and comes to the front once
+  loaded (at most 10 s); for Plex, Kodi takes the screen after 0.8 s. Home (`apps.home`, or
+  the key) while it's set gives up on opening.
+- `error`: `{"app", "kind", "message"}` when an app couldn't open or stopped, else `null`.
+  couchd is back on the launcher by then. `kind` says which error screen to show:
+  - `offline`: no internet (YouTube), or no network at all (Plex). Checked before opening.
+  - `server`: the Plex server couchd found before doesn't answer, and it isn't on the LAN
+    at a new address either. Until couchd has seen a server once, Plex opens unchecked.
+  - `crashed`: the app stopped unexpectedly.
+  - `failed`: the app didn't start.
+  - `repeated`: it crashed 3 times in 2 minutes, so launching it is refused for a while.
+
+  A launch, `apps.home` or `apps.clear_error` clears it, and so does 2 minutes passing.
+  There's no toast: the error screen says it.
 - `browser`: `connected` or `disconnected` (DevTools link to Chromium; it's
   `disconnected` while Kodi has the screen).
 
@@ -121,6 +137,8 @@ The text `ping` gets `pong`.
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
+| `apps.dev.crash` | Dev mode only: `app`. Crashes its tab for real (or the pretend Kodi) |
+| `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
 
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of
 range) sound moves to the TV, and when it comes back the sound follows. Volume is remembered
