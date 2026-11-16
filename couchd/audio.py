@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 SAVED_OUTPUT = "audio.output"
 SAVED_VOLUMES = "audio.volumes"
 FALLBACK = "tv"
+VOLUME_LIMIT = "audio.volume_limit"  # a setting (couchd/settings.py)
 CYCLE_KEY = "red"
 ANNOUNCE_DELAY = 1.5
 
@@ -53,6 +54,7 @@ class AudioService(Service):
         self._announcing: tuple[str, asyncio.Task] | None = None  # a delayed toast
         self._volume_for: str | None = None  # output whose saved volume was last applied
         self._gave_up: tuple | None = None  # (target, outputs) a switch failed for
+        self._unwatch = None
 
     async def start(self) -> None:
         await self.backend.start()
@@ -64,6 +66,7 @@ class AudioService(Service):
         commands.add("audio.cycle_output", self._cycle_output)
         commands.add("audio.set_volume", self._set_volume)
         commands.add("audio.set_muted", self._set_muted)
+        self._unwatch = self.ctx.settings.on_change(self._setting_changed)
         self._tasks = [
             asyncio.create_task(self._reconcile_loop()),
             asyncio.create_task(self._watch_keys()),
@@ -71,12 +74,14 @@ class AudioService(Service):
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("audio.")
-        for task in self._tasks:
+        if self._unwatch is not None:
+            self._unwatch()
+        tasks, self._tasks = self._tasks, []
+        for task in tasks:
             task.cancel()
-        for task in self._tasks:
+        for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        self._tasks = []
         self._cancel_announcement()
         await self.backend.stop()
 
@@ -151,6 +156,8 @@ class AudioService(Service):
             return
         self._volume_for = current
         saved = (self.ctx.saved.get(SAVED_VOLUMES) or {}).get(current)
+        if isinstance(saved, int):
+            saved = min(saved, self._limit())
         if isinstance(saved, int) and saved != self.backend.volume():
             try:
                 await self.backend.set_volume(saved)
@@ -246,12 +253,28 @@ class AudioService(Service):
         volume = arg(args, "volume", int)
         if not 0 <= volume <= 100:
             raise CommandError("'volume' must be 0-100")
+        volume = min(volume, self._limit())
         await self.backend.set_volume(volume)
         current = self.backend.current()
         if current is not None:
             volumes = dict(self.ctx.saved.get(SAVED_VOLUMES) or {})
             volumes[current] = volume
             self.ctx.saved.set(SAVED_VOLUMES, volumes)
+
+    def _limit(self) -> int:
+        return self.ctx.settings.get(VOLUME_LIMIT)
+
+    def _setting_changed(self, key: str, value) -> None:
+        if key == VOLUME_LIMIT and self.backend.volume() > value:
+            task = asyncio.create_task(self._turn_down_to(value))
+            self._tasks.append(task)
+            task.add_done_callback(lambda t: t in self._tasks and self._tasks.remove(t))
+
+    async def _turn_down_to(self, limit: int) -> None:
+        try:
+            await self._set_volume({"volume": limit})
+        except BackendError as e:
+            log.warning("couldn't apply the volume limit", extra={"error": str(e)})
 
     async def _set_muted(self, args: dict[str, Any]) -> None:
         await self.backend.set_muted(arg(args, "muted", bool))

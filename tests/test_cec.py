@@ -16,7 +16,7 @@ from couchd.commands import Commands
 from couchd.services import Context
 from couchd.state import LiveState, SavedState
 from couchd.systemd import jobs_power_off
-from couchd.tv import SAVED_STANDBY_ON_POWEROFF, TvService
+from couchd.tv import STANDBY_ON_POWEROFF, TvService
 
 US = 0x4  # Playback 1
 PA = 0x1000  # 1.0.0.0, TV input 1
@@ -430,7 +430,7 @@ async def test_standby_on_poweroff(ctx, adapter, setting, powering_off, sends_st
     service = await _service(ctx, adapter, powering_off=powering_off)
     await ctx.commands.run("tv.set_standby_on_poweroff", {"on": setting})
     assert ctx.state.get("tv")["standby_on_poweroff"] is setting
-    assert ctx.saved.get(SAVED_STANDBY_ON_POWEROFF) is setting
+    assert ctx.settings.get(STANDBY_ON_POWEROFF) is setting
     adapter.clear()
     await service.stop()
     assert (frame(US, cec.TV, cec.STANDBY) in adapter.sent) is sends_standby

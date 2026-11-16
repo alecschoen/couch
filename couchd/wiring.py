@@ -13,6 +13,7 @@ from couchd.fakes import FakeAudio, FakeBluetooth, FakeTv
 from couchd.idle import IdleService
 from couchd.pipewire import PipewireAudio
 from couchd.services import Context, Service
+from couchd.system import FakeSystem, LinuxSystem, SystemService
 from couchd.tv import RemoteService, TvService
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             AudioService(ctx, audio),
             BluetoothService(ctx, bluetooth),
             *_apps(ctx, dev=True),
+            SystemService(ctx, FakeSystem()),
         ]
     tv = CecTv()
     return [
@@ -37,6 +39,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         AudioService(ctx, PipewireAudio()),
         BluetoothService(ctx, BluezBluetooth()),
         *_apps(ctx, dev=False),
+        SystemService(ctx, LinuxSystem()),
     ]
 
 

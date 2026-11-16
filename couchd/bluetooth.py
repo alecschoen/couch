@@ -30,7 +30,7 @@ from couchd.services import Context, Service
 log = logging.getLogger(__name__)
 
 SAVED_LAST = "bluetooth.last"
-SAVED_AUTO_RECONNECT = "bluetooth.auto_reconnect"
+AUTO_RECONNECT = "bluetooth.auto_reconnect"  # a setting (couchd/settings.py)
 
 SCAN_LIMIT = 120.0
 # How long a freshly connected speaker may take to show up as an audio output.
@@ -65,12 +65,16 @@ class BluetoothService(Service):
         self._poke = asyncio.Event()
         self._tasks: set[asyncio.Task] = set()
         self._scan_timer: asyncio.Task | None = None
+        self._unwatch = None
 
     async def start(self) -> None:
         await self.backend.start()
         # Devices connected before couchd (re)started aren't news: leave the sound alone.
         self._connected = {d.address: d for d in self.backend.devices() if d.connected}
         self.backend.on_change(self._sync)
+        self._unwatch = self.ctx.settings.on_change(
+            lambda key, _: key == AUTO_RECONNECT and self._sync()
+        )
         self._sync()
         commands = self.ctx.commands
         commands.add("bluetooth.scan", self._scan)
@@ -83,6 +87,8 @@ class BluetoothService(Service):
 
     async def stop(self) -> None:
         self.ctx.commands.remove_prefix("bluetooth.")
+        if self._unwatch is not None:
+            self._unwatch()
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -90,7 +96,7 @@ class BluetoothService(Service):
 
     @property
     def auto_reconnect(self) -> bool:
-        return bool(self.ctx.saved.get(SAVED_AUTO_RECONNECT, True))
+        return self.ctx.settings.get(AUTO_RECONNECT)
 
     # --- state -----------------------------------------------------------------------------
 
@@ -245,8 +251,8 @@ class BluetoothService(Service):
         self._clear_last(address)
 
     async def _set_auto_reconnect(self, args: dict[str, Any]) -> None:
-        self.ctx.saved.set(SAVED_AUTO_RECONNECT, arg(args, "on", bool))
-        self._sync()
+        # Kept for older callers; the same as settings.set bluetooth.auto_reconnect.
+        self.ctx.settings.set(AUTO_RECONNECT, arg(args, "on", bool))
 
     def _clear_last(self, address: str) -> None:
         if self.ctx.saved.get(SAVED_LAST) == address:
