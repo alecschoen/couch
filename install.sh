@@ -6,6 +6,7 @@
 #   sudo ./install.sh --uninstall  # remove Couch, keep /etc/couch and /var/lib/couch
 #   sudo ./install.sh --purge      # remove Couch with its config, state and user
 #   sudo ./install.sh --revert-boot  # only put the boot files back (Couch stays)
+#   sudo ./install.sh --revert-sd    # only undo the SD card protection (Couch stays)
 #
 # Without a checkout next to it (curl ... | sudo bash) it clones the repo into
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
@@ -19,7 +20,13 @@
 # originals and undoes its edits on --uninstall. It also puts the splash in the initramfs
 # (/lib/firmware/couch-splash.tga and one initramfs hook), adds couch-fbsplash with its unit
 # and udev rule, and turns cloud-init off once the first boot is done
-# (/etc/cloud/cloud-init.disabled).
+# (/etc/cloud/cloud-init.disabled). Against power cuts (docs/sd-card.md) it keeps the journal
+# in RAM (one journald.conf.d file), puts Chromium's and Kodi's caches on a tmpfs (one mount
+# unit, one tmpfiles.d file), and adds noatime to /etc/fstab through couch-fstab, which keeps
+# the original and undoes its edits on --uninstall.
+# Overnight updates (#24) add couch-update's units and timer, one apt.conf.d file,
+# /var/lib/couch-update, and a copy of this source in /opt/couch/source to roll back to.
+# The timer and unattended-upgrades only with `nightly = true` in /etc/couch/update.toml.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -43,6 +50,14 @@ AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
+# Overnight updates (#24): couch-update (couchd/updater.py) runs as root from the timer, or
+# from couchd's Check now through couch-update-now.service.
+UPDATE_UNITS=(couch-update.service couch-update-now.service couch-update.timer)
+UPDATE_TIMER=couch-update.timer
+UPDATE_STATE=/var/lib/couch-update
+APT_UPDATES_CONF=/etc/apt/apt.conf.d/52couch-updates
+# What install.sh needs from a checkout; copied to /opt/couch/source for a rollback.
+SOURCE_FILES=(install.sh pyproject.toml README.md couchd ui system)
 # Silent boot (#4). couch-bootfiles makes these edits to cmdline.txt and config.txt as the
 # owner "boot", and `revert boot` undoes exactly them. Other boot settings get an owner of
 # their own (see the top of system/couch-bootfiles).
@@ -62,6 +77,17 @@ FBSPLASH_UNIT=$UNIT_DIR/couch-fbsplash.service
 FBSPLASH_RULE=/etc/udev/rules.d/70-couch-fbsplash.rules
 CLOUD_INIT_OFF=/etc/cloud/cloud-init.disabled
 CLOUD_INIT_MARK="# Couch's install.sh turned cloud-init off after the first boot; --uninstall removes this"
+# Power cuts (#25, docs/sd-card.md). couch-fstab and couch-bootfiles make these edits as
+# the owner "sd-card"; `install.sh --revert-sd` undoes exactly them, and the files below.
+FSTAB_TOOL=$PREFIX/bin/couch-fstab
+SD_NOATIME=(/ /boot/firmware)          # mount points that get noatime, if fstab has them
+SD_CMDLINE=(fsck.repair=yes)           # repair the file systems after a cut; no rescue shell
+SD_JOURNALD_CONF=/etc/systemd/journald.conf.d/50-couch.conf
+SD_CACHE=/var/cache/couch
+SD_CACHE_MOUNT=$UNIT_DIR/var-cache-couch.mount
+SD_CACHE_TMPFILES=/etc/tmpfiles.d/couch-cache.conf
+SD_TMP_CONF=$UNIT_DIR/local-fs.target.d/50-couch-tmp.conf
+CACHE_CHANGED=0
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -232,7 +258,7 @@ ensure_user() {
 }
 
 install_couch() {
-    local code=$USER_CHANGED session=$USER_CHANGED units=0
+    local code=$USER_CHANGED session=$((USER_CHANGED || CACHE_CHANGED)) units=0
 
     ensure_dir "$PREFIX" root 755
     ensure_dir "$ETC" root 755
@@ -344,6 +370,79 @@ install_audio() {
     fi
 }
 
+# Overnight updates (#24). couch-update installs a release by running its install.sh, and
+# goes back by running the previous one's, which is this copy. /opt/couch/VERSION says which
+# Couch this is (source_version).
+# Which Couch this is: a checkout says so through git (`v1.2.0`, `v1.2.0-3-gabc1234`, or
+# `dev-abc1234` before the first tag; `-dirty` with local changes), a release through the
+# VERSION file couch-update writes into it. Neither: nothing, and VERSION goes, so Settings
+# never shows a version this isn't (a leftover from a release installed before).
+source_version() {
+    local src=$1 v
+    if [[ -e $src/.git ]]; then
+        command -v git >/dev/null || return 0
+        v=$(git -c safe.directory="$src" -C "$src" describe --tags --always --dirty \
+            --match 'v[0-9]*' 2>/dev/null) || return 0
+        [[ $v == v[0-9]* ]] || v=dev-$v
+        echo "$v"
+    elif [[ -f $src/VERSION ]]; then
+        head -n1 "$src/VERSION"
+    fi
+}
+
+install_updates() {
+    local src_dir=$PREFIX/source version="" f units=0
+    if [[ $(realpath "$SRC") != $(realpath -m "$src_dir") ]]; then
+        local out
+        out=$(cd "$SRC" && rsync -rlp --checksum --delete --exclude=__pycache__ \
+            --chmod=D755,F644 --itemize-changes --relative "${SOURCE_FILES[@]}" "$src_dir/")
+        [[ -z $out ]] || note "kept a copy of this version in $src_dir"
+    fi
+    version=$(source_version "$SRC")
+    for f in "$PREFIX/VERSION" "$src_dir/VERSION"; do
+        if [[ -z $version ]]; then
+            rm -f "$f"
+        elif [[ ! -f $f || $(<"$f") != "$version" ]]; then
+            echo "$version" >"$f"
+            [[ $f == "$PREFIX/VERSION" ]] && note "this is Couch $version"
+        fi
+    done
+    ensure_file "$SRC/system/apt-couch.conf" "$APT_UPDATES_CONF" 644 || true
+    ensure_file "$SRC/system/update.example.toml" "$ETC/update.example.toml" 644 || true
+    for f in "${UPDATE_UNITS[@]}"; do
+        ensure_file "$SRC/system/$f" "$UNIT_DIR/$f" 644 && units=1
+    done
+    ((units)) && systemctl daemon-reload
+    # The night runs are opt-in (`nightly = true` in update.toml): until then no timer and
+    # no unattended-upgrades. apt-couch.conf keeps apt's own daily run off either way.
+    local nightly=0 code=0
+    /usr/bin/python3 -I "$SRC/couchd/updater.py" enabled --config "$ETC/update.toml" \
+        || code=$?
+    case $code in
+        0) nightly=1 ;;
+        1) ;;
+        *) echo "  warning: $ETC/update.toml is broken; overnight updates stay off" >&2 ;;
+    esac
+    if ((nightly)); then
+        ensure_packages unattended-upgrades
+        if ! systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+            systemctl -q enable --now "$UPDATE_TIMER"
+            note "enabled overnight updates ($UPDATE_TIMER)"
+        fi
+    elif systemctl -q is-enabled "$UPDATE_TIMER" 2>/dev/null; then
+        systemctl -q disable --now "$UPDATE_TIMER"
+        note "overnight updates are off ($UPDATE_TIMER disabled)"
+    fi
+}
+
+uninstall_updates() {
+    local u
+    systemctl disable --now "$UPDATE_TIMER" 2>/dev/null || true
+    for u in "${UPDATE_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    rm -f "$APT_UPDATES_CONF" "$ETC/update.example.toml"
+    rm -rf "$UPDATE_STATE"
+}
+
 # The silent boot (#4). The firmware shows nothing (no rainbow square). The kernel draws the
 # Couch splash as soon as there's a framebuffer and prints nothing on the TV. The splash stays
 # until cage takes the screen for the launcher. All of this takes effect at the next boot.
@@ -396,6 +495,77 @@ install_boot() {
     fi
 }
 
+# True if /tmp is on the card and systemd's tmp.mount could put it in RAM.
+tmp_needs_tmpfs() {
+    [[ $(findmnt -n -o FSTYPE /tmp 2>/dev/null) != tmpfs ]] || return 1
+    ! findmnt --fstab -n /tmp >/dev/null || return 1 # fstab has a say over /tmp; leave it
+    systemctl cat tmp.mount >/dev/null 2>&1 || return 1
+    [[ $(systemctl is-enabled tmp.mount 2>/dev/null) != masked ]]
+}
+
+# Power cuts (#25). The SD card should shrug off losing power at any moment, so Couch keeps
+# what's written all the time off it, and what's left on it is written so a cut leaves the
+# old or the new version (couchd/files.py). docs/sd-card.md has the reasoning, and why the
+# root file system stays writable (no overlayfs). Runs before install_couch: the session
+# must start with its cache directories in place.
+install_sd_card() {
+    ensure_file "$SRC/system/couch-fstab" "$FSTAB_TOOL" 755 || true
+    ensure_file "$SRC/system/couch-bootfiles" "$BOOTFILES" 755 || true
+
+    # The journal in RAM. A restart applies it now; services' log streams survive it.
+    if ensure_file "$SRC/system/journald-couch.conf" "$SD_JOURNALD_CONF" 644; then
+        systemctl restart systemd-journald.service
+        note "the journal is in RAM from now on"
+    fi
+
+    # Chromium's and Kodi's caches on a tmpfs, with their directories made at every boot.
+    local reload=0
+    ensure_file "$SRC/system/var-cache-couch.mount" "$SD_CACHE_MOUNT" 644 && reload=1
+    ensure_file "$SRC/system/couch-cache.conf" "$SD_CACHE_TMPFILES" 644 || true
+    # /tmp in RAM: Trixie does that already (tmp.mount); this is for a system that doesn't.
+    if tmp_needs_tmpfs; then
+        ensure_file "$SRC/system/couch-tmp.conf" "$SD_TMP_CONF" 644 && reload=1 && REBOOT=1
+    fi
+    ((reload)) && systemctl daemon-reload
+    if ! systemctl -q is-enabled var-cache-couch.mount 2>/dev/null; then
+        systemctl -q enable var-cache-couch.mount
+        note "enabled var-cache-couch.mount"
+    fi
+    if ! mountpoint -q "$SD_CACHE"; then
+        systemctl start var-cache-couch.mount
+        note "mounted a tmpfs on $SD_CACHE"
+        CACHE_CHANGED=1
+    fi
+    systemd-tmpfiles --create "$SD_CACHE_TMPFILES"
+
+    # noatime: reading a file doesn't write to the card. Pi OS has it on / already.
+    local mp targets=() out line
+    for mp in "${SD_NOATIME[@]}"; do
+        findmnt --fstab -n "$mp" >/dev/null && targets+=("$mp=noatime")
+    done
+    if ((${#targets[@]})); then
+        out=$("$FSTAB_TOOL" apply sd-card "${targets[@]}")
+        if [[ -n $out ]]; then
+            while IFS= read -r line; do note "$line"; done <<<"$out"
+            systemctl daemon-reload
+        fi
+        for mp in "${targets[@]%=noatime}"; do
+            if [[ ,$(findmnt -n -o OPTIONS "$mp"), != *,noatime,* ]]; then
+                mount -o remount,noatime "$mp"
+                note "remounted $mp with noatime"
+            fi
+        done
+    fi
+
+    local args=() t
+    for t in "${SD_CMDLINE[@]}"; do args+=(--set "$t"); done
+    out=$("$BOOTFILES" apply sd-card "${args[@]}")
+    if [[ -n $out ]]; then
+        while IFS= read -r line; do note "$line"; done <<<"$out"
+        REBOOT=1
+    fi
+}
+
 # --- uninstall ----------------------------------------------------------------------------
 
 # Undo the silent boot: couch-bootfiles puts back what it changed in cmdline.txt and
@@ -429,9 +599,40 @@ uninstall_boot() {
     fi
 }
 
+# Undo install_sd_card. What's mounted now stays mounted until the next boot: Chromium may
+# be using the cache, and remounting / without noatime gains nothing.
+uninstall_sd_card() {
+    local here fstab_tool bootfiles
+    here=$(dirname "${BASH_SOURCE[0]:-$0}")/system
+    fstab_tool=$here/couch-fstab
+    [[ -x $fstab_tool ]] || fstab_tool=$FSTAB_TOOL
+    bootfiles=$here/couch-bootfiles
+    [[ -x $bootfiles ]] || bootfiles=$BOOTFILES
+    if [[ -x $fstab_tool ]]; then
+        "$fstab_tool" revert sd-card
+    elif [[ -e /etc/fstab.couch.json ]]; then
+        echo "warning: couch-fstab is missing, so /etc/fstab keeps Couch's noatime." \
+            "The original is /etc/fstab.couch-orig." >&2
+    fi
+    [[ -x $bootfiles ]] && "$bootfiles" revert sd-card
+    if [[ -e $SD_JOURNALD_CONF ]]; then
+        rm -f "$SD_JOURNALD_CONF"
+        systemctl restart systemd-journald.service
+        echo "The journal is on the SD card again."
+    fi
+    if [[ -e $SD_CACHE_MOUNT || -e $SD_CACHE_TMPFILES || -e $SD_TMP_CONF ]]; then
+        systemctl -q disable var-cache-couch.mount 2>/dev/null || true
+        rm -f "$SD_CACHE_MOUNT" "$SD_CACHE_TMPFILES" "$SD_TMP_CONF"
+        systemctl daemon-reload
+        echo "Chromium's and Kodi's caches go back to their profiles from the next boot."
+    fi
+}
+
 uninstall() {
     local purge=$1 u
+    uninstall_sd_card
     uninstall_boot
+    uninstall_updates
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
@@ -464,8 +665,9 @@ case ${1:-} in
 --uninstall) uninstall 0; exit 0 ;;
 --purge) uninstall 1; exit 0 ;;
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
+--revert-sd) uninstall_sd_card; echo "The SD card protection is off, fully from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system
@@ -477,11 +679,15 @@ find_source
 echo "  from $SRC"
 say "User"
 ensure_user
+say "SD card"
+install_sd_card
 say "Couch"
 install_couch
 install_bluetooth_audio
 say "Boot"
 install_boot
+say "Updates"
+install_updates
 
 echo
 if ((changes)); then

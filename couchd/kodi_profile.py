@@ -46,6 +46,8 @@ from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from couchd.files import fsync_dir, write_atomic
+
 ESTUARY = Path("/usr/share/kodi/addons/skin.estuary")
 SKIN = "skin.couch"
 SERVICE = "service.couch"
@@ -195,11 +197,14 @@ class Profile:
             got = addon_version(Path(tmp) / pin.id)
             if got != pin.version:
                 raise ProfileError(f"{pin.id}: the zip holds version {got}, not {pin.version}")
+            # The unpacked files must be on the card before the swap makes them the addon.
+            os.sync()
             old = self.addons / f".old-{pin.id}"
             shutil.rmtree(old, ignore_errors=True)
             if dest.exists():
                 dest.rename(old)
             (Path(tmp) / pin.id).rename(dest)
+            fsync_dir(self.addons)
             shutil.rmtree(old, ignore_errors=True)
 
     @staticmethod
@@ -252,14 +257,14 @@ class Profile:
         for rel in todo:
             path, want = dest / rel, tree[rel]
             path.parent.mkdir(parents=True, exist_ok=True)
-            if path.is_symlink() or path.is_file():
+            if path.is_symlink() or (path.is_file() and isinstance(want, str)):
                 path.unlink()
             elif path.is_dir():
                 shutil.rmtree(path)
             if isinstance(want, str):
                 path.symlink_to(want)
             else:
-                path.write_bytes(want)
+                write_atomic(path, want)
         for root, dirs, files in os.walk(dest, topdown=False):
             if root != str(dest) and not dirs and not files:
                 os.rmdir(root)
@@ -268,8 +273,9 @@ class Profile:
         want = src.read_bytes()
         if _matches(dest, want) or not self.change(f"wrote {dest}"):
             return
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(want)
+        if dest.is_symlink():
+            dest.unlink()
+        write_atomic(dest, want)
 
     def enable_addons(self, enable: list[str], disable: list[str]) -> None:
         db_dir = self.userdata / "Database"
@@ -390,6 +396,10 @@ def _skin_addon_xml(estuary_addon: Path) -> bytes:
 
 def _load_xml(path: Path, tag: str, attrib: dict[str, str]) -> ET.Element:
     try:
+        # Kodi rewrites its settings in place when it quits, so a power cut then can leave
+        # an empty file (#25). Kodi itself starts over from defaults; so do we.
+        if not path.read_bytes().strip():
+            return ET.Element(tag, attrib)
         root = ET.parse(path).getroot()
     except FileNotFoundError:
         return ET.Element(tag, attrib)
@@ -402,10 +412,7 @@ def _load_xml(path: Path, tag: str, attrib: dict[str, str]) -> ET.Element:
 
 def _write_xml(path: Path, root: ET.Element) -> None:
     ET.indent(root, "    ")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(ET.tostring(root, encoding="UTF-8", xml_declaration=True) + b"\n")
-    tmp.replace(path)
+    write_atomic(path, ET.tostring(root, encoding="UTF-8", xml_declaration=True) + b"\n")
 
 
 def main(argv: list[str] | None = None) -> int:

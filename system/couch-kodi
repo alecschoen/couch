@@ -6,4 +6,9 @@
 # Sound goes through PulseAudio, which is PipeWire's pipewire-pulse here, so Kodi plays to
 # whatever output couchd picked (#10).
 export KODI_DATA=/var/lib/couch/kodi
+# Power cuts (#25): special://temp, where Kodi keeps kodi.log and its scratch files, goes to
+# /var/cache/couch/kodi, a tmpfs, when install.sh set that up. The profile stays on the card.
+if [ -d /var/cache/couch/kodi ] && [ -w /var/cache/couch/kodi ]; then
+    export KODI_TEMP=/var/cache/couch/kodi
+fi
 exec /usr/bin/kodi --standalone --windowing=gbm --audio-backend=pulseaudio

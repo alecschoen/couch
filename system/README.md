@@ -16,6 +16,14 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage/Chrom
 - `initramfs-splash`: an initramfs-tools hook, installed as `/etc/initramfs-tools/hooks/couch-splash`. It puts the splash (`/lib/firmware/couch-splash.tga`, from `ui/brand/splash.tga`) in the initramfs.
 - `70-couch-no-pointer.rules`: no mouse cursor on the TV. The kernel's CEC remote inputs (`vc4-hdmi-0`, `vc4-hdmi-1`) have mouse axes, so libinput would hand them to cage as pointers and cage would draw its cursor. This makes libinput ignore them. couchd doesn't use them: it reads `/dev/cec0` and types through its own Couch remote device.
 - `couch-fbsplash`, `couch-fbsplash.service`, `couch-fbsplash.rules`: draw the same splash again on vc4's framebuffer when vc4 takes the screen over, and once more at shutdown (see Boot below). The rule is installed as `/etc/udev/rules.d/70-couch-fbsplash.rules`.
+- `couch-update.service`, `couch-update.timer`, `couch-update-now.service`: overnight updates (#24), see below
+- `update.example.toml`: couch-update's settings, installed as `/etc/couch/update.example.toml`
+- `apt-couch.conf`: installed as `/etc/apt/apt.conf.d/52couch-updates`. apt still refreshes its lists by itself, but security updates are installed by couch-update at night, not by `apt-daily-upgrade`, so they never land during a film
+- Power cuts (#25, see [docs/sd-card.md](../docs/sd-card.md#power-cuts)). `install.sh --revert-sd` removes all of these:
+  - `journald-couch.conf`: installed as `/etc/systemd/journald.conf.d/50-couch.conf`. The journal stays in RAM (`Storage=volatile`).
+  - `var-cache-couch.mount` and `couch-cache.conf`: a 256 MB tmpfs on `/var/cache/couch`, and its `chromium` and `kodi` directories (`/etc/tmpfiles.d/couch-cache.conf`). `couch-browser` and `couch-kodi` keep their caches there when it exists.
+  - `couch-tmp.conf`: turns on systemd's `tmp.mount` on a system where `/tmp` isn't in RAM yet. Trixie doesn't need it.
+  - `couch-fstab`: adds `noatime` to `/` and `/boot/firmware` in `/etc/fstab`, and undoes exactly that, like `couch-bootfiles` (owner `sd-card`; original in `/etc/fstab.couch-orig`; `couch-fstab show`). It refuses any edit beyond the options column, and any edit that `findmnt --verify` likes less.
 - `wireplumber-couch.conf`: installed as `/etc/wireplumber/wireplumber.conf.d/50-couch.conf`. couchd picks the output and moves every stream itself, so WirePlumber is told not to send apps back to the output they last used.
 
 ## Sound
@@ -29,6 +37,76 @@ sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) pactl list sinks short
 sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) wpctl status
 ```
 
+## Updates
+
+`couch-update` (`couchd/updater.py`, run as root with the system Python) keeps Couch and the
+system up to date. `couch-update.timer` starts it every half hour from 01:00 to 05:30; it
+does one run a night, the first time nobody is using Couch (TV off, or the launcher gone
+idle) and nothing plays. Settings › Updates › Check now starts `couch-update-now.service`
+(the polkit rule lets couchd start just that unit), which skips the night and idle rules but
+still won't run while something plays.
+
+The night runs are opt-in. Until `/etc/couch/update.toml` says `nightly = true` (and
+install.sh has run since), there's no timer, no unattended-upgrades, and nothing updates or
+reboots on its own; Settings says "Not turned on yet". Check now works either way. To turn
+them on, once the Pi can read the releases (see Release access below):
+
+```bash
+echo 'nightly = true' | sudo tee -a /etc/couch/update.toml
+sudo /opt/couch/source/install.sh   # or install.sh from a checkout: enables the timer
+```
+
+A run:
+1. asks couchd (`/api/state`) whether it may; couchd not answering counts as no
+2. reads the latest release (`source` in `/etc/couch/update.toml`, GitHub's API by default),
+   and if it's newer than `/opt/couch/VERSION` downloads and unpacks it into
+   `/var/lib/couch-update/releases/<tag>` and runs its `install.sh`
+3. checks couchd and the session are up, `/api/health` answers without newly failed
+   services, and couchd stays up (same PID, no restarts) for 20 s, within 3 minutes. If not,
+   or if `install.sh` failed, it runs the previous install's `install.sh` again
+   (`install.sh` keeps a copy of its own source in `/opt/couch/source` for this) and skips
+   that release from then on
+4. at night only: `unattended-upgrade` (Debian's security updates), once a week a full
+   `apt-get full-upgrade` (that's also how Raspberry Pi's own packages, Chromium among them,
+   get updated), and a reboot if one is needed. Each step asks couchd again first.
+
+At night couchd is told not to wake the TV when it restarts (`/var/lib/couch-update/quiet-until`).
+The result is in `/var/lib/couch-update/status.json` (Settings shows it), and the last run's
+output in `last-run.log` next to it. By hand:
+
+```bash
+sudo systemctl start couch-update-now.service        # what Check now does
+sudo python3 /opt/couch/couchd/updater.py status
+sudo python3 /opt/couch/couchd/updater.py now --force  # reinstall the latest, even if not newer
+journalctl -u couch-update -u couch-update-now
+```
+
+### Release access
+
+The repo is private, so the Pi needs a token to read its releases. Until there is one,
+Settings › Updates says "Not set up yet" and nothing is installed (security updates still
+run). The token goes in `/etc/couch/github-token`, readable by root only (couch-update refuses
+it otherwise), and is sent only to `api.github.com`, `github.com` and `codeload.github.com`,
+never along a redirect:
+
+1. On GitHub: Settings › Developer settings › Fine-grained tokens › Generate. Repository
+   access: only this repo. Permissions: Contents: Read-only (Metadata: Read-only comes with
+   it). Nothing else. Pick an expiry you'll notice, or none.
+2. On the Pi:
+   `sudo sh -c 'umask 077; cat > /etc/couch/github-token'`, paste it, Enter, Ctrl-D.
+3. Settings › Updates › Check now: it should say "Up to date" (or install the latest).
+
+"The token in … can't see the repo" or "GitHub didn't accept the token" means it expired,
+was revoked, or doesn't cover this repo.
+
+To try it without a GitHub release, point `source` at anything serving the same JSON, e.g.
+`python3 -m http.server` in a folder with a `latest.json` (`{"tag_name": "v0.2.0",
+"tarball_url": "http://…/couch.tar.gz"}`) and a tarball from `git archive --prefix=couch/
+-o couch.tar.gz HEAD`. `file://` URLs work too.
+
+Not covered: a release that breaks booting (the health check runs before any reboot; the
+`.couch-orig` boot files and `--revert-boot` are for that), and a release whose own
+couch-update is broken while couchd is fine (the next night runs that one).
 ## Boot
 
 From power-on the TV stays black until the Couch splash, then the launcher. The firmware's rainbow square is off (`disable_splash=1`). The kernel prints nothing on the TV: it gets `quiet loglevel=0`, no cursor, and its console moves from tty1 to tty3. Ctrl+Alt+F3 on a USB keyboard shows it.
