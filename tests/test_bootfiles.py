@@ -350,3 +350,11 @@ def test_fbsplash_reuses_the_boot_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(fbsplash, "render", lambda *a: pytest.fail("rendered again"))
     assert fbsplash.main(["couch-fbsplash", "fb0"]) == 0
     assert (dev / "fb0").read_bytes() == drawn
+
+
+def test_no_white_frame_before_the_launcher():
+    browser = (ROOT / "system/couch-browser").read_text()
+    assert "--force-dark-mode" in browser
+    html = (ROOT / "ui/index.html").read_text()
+    assert '<html lang="en" data-palette="system" style="background:#121214">' in html
+    assert "--system-deep: #121214;" in (ROOT / "ui/css/tokens.css").read_text()
