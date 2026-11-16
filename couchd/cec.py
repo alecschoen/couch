@@ -14,12 +14,14 @@ import errno
 import fcntl
 import os
 import select
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 # --- addresses and opcodes (CEC 1.4) -------------------------------------------------------
 
 TV = 0x0
+AUDIO_SYSTEM = 0x5
 BROADCAST = 0xF
 UNREGISTERED = 0xF
 NO_PHYS_ADDR = 0xFFFF
@@ -31,6 +33,12 @@ PLAY = 0x41
 DECK_CONTROL = 0x42
 USER_CONTROL_PRESSED = 0x44
 USER_CONTROL_RELEASED = 0x45
+SYSTEM_AUDIO_MODE_REQUEST = 0x70
+GIVE_AUDIO_STATUS = 0x71
+SET_SYSTEM_AUDIO_MODE = 0x72
+REPORT_AUDIO_STATUS = 0x7A
+GIVE_SYSTEM_AUDIO_MODE_STATUS = 0x7D
+SYSTEM_AUDIO_MODE_STATUS = 0x7E
 GIVE_OSD_NAME = 0x46
 SET_OSD_NAME = 0x47
 ROUTING_CHANGE = 0x80
@@ -50,15 +58,31 @@ REPORT_POWER_STATUS = 0x90
 INACTIVE_SOURCE = 0x9D
 CEC_VERSION = 0x9E
 GET_CEC_VERSION = 0x9F
+REQUEST_SHORT_AUDIO_DESCRIPTOR = 0xA4
+INITIATE_ARC = 0xC0
+REQUEST_ARC_INITIATION = 0xC3
+REQUEST_ARC_TERMINATION = 0xC4
 
 ABORT_UNRECOGNIZED_OP = 0
+ABORT_REFUSED = 4
 POWER_ON, POWER_STANDBY, POWER_TO_ON, POWER_TO_STANDBY = 0, 1, 2, 3
 MENU_ACTIVATE, MENU_DEACTIVATE, MENU_QUERY = 0, 1, 2
 MENU_ACTIVATED, MENU_DEACTIVATED = 0, 1
 VERSION_1_4 = 5
 PRIM_DEVTYPE_PLAYBACK = 4
+PRIM_DEVTYPE_AUDIOSYSTEM = 5
 LOG_ADDR_TYPE_PLAYBACK = 3
+LOG_ADDR_TYPE_AUDIOSYSTEM = 4
 ALL_DEVTYPE_PLAYBACK = 0x10
+ALL_DEVTYPE_AUDIOSYSTEM = 0x08
+
+# What a logical address is for. Couch is a Playback device, and also the TV's Audio System
+# (logical address 5) while sound goes to the jack or Bluetooth (#11).
+PLAYBACK, AUDIO = "playback", "audio"
+ROLE_TYPES = {  # role -> (log_addr_type, primary_device_type, all_device_types)
+    PLAYBACK: (LOG_ADDR_TYPE_PLAYBACK, PRIM_DEVTYPE_PLAYBACK, ALL_DEVTYPE_PLAYBACK),
+    AUDIO: (LOG_ADDR_TYPE_AUDIOSYSTEM, PRIM_DEVTYPE_AUDIOSYSTEM, ALL_DEVTYPE_AUDIOSYSTEM),
+}
 
 # Broadcom, the Pi's SoC maker; what libcec on a Pi reports too.
 VENDOR_BROADCOM = 0x18C086
@@ -73,6 +97,12 @@ OPCODE_NAMES = {
         "deck_control": DECK_CONTROL,
         "user_control_pressed": USER_CONTROL_PRESSED,
         "user_control_released": USER_CONTROL_RELEASED,
+        "system_audio_mode_request": SYSTEM_AUDIO_MODE_REQUEST,
+        "give_audio_status": GIVE_AUDIO_STATUS,
+        "set_system_audio_mode": SET_SYSTEM_AUDIO_MODE,
+        "report_audio_status": REPORT_AUDIO_STATUS,
+        "give_system_audio_mode_status": GIVE_SYSTEM_AUDIO_MODE_STATUS,
+        "system_audio_mode_status": SYSTEM_AUDIO_MODE_STATUS,
         "give_osd_name": GIVE_OSD_NAME,
         "set_osd_name": SET_OSD_NAME,
         "routing_change": ROUTING_CHANGE,
@@ -92,6 +122,10 @@ OPCODE_NAMES = {
         "inactive_source": INACTIVE_SOURCE,
         "cec_version": CEC_VERSION,
         "get_cec_version": GET_CEC_VERSION,
+        "request_short_audio_descriptor": REQUEST_SHORT_AUDIO_DESCRIPTOR,
+        "initiate_arc": INITIATE_ARC,
+        "request_arc_initiation": REQUEST_ARC_INITIATION,
+        "request_arc_termination": REQUEST_ARC_TERMINATION,
     }.items()
 }
 
@@ -149,8 +183,13 @@ class Adapter(Protocol):
         """Readable whenever receive() or event() may have something."""
         ...
 
-    def claim(self, osd_name: str, vendor_id: int) -> None:
-        """Ask for a Playback logical address. Done when a state-change event says so."""
+    def max_log_addrs(self) -> int:
+        """How many logical addresses the adapter can hold at once (1 on the Pi 4's vc4)."""
+        ...
+
+    def claim(self, osd_name: str, vendor_id: int, roles: Sequence[str] = (PLAYBACK,)) -> None:
+        """Ask for one logical address per role (PLAYBACK, AUDIO), dropping any held now.
+        Done when a state-change event says so."""
         ...
 
     def phys_addr(self) -> int: ...
@@ -260,6 +299,7 @@ class KernelAdapter:
         self.path = path
         self._fd: int | None = None
         self._epoll: select.epoll | None = None
+        self._max_log_addrs = 1
 
     def open(self) -> None:
         fd = os.open(self.path, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
@@ -269,6 +309,7 @@ class KernelAdapter:
             needed = CAP_LOG_ADDRS | CAP_TRANSMIT
             if caps.capabilities & needed != needed:
                 raise OSError(errno.ENOTSUP, f"{self.path} can't claim addresses and transmit")
+            self._max_log_addrs = caps.available_log_addrs
             # Exclusive follower: every message not answered by the kernel comes to us, and
             # the kernel stops Feature Aborting them on our behalf.
             fcntl.ioctl(fd, S_MODE, ctypes.c_uint32(MODE_INITIATOR | MODE_EXCL_FOLLOWER))
@@ -293,19 +334,26 @@ class KernelAdapter:
         assert self._epoll is not None
         return self._epoll.fileno()
 
-    def claim(self, osd_name: str, vendor_id: int) -> None:
+    def max_log_addrs(self) -> int:
+        return self._max_log_addrs
+
+    def claim(self, osd_name: str, vendor_id: int, roles: Sequence[str] = (PLAYBACK,)) -> None:
+        if not 1 <= len(roles) <= self._max_log_addrs:
+            raise OSError(errno.EINVAL, f"{self.path} holds {self._max_log_addrs} address(es)")
         # Addresses outlive the fd, so a restart finds the old ones still set; the kernel
         # refuses a new set (EBUSY) until they're cleared.
         fcntl.ioctl(self._dev(), ADAP_S_LOG_ADDRS, _LogAddrs())
         la = _LogAddrs()
         la.cec_version = VERSION_1_4
-        la.num_log_addrs = 1
+        la.num_log_addrs = len(roles)
         la.vendor_id = vendor_id
         la.flags = LOG_ADDRS_FL_ALLOW_UNREG_FALLBACK
         la.osd_name = osd_name.encode("ascii", "replace")[:14]
-        la.primary_device_type[0] = PRIM_DEVTYPE_PLAYBACK
-        la.log_addr_type[0] = LOG_ADDR_TYPE_PLAYBACK
-        la.all_device_types[0] = ALL_DEVTYPE_PLAYBACK
+        for i, role in enumerate(roles):
+            log_addr_type, primary, all_types = ROLE_TYPES[role]
+            la.log_addr_type[i] = log_addr_type
+            la.primary_device_type[i] = primary
+            la.all_device_types[i] = all_types
         fcntl.ioctl(self._dev(), ADAP_S_LOG_ADDRS, la)
 
     def phys_addr(self) -> int:

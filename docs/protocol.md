@@ -24,7 +24,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `system` | `version`, `mode` (`device` or `dev`) |
 | `startup` | `done` (bool), `progress` (0–1), `step`: `tv` (the TV is turning on), `services`, or `null` once done. See below |
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
-| `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting) |
+| `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting); `system_audio`: the TV's speakers are muted and its volume buttons come to couchd (see [TV remote volume](#tv-remote-volume)) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
 | `apps` | see below |
@@ -134,6 +134,26 @@ in front.
 {"type": "quick_menu", "data": {"app": "youtube"}}
 ```
 
+**`volume_changed`**: couchd changed the volume or mute, for the volume panel (#18).
+
+```json
+{"type": "volume_changed", "data": {"output": "bluetooth:AA:BB:CC:DD:EE:FF", "kind": "bluetooth",
+  "name": "JBL Flip 5", "volume": 35, "muted": false, "limit": 100, "source": "tv_remote"}}
+```
+
+`output`, `kind` and `name` are the current output's (as in `audio.outputs`), `volume` and
+`muted` what it is now, and `limit` the `audio.volume_limit` setting. `source` says why:
+
+- `tv_remote`: a volume button on the TV remote (sound on the jack, Bluetooth or USB). Sent
+  for every press and every repeat of a held button, even when the volume is already at 0 or
+  at the limit, so the panel can show that it's at the end. Show the panel for these.
+- `command`: `audio.set_volume`, `audio.set_muted`, `audio.step_volume` or
+  `audio.toggle_muted`, for instance from the quick menu.
+- `limit`: the volume limit was lowered below the volume.
+
+Live state `audio.volume` and `audio.muted` follow as usual. With sound on the TV there are
+no `tv_remote` events: the TV's volume buttons are the TV's, and it shows its own bar.
+
 **`result`**: the reply to a command, matched by `id`.
 
 ### From the UI
@@ -157,10 +177,13 @@ The text `ping` gets `pong`.
 | `remote.hold` | `key`, `seconds` (up to 15). Holds the button down that long, as if on the remote, for trying key repeat with curl |
 | `tv.power_on`, `tv.standby` | `power_on` wakes the TV and switches it to Couch |
 | `tv.set_standby_on_poweroff` | `on` (bool). Saved. When on, the TV goes to standby when the Pi powers off (not on a reboot) |
+| `tv.simulate` | `frame`: CEC bytes in hex, e.g. `"05:44:41"` (TV to Audio System: Volume Up) and `"05:45"` (released). Handled as if the TV had sent it; replies go out on the bus for real. For testing: cec-ctl can't send to the adapter's own address. The dev-mode TV only takes the volume buttons |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
 | `audio.cycle_output` | Next available output, as the Red button does |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |
+| `audio.step_volume` | `by` (-100 to 100). Up or down from where it is, at most the limit. Up unmutes |
+| `audio.toggle_muted` | Mute or unmute |
 | `bluetooth.scan` | `on` (bool). Scanning stops by itself after 2 minutes; send it again to keep going |
 | `bluetooth.pair` | `address`. Pairs and trusts; an audio device is then connected too, so one press does it |
 | `bluetooth.connect`, `.disconnect`, `.forget` | `address` |
@@ -192,6 +215,19 @@ connected is remembered: with `auto_reconnect` on, couchd keeps trying to reach 
 no audio device is connected, at boot and after it drops out of range (backing off to once
 a minute, and not while scanning). `bluetooth.disconnect` and `bluetooth.forget` make it stop.
 
+### TV remote volume
+
+With sound on the jack, Bluetooth or USB and `audio.tv_remote_volume` on, Couch is the TV's
+HDMI-CEC Audio System (logical address 5) as well as its Playback device. While the TV shows
+Couch, System Audio Mode is on: the TV mutes its own speakers and sends its volume buttons to
+couchd, which changes the output's volume in steps of 2 (never above `audio.volume_limit`;
+up unmutes), sends `volume_changed` and tells the TV the new volume (<Report Audio Status>).
+A held button repeats: every press the TV sends is a step, and couchd repeats it every
+150 ms after 500 ms if the TV doesn't. On another TV input, after moving sound back to the
+TV, or with the setting off, the TV has its speakers and buttons back. `tv.system_audio` says
+which it is. The Pi 4 holds one CEC address at a time, so there Couch's address becomes 5
+for as long as sound is away from the TV. See docs/tv-sony-kdl40v55.md for the TV's side.
+
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 
 If a client falls more than 256 messages behind, couchd closes it with code 1013 and it
@@ -210,7 +246,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `display.motion` | `auto`, `reduced`, `full` | `auto` | Reduce motion; *auto* follows the system |
 | `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the idle clock; 0 = never |
 | `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
-| `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack and Bluetooth (not acted on yet) |
+| `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
