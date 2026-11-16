@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/bluetooth.css">
 </head>
 <body>
   <div class="flood" id="flood"></div>
@@ -26,13 +27,15 @@
     import { kitScreen } from "./js/demo/kit.js";
     import { openQuickMenu } from "./js/demo/quickmenu.js";
     import { typeScreen } from "./js/demo/type.js";
+    import { bluetoothScreen } from "./js/screens/bluetooth.js";
 
     const app = createApp();
     app.router
       .register("foundation", foundationScreen)
       .register("console", consoleScreen)
       .register("kit", kitScreen)
-      .register("type", typeScreen);
+      .register("type", typeScreen)
+      .register("bluetooth", bluetoothScreen);
     app.addEventListener("key", (e) => e.detail.key === "blue" && openQuickMenu(app));
     window.couchApp = app; // for poking at it from devtools
     app.start("foundation");

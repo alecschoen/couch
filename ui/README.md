@@ -12,6 +12,7 @@ css/
   fonts.css           Space Grotesk (display) and Inter (text), bundled woff2, SIL OFL
   tokens.css          palettes, alphas, type sizes, spacing, radii, sizes, durations
   base.css            page basics, the colour flood, screens, type classes, layout helpers
+  bluetooth.css       the Bluetooth screen's layout
   components.css      cards, pills, segmented controls, rows, tabs, setting lines,
                       switches, progress, toasts, sheet, key hints
 fonts/                woff2 files and their licences
@@ -25,6 +26,7 @@ js/
   motion.js           animate() that respects Reduce motion; durations come from tokens.css
   settings.js         Evening colors and Reduce motion (in localStorage for now)
   components.js       h(), icons and the component builders
+  screens/            the launcher's screens, one module each (bluetooth.js)
   demo/               the foundation demo: home cards, Components, Type, Console, quick menu
 ```
 
@@ -54,13 +56,13 @@ Listen for `couch:focus` (bubbles) to react to focus arriving. A sheet calls `fo
 app.router.register("bluetooth", (params, app) => ({
   el,                 // the screen's root element
   palette: "bt",      // or a function, for screens whose colour follows focus
-  onKey(key) {},      // optional: return true to take a key before focus does
+  onKey(key, detail) {}, // optional: return true to take a key before focus does
   onShow() {}, onHide() {}, destroy() {},
 }));
 app.router.go("bluetooth");
 ```
 
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen.
+Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press.
 
 ## Motion
 
