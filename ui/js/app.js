@@ -23,6 +23,7 @@ import { useKeyboardAsRemote } from "./keys.js";
 import { Router } from "./router.js";
 import { settings } from "./settings.js";
 import { Theme } from "./theme.js";
+import { announceUpdates } from "./updates.js";
 
 const ARROWS = new Set(["up", "down", "left", "right"]);
 
@@ -59,6 +60,7 @@ export function createApp({ flood = "#flood", screens = "#screens", layer = "#la
     app.dispatchEvent(new CustomEvent("key", { detail: { ...e.detail, taken } }));
   });
   app.couch.addEventListener("toast", (e) => app.toasts.show(e.detail.text, e.detail.level));
+  announceUpdates(app); // "Updated to vX" once the launcher is on the TV (#24)
   app.couch.addEventListener("state", (e) => {
     const mode = e.detail.state.system?.mode;
     if (mode) document.documentElement.dataset.mode = mode;

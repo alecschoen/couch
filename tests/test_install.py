@@ -71,8 +71,53 @@ def test_polkit_rule_covers_only_our_units():
     assert set(re.findall(r'"([\w-]+\.service)"', rule)) == {
         "couch-session.service",
         "couch-kodi.service",
+        "couch-update-now.service",  # Check now (#24): start only
     }
     assert 'subject.user !== "couch"' in rule
+    assert 'unit === "couch-update-now.service" && verb === "start"' in rule
+
+
+def test_updates_are_installed():
+    """#24: couch-update's units, the apt drop-in, and a copy of the source to go back to."""
+    script = INSTALL.read_text()
+    units = re.search(r"^UPDATE_UNITS=\((.*)\)$", script, re.M).group(1).split()
+    assert units == ["couch-update.service", "couch-update-now.service", "couch-update.timer"]
+    for name in [*units, "apt-couch.conf", "update.example.toml"]:
+        assert (ROOT / "system" / name).is_file(), name
+    files = re.search(r"^SOURCE_FILES=\((.*)\)$", script, re.M).group(1).split()
+    for name in files:
+        assert (ROOT / name).exists(), name
+    # unattended-upgrades and the timer only once the night runs are turned on
+    assert "ensure_packages unattended-upgrades" in script
+    assert not re.search(r"^\s+unattended-upgrades\s", script, re.M)
+    assert '/usr/bin/python3 -I "$SRC/couchd/updater.py" enabled' in script
+    assert re.search(r"^install_updates$", script, re.M)
+    assert re.search(r"^    uninstall_updates$", script, re.M)
+    for unit in ("couch-update.service", "couch-update-now.service"):
+        text = (ROOT / "system" / unit).read_text()
+        # the system Python: install.sh rebuilds couchd's venv while it runs
+        assert "ExecStart=/usr/bin/python3 -I /opt/couch/couchd/updater.py" in text
+        assert "StateDirectory=couch-update" in text
+    assert not re.search(
+        r"^\[Install\]", (ROOT / "system" / "couch-update-now.service").read_text(), re.M
+    )
+    apt = (ROOT / "system" / "apt-couch.conf").read_text()
+    assert 'APT::Periodic::Unattended-Upgrade "0";' in apt  # couch-update runs it, when idle
+
+
+def test_updater_uses_the_standard_library_only():
+    import ast
+
+    tree = ast.parse((ROOT / "couchd" / "updater.py").read_text())
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            names.add((node.module or "").split(".")[0])
+    import sys
+
+    assert names - {"__future__"} <= sys.stdlib_module_names, names - sys.stdlib_module_names
 
 
 def test_polkit_rule_allows_only_reboot_and_power_off():
@@ -117,3 +162,52 @@ def test_the_cec_inputs_are_not_pointers():
     assert 'ATTRS{name}=="vc4-hdmi-[0-9]"' in rule
     assert 'ENV{LIBINPUT_IGNORE_DEVICE}="1"' in rule
     assert '"$NO_POINTER_RULE"' in INSTALL.read_text().split("uninstall() {")[1]
+
+
+def _source_version(src: Path) -> str:
+    """Run install.sh's source_version on its own."""
+    fn = re.search(r"^source_version\(\) \{\n.*?^\}\n", INSTALL.read_text(), re.M | re.S).group(0)
+    out = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", fn + 'source_version "$1"', "_", str(src)],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    return out.stdout.strip()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_the_installed_version_is_never_a_leftover(tmp_path):
+    """#24: Settings shows /opt/couch/VERSION; install.sh writes it from what it installs."""
+
+    def git(*args):
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(repo), *args],
+            check=True, capture_output=True,
+        )  # fmt: skip
+
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    git("init", "-q")
+    (repo / "a").write_text("1")
+    git("add", "a")
+    git("commit", "-qm", "one")
+    # a VERSION left in a checkout (say, by hand) doesn't count: git does
+    (repo / "VERSION").write_text("v0.0.4\n")
+    assert re.fullmatch(r"dev-[0-9a-f]{7,}-dirty|dev-[0-9a-f]{7,}", _source_version(repo))
+    (repo / "VERSION").unlink()
+    assert re.fullmatch(r"dev-[0-9a-f]{7,}", _source_version(repo))
+    git("tag", "v0.3.0")
+    assert _source_version(repo) == "v0.3.0"
+    (repo / "a").write_text("2")
+    assert _source_version(repo) == "v0.3.0-dirty"
+    git("commit", "-qam", "two")
+    assert re.fullmatch(r"v0\.3\.0-1-g[0-9a-f]{7,}", _source_version(repo))
+    # a release unpacked by couch-update: its VERSION file
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "VERSION").write_text("v0.4.0\n")
+    assert _source_version(release) == "v0.4.0"
+    # neither: nothing, and install_updates removes VERSION
+    assert _source_version(tmp_path / "bare") == ""
+    script = INSTALL.read_text()
+    assert 'version=$(source_version "$SRC")' in script
+    assert re.search(r'if \[\[ -z \$version \]\]; then\n\s+rm -f "\$f"', script)

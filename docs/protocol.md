@@ -91,6 +91,31 @@ and `bluetooth:<address>`, the same address as in the `bluetooth` section. A sec
 analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); an output with
 `available: false` is listed but can't be picked.
 
+`updates` (#24) is what Settings > Updates shows; couch-update (couchd/updater.py), a root
+service, does the work and couchd reads its status file:
+
+```json
+"updates": {"version": "v0.2.0", "state": "idle", "result": "up-to-date", "message": null,
+            "last_check": 1794780000, "latest": "v0.2.0", "waiting": null,
+            "system": {"at": 1794780300, "security": true, "full": true, "full_at": 1794780300},
+            "announce": {"id": "installed:v0.2.0:1794780100", "kind": "installed",
+                         "version": "v0.2.0", "kept": null}}
+```
+
+- `version`: which Couch is installed (`/opt/couch/VERSION`): a release's tag (`v1.2.0`), or
+  for a git checkout `git describe` (`v1.2.0-3-gabc1234`, `dev-abc1234` before the first tag,
+  `-dirty` with local changes); null for a copy without git.
+- `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
+- `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
+  its health check and the previous install is back), `broken` (going back failed too),
+  `no-access` (not set up: the Pi can't read the releases of the private repo, no token in
+  `/etc/couch/github-token` or one GitHub refuses), `failed` (couldn't check: no network, a
+  broken download), `waiting` (something was
+  playing; `waiting` says what), or null before the first run. `message` says more.
+- `announce`: an update the UI hasn't told anyone about yet. `ui/js/updates.js` shows it as
+  a toast ("Updated to v0.2.0", or "Couldn't update to v0.3.0. Couch stayed on v0.2.0") the
+  next time the launcher is on the TV, then sends `updates.announced`. Null after that.
+
 **`toast`**: a short notice to show on screen.
 
 ```json
@@ -202,6 +227,8 @@ The text `ping` gets `pong`.
 | `settings.reset` | `key`. Back to its default |
 | `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
 | `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
+| `updates.check` | Settings > Updates > Check now: starts `couch-update-now.service`, which installs a newer release if there is one (not while something plays) |
+| `updates.announced` | `id` (from `updates.announce`). The toast was shown; saved |
 | `system.restart`, `system.power_off` | Reboot or shut down the Pi, after a "Restarting" / "Turning off" toast. On a shutdown the TV goes to standby too if `tv.standby_on_poweroff` is on |
 
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of
@@ -252,7 +279,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
-| `updates.overnight` | bool | true | Install updates overnight (#24; not acted on yet) |
+| `updates.overnight` | bool | true | Install updates overnight (#24): read by couch-update's nightly run |
 
 ```json
 {"type": "command", "id": 9, "name": "settings.set", "args": {"key": "display.evening", "value": "sunset"}}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Couch update check (Settings > Updates > Check now)
+Documentation=https://github.com/alecschoen/couch/blob/main/couchd/updater.py
+After=network-online.target couchd.service
+# couchd (the couch user) may start this one; system/couch.rules.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /opt/couch/couchd/updater.py now
+StateDirectory=couch-update
+StateDirectoryMode=0755
