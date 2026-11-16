@@ -131,6 +131,17 @@ async def test_home_key_goes_home(ctx, apps, browser):
     assert browser.active == browser.tab_for(LAUNCHER).id
 
 
+async def test_pause_key_pauses_the_app_in_front(ctx, apps, browser):
+    ctx.bus.publish("key", {"key": "pause"})  # on the launcher: nothing to pause
+    await asyncio.sleep(0.05)
+    await run(ctx, "apps.launch", app="youtube")
+    ctx.bus.publish("key", {"key": "pause"})
+    youtube = browser.tab_for(YOUTUBE)
+    await until(lambda: youtube.paused == 1)
+    assert state(ctx)["foreground"] == "youtube"  # it stays on screen
+    assert browser.tab_for(LAUNCHER).paused == 0
+
+
 async def test_a_crashed_tab_goes_home_with_an_error(ctx, apps, browser):
     await run(ctx, "apps.launch", app="youtube")
     with ctx.bus.subscribe() as sub:

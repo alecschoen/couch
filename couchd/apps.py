@@ -7,6 +7,7 @@ browser session stops, Kodi starts, and when Kodi exits the browser session come
 
 Rules:
 - `home` always ends on the launcher, from anywhere, and the remote's Home key does it too.
+  The Pause key (also sent when the TV goes to standby) pauses the Chromium app in front.
 - An app going to the background has its media paused. Its tab stays open, so bringing it
   back to the front is instant.
 - If an app dies (a crashed tab, Kodi failing, the browser going away under it), we go back
@@ -463,21 +464,30 @@ class AppService(Service):
                 return app
         return None
 
-    # --- the Home key --------------------------------------------------------------------
+    # --- keys --------------------------------------------------------------------------
 
     async def _watch_keys(self) -> None:
+        """Home goes home. Pause pauses the Chromium app in front (the TV sends it when it
+        goes to standby). Full key routing into apps is #8; Kodi gets its keys there."""
         with self.ctx.bus.subscribe() as sub:
             async for message in sub:
                 data = message.get("data")
-                if (
-                    message.get("type") == "key"
-                    and isinstance(data, dict)
-                    and data.get("key") == "home"
-                ):
-                    try:
+                if message.get("type") != "key" or not isinstance(data, dict):
+                    continue
+                try:
+                    if data.get("key") == "home":
                         await self.home()
-                    except (CommandError, BackendError) as e:
-                        log.warning("Home failed", extra={"error": str(e)})
+                    elif data.get("key") == "pause":
+                        await self.pause()
+                except (CommandError, BackendError) as e:
+                    log.warning("key failed", extra={"key": data.get("key"), "error": str(e)})
+
+    async def pause(self) -> None:
+        """Pause media in the Chromium app in front, if one is."""
+        async with self._lock:
+            app = self.apps[self._foreground]
+            if app.kind == "chromium" and app.id in self._pages:
+                await self.chromium.evaluate(self._pages[app.id], PAUSE_MEDIA)
 
     # --- state ---------------------------------------------------------------------------
 
