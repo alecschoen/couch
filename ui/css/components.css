@@ -436,6 +436,10 @@
   gap: 21px;
 }
 
+.toast__em {
+  font-weight: 600;
+}
+
 .toast.is-error {
   background-color: var(--key-red);
   color: #ffffff;
