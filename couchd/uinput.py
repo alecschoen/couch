@@ -69,7 +69,8 @@ class UinputKeyboard(KeyboardBackend):
             )
         except (OSError, evdev.UInputError) as e:
             raise BackendError(f"can't create the virtual keyboard on {self.path}: {e}") from e
-        log.info("virtual keyboard ready", extra={"device": self._device.device.path})
+        node = getattr(getattr(self._device, "device", None), "path", None)
+        log.info("virtual keyboard ready", extra={"device": node})
 
     async def stop(self) -> None:
         if self._device is not None:
