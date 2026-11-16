@@ -1,7 +1,9 @@
 #!/bin/sh
 # Kodi for Plex, on the whole screen (DRM/GBM, no compositor). couch-kodi.service runs this as
 # the couch user, and only when couchd hands it the screen; see couchd/display.py.
-# The profile (settings, the script.plexmod addon, autostart into Plex) is #22's job and
-# lives in /var/lib/couch/kodi, away from the couch user's home.
+# The profile in /var/lib/couch/kodi (install.sh writes it with couchd/kodi_profile.py) opens
+# straight into Plex and quits Kodi when Plex closes.
+# Sound goes through PulseAudio, which is PipeWire's pipewire-pulse here, so Kodi plays to
+# whatever output couchd picked (#10).
 export KODI_DATA=/var/lib/couch/kodi
-exec /usr/bin/kodi --standalone --windowing=gbm
+exec /usr/bin/kodi --standalone --windowing=gbm --audio-backend=pulseaudio
