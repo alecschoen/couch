@@ -13,9 +13,10 @@
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the three units in
 # /etc/systemd/system, one polkit rule, one WirePlumber drop-in, one udev rule and one
 # modules-load.d file (for /dev/uinput), the couch user, and apt packages. It also turns on
-# PipeWire's user units for every user (they come enabled; this makes sure). For the silent
-# boot it edits cmdline.txt and config.txt through couch-bootfiles, which keeps the originals
-# and undoes its edits on --uninstall. It also puts the splash in the initramfs
+# PipeWire's user units for every user (they come enabled; this makes sure). Plex's Kodi
+# addons are downloaded at the versions and sha256s pinned in system/kodi/addons.toml. For the
+# silent boot it edits cmdline.txt and config.txt through couch-bootfiles, which keeps the
+# originals and undoes its edits on --uninstall. It also puts the splash in the initramfs
 # (/lib/firmware/couch-splash.tga and one initramfs hook), adds couch-fbsplash with its unit
 # and udev rule, and turns cloud-init off once the first boot is done
 # (/etc/cloud/cloud-init.disabled).
@@ -259,7 +260,7 @@ install_couch() {
         note "wrote $ETC/config.toml"
     fi
 
-    # Plex via Kodi (#22) adds its Kodi profile and the script.plexmod addon here.
+    install_kodi_profile
 
     install_audio
     install_uinput && code=1
@@ -294,6 +295,25 @@ install_couch() {
         systemctl restart couch-session.service
         note "restarted the TV session"
     fi
+}
+
+# Plex via Kodi (#22): PM4K and its dependencies at pinned versions, Couch's service addon
+# and skin, the splash, and Kodi's settings. couchd/kodi_profile.py does the work, as couch,
+# who owns the profile. Kodi rewrites its settings when it exits, so if Plex is on screen and
+# the profile needs changing, Kodi is stopped first (the launcher comes back).
+install_kodi_profile() {
+    local profile=(runuser -u "$COUCH_USER" -- "$PREFIX/.venv/bin/python" -m couchd.kodi_profile
+        --home "$STATE/kodi" --src "$PREFIX/kodi")
+    ensure_tree "$SRC/system/kodi" "$PREFIX/kodi" || true
+    if systemctl -q is-active couch-kodi.service && [[ -n $("${profile[@]}" --dry-run) ]]; then
+        systemctl stop couch-kodi.service
+        note "stopped Plex to update Kodi's profile"
+    fi
+    local out line
+    out=$("${profile[@]}")
+    while IFS= read -r line; do
+        [[ -z $line ]] || note "kodi: $line"
+    done <<<"$out"
 }
 
 # Sound (#10). PipeWire runs in the couch user's session, which cage's logind session on
@@ -428,7 +448,7 @@ case ${1:-} in
 --purge) uninstall 1; exit 0 ;;
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system

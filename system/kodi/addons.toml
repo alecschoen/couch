@@ -1,0 +1,57 @@
+# Kodi addons for Plex (#22), pinned by version and sha256. install.sh installs exactly these
+# and nothing ever updates them: no repository addon is installed, Kodi's own addon updates
+# are off, and so is PM4K's update check. To move to a new version, change it here.
+#
+# PM4K (script.plexmod) is pannal's release 1.3.19 (github.com/pannal/plex-for-kodi, tag
+# 1.3.19, commit 0c589685). That release has no zip of its own; the packaged zip is the one in
+# pannal's "Don't Panic" Kodi repository (pm4k.eu hands out repository.dontpanic, which points
+# at GitHub), fetched here at a fixed commit. Its files are the tag's, minus git metadata, plus
+# five CA certificates for plexnet. Its dependencies come from Kodi's official Omega repository.
+
+[[addon]]
+id = "script.plexmod"
+version = "1.3.19"
+url = "https://raw.githubusercontent.com/pannal/dontpanickodi/eba134ac09bfe4916b3511d1e377bf6bb03a947e/omega/zips/script.plexmod/script.plexmod-1.3.19.zip"
+sha256 = "885b48b724a525a1412df09db8c69f4ec0eebb6da06d6e0509df097b3ac19816"
+
+[[addon]]
+id = "script.module.requests"
+version = "2.31.0"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.requests/script.module.requests-2.31.0.zip"
+sha256 = "a5704f0fd7afb4154e1beea9b5f05a002bcd75fa581a1e5fd15ece39bf2bd38a"
+
+[[addon]]
+id = "script.module.certifi"
+version = "2023.5.7"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.certifi/script.module.certifi-2023.5.7.zip"
+sha256 = "c16d4cd2efe6e57dbb5e8d71a9beb3af213b1e3d717e8b0b24f0cbdc4c645070"
+
+[[addon]]
+id = "script.module.chardet"
+version = "5.1.0"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.chardet/script.module.chardet-5.1.0.zip"
+sha256 = "d5010fc55a9523d86a306ae9e6a8dea0e3248fe079b9ed37280fe86110cd766a"
+
+[[addon]]
+id = "script.module.idna"
+version = "3.10.0"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.idna/script.module.idna-3.10.0.zip"
+sha256 = "c4ff34dbfab2736e9214a374d331bd6f558d8b3fea8eb7902e210749509242b3"
+
+[[addon]]
+id = "script.module.urllib3"
+version = "2.2.3"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.urllib3/script.module.urllib3-2.2.3.zip"
+sha256 = "740b2d63bb50eee9fb35f01c567ec8d3588c5bbd548e2b8d280932be30d82f53"
+
+[[addon]]
+id = "script.module.six"
+version = "1.16.0+matrix.1"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.six/script.module.six-1.16.0+matrix.1.zip"
+sha256 = "4197f7773f75ab9f16b3c920195acbb8b8b151b4b3c8c3e14fc4876e764e3860"
+
+[[addon]]
+id = "script.module.kodi-six"
+version = "0.1.3.1"
+url = "https://mirrors.kodi.tv/addons/omega/script.module.kodi-six/script.module.kodi-six-0.1.3.1.zip"
+sha256 = "236a7a912641805e146b605c8c29ef413d748ef3f4ddf8aa8c414717d9831383"
