@@ -54,6 +54,7 @@ FETCH_TIMEOUT = 120
 
 # Kodi 21's addon database schema (xbmc/addons/AddonDatabase.cpp, CreateTables and
 # CreateAnalytics; version 33). Only used when Kodi hasn't made the database yet.
+REASON_NONE, REASON_USER = 0, 1  # Kodi's AddonDisabledReason
 ADDONS_DB_VERSION = 33
 ADDONS_DB_SCHEMA = """
 CREATE TABLE version (idVersion integer, iCompressCount integer);
@@ -90,12 +91,18 @@ GUI_SETTINGS: dict[str, tuple[str, Callable[[str | None], bool]]] = {
     "audiooutput.audiodevice": ("PULSE:Default", lambda v: (v or "").startswith("PULSE:Default")),
     "general.addonupdates": ("2", _always("2")),  # never
     "general.addonnotifications": ("false", _always("false")),
+    # Nothing to announce on the network. WS-Discovery alone takes ~2 s of Kodi's quit.
+    "services.wsdiscovery": ("false", _always("false")),
+    "services.zeroconf": ("false", _always("false")),
 }
 
 # PM4K's settings (it keeps them in Kodi's addon settings, most of them undeclared).
 PLEX_SETTINGS = {
     "auto_update_check": "false",
     "kiosk.mode": "false",
+    # On exit PM4K runs its plugin endpoint so Kodi lists it as recently used, which opens
+    # Kodi's Programs window just before Couch quits Kodi.
+    "ensure_lastused": "false",
 }
 
 
@@ -278,29 +285,40 @@ class Profile:
                 )
             dbs = [path]
         path = dbs[-1]
-        want = {i: 1 for i in enable} | {i: 0 for i in disable}
+        # (enabled, disabledReason). On Linux, Kodi asks at every start whether to enable each
+        # addon that's disabled with reason NONE (CApplication::ConfigureAndEnableAddons), so
+        # what we disable, and anything Kodi left disabled that way, is disabled as USER.
+        want = {i: (1, REASON_NONE) for i in enable} | {i: (0, REASON_USER) for i in disable}
         with contextlib.closing(sqlite3.connect(path)) as db, db:
-            have = dict(db.execute("SELECT addonID, enabled FROM installed"))
-            todo = {i: v for i, v in want.items() if i not in have or int(have[i]) != v}
+            have = {
+                i: (int(e), int(r))
+                for i, e, r in db.execute("SELECT addonID, enabled, disabledReason FROM installed")
+            }
+            for i, state in have.items():
+                if i not in want and state == (0, REASON_NONE):
+                    want[i] = (0, REASON_USER)
+            todo = {i: v for i, v in want.items() if have.get(i) != v}
             if not todo:
                 return
-            on = [i for i, v in todo.items() if v]
-            off = [i for i, v in todo.items() if not v]
+            on = [i for i, (e, _) in todo.items() if e]
+            off = [i for i, (e, _) in todo.items() if not e]
             parts = [f"enabled {', '.join(on)}"] if on else []
             parts += [f"disabled {', '.join(off)}"] if off else []
             what = "; ".join(parts)
             if not self.change(f"addons database: {what}"):
                 return
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for i, v in todo.items():
+            for i, (e, r) in todo.items():
                 if i in have:
                     db.execute(
-                        "UPDATE installed SET enabled=?, disabledReason=0 WHERE addonID=?", (v, i)
+                        "UPDATE installed SET enabled=?, disabledReason=? WHERE addonID=?",
+                        (e, r, i),
                     )
                 else:
                     db.execute(
-                        "INSERT INTO installed (addonID, enabled, installDate) VALUES (?, ?, ?)",
-                        (i, v, now),
+                        "INSERT INTO installed (addonID, enabled, installDate, disabledReason)"
+                        " VALUES (?, ?, ?, ?)",
+                        (i, e, now, r),
                     )
 
     # --- settings -------------------------------------------------------------------------

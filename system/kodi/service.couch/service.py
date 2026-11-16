@@ -15,7 +15,7 @@ How PM4K behaves, from its source (1.3.19):
 
 So: quit Kodi once `started` has been gone for a moment, or once Kodi's Home has been in
 front with PM4K inactive for a moment. Kodi's Home is the Opening screen (skin.couch), and
-`couch.closing` tells it to drop "Opening" while Kodi quits.
+`couch.closing` tells it to drop "Opening" as soon as PM4K looks to be leaving.
 
 The decisions live in Watch, which knows nothing about Kodi, so tests can drive it.
 """
@@ -42,6 +42,11 @@ class Watch:
         self.seen_active = False
         self.gone_since = None
         self.home_since = None
+
+    @property
+    def leaving(self):
+        """Plex looks to be on its way out (or restarting): Home stops saying "Opening"."""
+        return self.gone_since is not None
 
     def tick(self):
         """None while Plex is up; otherwise why Kodi should quit."""
@@ -97,8 +102,11 @@ class Kodi:
     def home_in_front(self):
         return self.xbmc.getCondVisibility("Window.IsActive(home) + !System.HasActiveModalDialog")
 
+    def closing(self, on):
+        self.home.setProperty("couch.closing", "1" if on else "")
+
     def quit(self):
-        self.home.setProperty("couch.closing", "1")
+        self.closing(True)
         self.xbmc.executebuiltin("Quit")
 
 
@@ -107,8 +115,12 @@ def main():
     kodi.log("opening Plex")
     kodi.start_plex()
     watch = Watch(kodi)
+    closing = False
     while not kodi.monitor.waitForAbort(TICK):
         reason = watch.tick()
+        if watch.leaving != closing:
+            closing = watch.leaving
+            kodi.closing(closing)
         if reason:
             kodi.log(f"{reason}; quitting Kodi so Couch comes back")
             kodi.quit()

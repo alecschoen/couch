@@ -82,6 +82,12 @@ def installed(home):
         return dict(c.execute("SELECT addonID, enabled FROM installed"))
 
 
+def disabled_reasons(home):
+    (db,) = (home / "userdata" / "Database").glob("Addons*.db")
+    with sqlite3.connect(db) as c:
+        return dict(c.execute("SELECT addonID, disabledReason FROM installed"))
+
+
 def settings(path):
     return {s.get("id"): s.text for s in ET.parse(path).getroot().iter("setting")}
 
@@ -100,6 +106,9 @@ def test_fresh_profile_then_nothing_to_do(world):
         "skin.couch": 1,
         "repository.xbmc.org": 0,
     }
+    # Disabled as USER: Kodi asks at every start about addons disabled with reason NONE.
+    assert disabled_reasons(home)["repository.xbmc.org"] == kodi_profile.REASON_USER
+    assert disabled_reasons(home)["skin.couch"] == kodi_profile.REASON_NONE
     gui = settings(home / "userdata" / "guisettings.xml")
     assert gui["lookandfeel.skin"] == "skin.couch"
     assert gui["videoplayer.adjustrefreshrate"] == "2"
@@ -108,6 +117,8 @@ def test_fresh_profile_then_nothing_to_do(world):
     assert gui["general.addonupdates"] == "2"
     plex = settings(home / "userdata" / "addon_data" / "script.plexmod" / "settings.xml")
     assert plex["auto_update_check"] == "false"
+    assert plex["ensure_lastused"] == "false"  # else Kodi's Programs window shows on exit
+    assert gui["services.wsdiscovery"] == "false"
     cec = ET.parse(home / "userdata" / "peripheral_data" / "cec_CEC_Adapter.xml").getroot()
     assert [(s.get("id"), s.get("value")) for s in cec] == [("enabled", "0")]
 
@@ -148,12 +159,40 @@ def test_existing_database_rows_are_flipped_not_duplicated(world):
             "INSERT INTO installed (addonID, enabled, installDate, origin) "
             "VALUES ('repository.xbmc.org', 1, 'x', 'b6a50484')"
         )
+        # Found by Kodi and left disabled: Kodi would ask about it at every start.
+        c.execute(
+            "INSERT INTO installed (addonID, enabled, installDate) "
+            "VALUES ('visualization.x', 0, 'x')"
+        )
+        # Disabled by Kodi for a reason of its own: left alone.
+        c.execute(
+            "INSERT INTO installed (addonID, enabled, installDate, disabledReason) "
+            "VALUES ('visualization.y', 0, 'x', 2)"
+        )
     world["make"]().apply()
     assert installed(world["home"])["skin.couch"] == 1
     assert installed(world["home"])["repository.xbmc.org"] == 0
+    reasons = disabled_reasons(world["home"])
+    assert reasons["skin.couch"] == kodi_profile.REASON_NONE
+    assert reasons["repository.xbmc.org"] == kodi_profile.REASON_USER
+    assert reasons["visualization.x"] == kodi_profile.REASON_USER
+    assert reasons["visualization.y"] == 2
+    assert installed(world["home"])["visualization.x"] == 0
+    assert world["make"]().apply() == []
     with sqlite3.connect(db_dir / "Addons33.db") as c:
         rows = c.execute("SELECT COUNT(*) FROM installed WHERE addonID='skin.couch'")
         assert rows.fetchone() == (1,)
+
+
+def test_repository_disabled_with_reason_none_is_fixed(world):
+    """The first version of this disabled it with reason NONE, and Kodi asked about it."""
+    world["make"]().apply()
+    db = world["home"] / "userdata" / "Database" / "Addons33.db"
+    with sqlite3.connect(db) as c:
+        c.execute("UPDATE installed SET disabledReason=0 WHERE addonID='repository.xbmc.org'")
+    changes = world["make"]().apply()
+    assert changes == ["addons database: disabled repository.xbmc.org"]
+    assert disabled_reasons(world["home"])["repository.xbmc.org"] == kodi_profile.REASON_USER
 
 
 def test_settings_merge_keeps_kodis_own(world):
@@ -347,6 +386,7 @@ def svc():
         now[0] = t
         return watch.tick()
 
+    at.watch = watch
     return service, kodi, at
 
 
@@ -357,9 +397,11 @@ def test_plex_exit_quits_kodi(svc):
     assert at(5) is None  # rendering templates, no window yet: not "minimised"
     kodi.active, kodi.home = True, False
     assert at(8) is None
+    assert not at.watch.leaving
     kodi.started = kodi.active = False  # Exit
     kodi.home = True
     assert at(100) is None
+    assert at.watch.leaving  # Home drops "Opening" straight away
     assert at(101) is None
     assert at(102) == "Plex exited"
 
@@ -371,8 +413,10 @@ def test_plex_restarting_itself_is_not_an_exit(svc):
     at(1)
     kodi.started = False  # signing out restarts PM4K
     assert at(2) is None
+    assert at.watch.leaving
     kodi.started = True
     assert at(3) is None
+    assert not at.watch.leaving
     assert at(10) is None
 
 
