@@ -85,9 +85,9 @@ export function systemScreens(app) {
   // The error screen says what went wrong, so a failed launch needn't say it again in a toast.
   // A command's reply can beat the state patch that sets the error, hence the short wait.
   const show = toasts.show.bind(toasts);
-  toasts.show = (text, level) => {
-    if (level !== "error") return show(text, level);
-    setTimeout(() => couch.state.apps?.error || show(text, level), 250);
+  toasts.show = (text, level, ...rest) => {
+    if (level !== "error") return show(text, level, ...rest);
+    setTimeout(() => couch.state.apps?.error || show(text, level, ...rest), 250);
     return null;
   };
 

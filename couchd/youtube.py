@@ -7,12 +7,15 @@ that tab alone over DevTools, and `youtube.js` runs in it before YouTube's own s
 - it turns down VP9 and AV1, so YouTube streams H.264, which the Pi 4 decodes in hardware;
 - Back from YouTube's top level (it calls `window.close()`) brings couchd back home.
 
+The tab also gets couchd's overlays (quick menu, toasts, volume: couchd/overlay_page.py).
+
 Sign-in is YouTube's own "Sign in with your phone" (yt.be/activate). The cookies live in the
 browser profile, /var/lib/couch/chromium, so it's once per install.
 """
 
 from pathlib import Path
 
+from couchd import overlay_page
 from couchd.chromium import PageSetup
 
 URL = "https://www.youtube.com/tv"
@@ -24,6 +27,6 @@ USER_AGENT = (
     "85.0.4183.93/6.5 TV Safari/537.36"
 )
 
-SCRIPT = Path(__file__).with_name("youtube.js").read_text(encoding="utf-8")
+SCRIPT = Path(__file__).with_name("youtube.js").read_text(encoding="utf-8") + overlay_page.SCRIPT
 
 SETUP = PageSetup(user_agent=USER_AGENT, script=SCRIPT)

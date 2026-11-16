@@ -15,6 +15,13 @@ from three layers so the bar can move, and drops the bar while Kodi quits.
 - skin/media/plex.png    the flood and the word
 - skin/media/opening.png the bar's track and "Opening", on transparent
 - skin/media/bar.png     the bar itself
+
+And the white shapes skin.couch tints for couchd's overlays (Custom_1190_CouchOverlay.xml):
+
+- skin/media/couch-white.png  a plain square, for the sheet
+- skin/media/couch-round.png  a card: 30 px corners, drawn with border="30"
+- skin/media/couch-ring.png   a card's 3 px outline, the same corners
+- skin/media/couch-pill.png   the volume bar: 6 px corners, border="6"
 """
 
 import io
@@ -140,9 +147,27 @@ def main():
     png(svg(opening), media / "opening.png")
     bw = BAR_W * BAR_PART
     png(svg(f'<g fill="{INK}">{bar(0, 0, bw)}</g>', fmt(bw), fmt(BAR_H)), media / "bar.png")
+    shapes(media)
     # Where Home.xml puts the bar, and how far it slides.
     print(f"bar: left {fmt(MARGIN)} top {fmt(p['bar_y'])} size {fmt(bw)}x{fmt(BAR_H)}")
     print(f"slide: {fmt(BAR_W - bw)} px")
+
+
+def shapes(media):
+    """White nine-slice shapes; the skin gives them colour with colordiffuse."""
+    card, r, line = 64, 30, 3  # --radius-card and --border, x1.5 already
+    png(svg('<rect width="8" height="8" fill="#fff"/>', 8, 8), media / "couch-white.png")
+    png(
+        svg(f'<rect width="{card}" height="{card}" rx="{r}" fill="#fff"/>', card, card),
+        media / "couch-round.png",
+    )
+    half = line / 2
+    ring = (
+        f'<rect x="{half}" y="{half}" width="{card - line}" height="{card - line}" '
+        f'rx="{r - half}" fill="none" stroke="#fff" stroke-width="{line}"/>'
+    )
+    png(svg(ring, card, card), media / "couch-ring.png")
+    png(svg('<rect width="24" height="12" rx="6" fill="#fff"/>', 24, 12), media / "couch-pill.png")
 
 
 if __name__ == "__main__":

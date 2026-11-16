@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/overlay.css">
   <link rel="stylesheet" href="css/home.css">
   <link rel="stylesheet" href="css/bluetooth.css">
   <link rel="stylesheet" href="css/settings.css">
@@ -29,7 +30,6 @@
     import { consoleScreen } from "./js/demo/console.js";
     import { foundationScreen } from "./js/demo/foundation.js";
     import { kitScreen } from "./js/demo/kit.js";
-    import { openQuickMenu } from "./js/demo/quickmenu.js";
     import { typeScreen } from "./js/demo/type.js";
     import { reportFirstFrame } from "./js/firstframe.js";
     import { bluetoothScreen } from "./js/screens/bluetooth.js";
@@ -46,7 +46,6 @@
       .register("console", consoleScreen)
       .register("kit", kitScreen)
       .register("type", typeScreen);
-    app.addEventListener("key", (e) => e.detail.key === "blue" && !e.detail.taken && openQuickMenu(app));
     window.couchApp = app; // for poking at it from devtools
     systemScreens(app); // Startup, Opening and errors: couchd decides. First, so Startup is frame one.
     app.start("home");

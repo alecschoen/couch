@@ -15,14 +15,13 @@ from typing import Any
 from aiohttp import WSCloseCode, WSMsgType, web
 
 from couchd import __version__
-from couchd.bus import EventBus
+from couchd.bus import TOAST_ICONS, TOAST_LEVELS, EventBus
 from couchd.commands import CommandError, Commands
 from couchd.state import LiveState
 
 log = logging.getLogger(__name__)
 
 LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
-TOAST_LEVELS = ("info", "warning", "error")
 
 BUS = web.AppKey("bus", EventBus)
 STATE = web.AppKey("state", LiveState)
@@ -79,7 +78,10 @@ async def post_toast(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="'text' must be a non-empty string")
     if level not in TOAST_LEVELS:
         raise web.HTTPBadRequest(text=f"'level' must be one of {', '.join(TOAST_LEVELS)}")
-    request.app[BUS].toast(text.strip(), level)
+    icon = body.get("icon")
+    if icon is not None and icon not in TOAST_ICONS:
+        raise web.HTTPBadRequest(text=f"'icon' must be one of {', '.join(TOAST_ICONS)}")
+    request.app[BUS].toast(text.strip(), level, icon=icon)
     return web.Response(status=204)
 
 
