@@ -24,10 +24,15 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `system` | `version`, `mode` (`device` or `dev`) |
 | `services` | service name → `stopped`, `starting`, `running`, `failed` or `stopping` |
 | `tv` | `power`: `on`, `standby` or `unknown` |
-| `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id), `volume` (0–100), `muted` |
+| `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first) |
 
 A section for the current app arrives with #13.
+
+Output ids are stable across reboots: `tv` (HDMI), `jack` (the 3.5 mm jack), `usb:<card>`,
+and `bluetooth:<address>`, the same address as in the `bluetooth` section. A second HDMI or
+analog output is `tv:2` or `jack:2`. Outputs come and go (a speaker connects); an output with
+`available: false` is listed but can't be picked.
 
 **`toast`**: a short notice to show on screen.
 
@@ -45,7 +50,9 @@ A section for the current app arrives with #13.
 
 Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `back` `home`
 `play` `pause` `play_pause` `stop` `rewind` `fast_forward` `red` `green` `yellow` `blue` and
-`0`–`9`. Screens react only to these messages, never to raw keyboard events. A keyboard
+`0`–`9`. Screens react only to these messages, never to raw keyboard events.
+couchd acts on `red` itself, wherever you are, YouTube included: it moves the sound to the
+next available output. Screens shouldn't give `red` another meaning. A keyboard
 (in dev mode, or plugged into the Pi) is turned into `remote.press` commands by
 `ui/js/keys.js`, so it takes the same path through couchd as the TV remote.
 
@@ -71,10 +78,15 @@ The text `ping` gets `pong`.
 | `remote.press` | `key` |
 | `tv.power_on`, `tv.standby` | |
 | `audio.set_output` | `output` (an output id). Saved, and restored at boot if that output is around |
+| `audio.cycle_output` | Next available output, as the Red button does |
 | `audio.set_volume` | `volume` (0–100) |
 | `audio.set_muted` | `muted` (bool) |
 | `bluetooth.scan` | `on` (bool) |
 | `bluetooth.pair`, `.connect`, `.disconnect`, `.forget` | `address` |
+
+couchd keeps sound on the output picked last. When that output goes away (a speaker out of
+range) sound moves to the TV, and when it comes back the sound follows. Volume is remembered
+per output. Every change of output, whatever caused it, shows a "Sound now on X" toast.
 
 A command exists only while its service runs. `GET /api/commands` lists the current ones.
 

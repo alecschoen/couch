@@ -10,7 +10,8 @@
 # /opt/couch/src first; set COUCH_REPO to clone from somewhere else.
 #
 # It writes only to /opt/couch, /etc/couch, /var/lib/couch, the two units in
-# /etc/systemd/system, the couch user, and apt packages.
+# /etc/systemd/system, one WirePlumber drop-in, the couch user, and apt packages. It also
+# turns on PipeWire's user units for every user (they come enabled; this makes sure).
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -19,13 +20,16 @@ ETC=/etc/couch
 STATE=/var/lib/couch
 UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
+WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
+AUDIO_USER_UNITS=(pipewire.socket pipewire-pulse.socket wireplumber.service)
 COUCH_USER=couch
 COUCH_GROUPS=(video render input audio bluetooth)
 REPO=${COUCH_REPO:-https://github.com/alecschoen/couch.git}
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
-    pipewire wireplumber pipewire-pulse  # audio
+    pipewire wireplumber pipewire-pulse  # audio (#10)
+    pulseaudio-utils                     # pactl: how couchd talks to PipeWire
     bluez
     python3-venv python3-aiohttp python3-hatchling python3-editables
     fonts-noto-core
@@ -160,6 +164,8 @@ install_couch() {
 
     # Plex via Kodi (#22) adds its Kodi profile and the script.plexmod addon here.
 
+    install_audio
+
     local u
     for u in "${UNITS[@]}"; do
         if ensure_file "$SRC/system/$u" "$UNIT_DIR/$u" 644; then
@@ -186,6 +192,23 @@ install_couch() {
     fi
 }
 
+# Sound (#10). PipeWire runs in the couch user's session, which cage's logind session on
+# tty1 starts. couchd, a system service running as couch, reaches it at
+# /run/user/<uid>/pulse/native, so nothing else needs opening up.
+install_audio() {
+    local u
+    for u in "${AUDIO_USER_UNITS[@]}"; do
+        if ! systemctl --global -q is-enabled "$u" 2>/dev/null; then
+            systemctl --global -q enable "$u"
+            note "enabled $u for user sessions"
+        fi
+    done
+    if ensure_file "$SRC/system/wireplumber-couch.conf" "$WIREPLUMBER_CONF" 644; then
+        # Picked up at WirePlumber's next start; restart it now if couch's session is up.
+        systemctl --user -M "$COUCH_USER@" -q restart wireplumber.service 2>/dev/null || true
+    fi
+}
+
 # --- uninstall ----------------------------------------------------------------------------
 
 uninstall() {
@@ -195,6 +218,7 @@ uninstall() {
         rm -f "$UNIT_DIR/$u"
     done
     systemctl daemon-reload
+    rm -f "$WIREPLUMBER_CONF"
     rm -rf "$PREFIX"
     if ((purge)); then
         rm -rf "$ETC" "$STATE"
