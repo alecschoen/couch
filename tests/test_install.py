@@ -53,6 +53,8 @@ def test_kodi_and_the_session_take_turns():
     assert "OnFailure=couch-session.service" in kodi
     assert not re.search(r"^\[Install\]", kodi, re.M)  # only couchd starts it
     assert "ExecStart=/opt/couch/bin/couch-kodi" in kodi
+    # stopping Kodi ends its shell wrapper with 143; that's a clean stop, not a crash
+    assert re.search(r"^SuccessExitStatus=.*\b143\b", kodi, re.M)
 
 
 def test_polkit_rule_covers_only_our_units():

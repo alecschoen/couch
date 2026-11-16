@@ -30,5 +30,7 @@ ExecStart=/opt/couch/bin/couch-kodi
 # couchd decides what runs next; never restart Kodi on our own.
 Restart=no
 TimeoutStopSec=10
+# /usr/bin/kodi is a shell script, so a stop ends in exit 143 rather than a signal.
+SuccessExitStatus=143
 
 # No [Install]: couchd starts this unit, nothing else does.
