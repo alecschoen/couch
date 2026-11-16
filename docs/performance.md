@@ -180,10 +180,10 @@ black left on screen is the 0.77 s after cage's modeset.
 
 ### Boot cuts
 
-Both are left for follow-ups, now that the numbers are in.
+One is a follow-up; the other was considered and kept.
 
-- **NetworkManager (2.92 s before network.target).** `couchd.service` has `After=network.target`, and `couch-session.service` waits for couchd, so the network is on the launcher's critical path. couchd doesn't need the network to start: it checks connectivity itself, and YouTube and Plex wait for it later. Dropping `network.target` from `After=` takes NetworkManager off that path. The cost would be that couchd can start before the Wi-Fi is up, which it already handles. Measured: network.target at 10.08 s, couchd ready at 11.61 s; the critical chain to `couch-session.service` is couchd → network.target → NetworkManager → dbus.
-- **Boot fsck (~0.8 s).** Keep root's fsck: ext4 with `fsck.repair=yes` is what recovers it after a power cut (#25). The ~0.8 s is probably `systemd-fsck@` for the vfat `/boot/firmware`. Setting its fstab pass to 0 would skip it. That's a change to #25's `couch-fstab` owner record, not a new edit of fstab. Measured: no `systemd-fsck-root` unit ran (the initramfs checks root); `systemd-fsck@…-01` (`/boot/firmware`) took 0.78 s, 5.43 → 6.21 s.
+- **NetworkManager (2.92 s before network.target): #65.** `couchd.service` has `After=network.target`, and `couch-session.service` waits for couchd, so the network is on the launcher's critical path. couchd doesn't need the network to start: it checks connectivity itself, and YouTube and Plex wait for it later. Dropping `network.target` from `After=` takes NetworkManager off that path. The cost would be that couchd can start before the Wi-Fi is up, which it already handles. Measured: network.target at 10.08 s, couchd ready at 11.61 s; the critical chain to `couch-session.service` is couchd → network.target → NetworkManager → dbus.
+- **`/boot/firmware` fsck (0.78 s): considered, kept.** Measured: no `systemd-fsck-root` unit ran (the initramfs checks root); `systemd-fsck@…-01` (`/boot/firmware`) took 0.78 s, 5.43 → 6.21 s. Setting the vfat partition's fstab pass to 0 would skip it. It stays at pass 2: #25's power-cut testing relied on this fsck, with `fsck.repair=yes`, to clear the FAT dirty bit after every one of its 5 hard resets. 0.78 s per boot is a fair price for that.
 
 ## Plex
 
@@ -223,16 +223,17 @@ No 30-minute run, since YouTube didn't play.
 ## Needs the user (morning)
 
 - YouTube TV shows its "Who's watching?" picker after a deep link to a video. Pick the profile on the TV, then run `scripts/perf/run.sh youtube --short` (and `--minutes 30` if there's time) to fill in [YouTube](#youtube).
-- Watch a cold boot, power-on to Home, for any black or white between the splash and Home, and for the logo moving. Expect about 0.8 s of black after the kernel splash, when cage takes the screen.
+- Watch a cold boot, power-on to Home, for any black or white between the splash and Home, and for the logo moving. Expect about 0.77 s of black after the kernel splash, when cage takes the screen (#62).
 - Watch YouTube 1080p60 and the test clips by eye: smoothness, judder at 23.976, and audio sync.
 
 ## Follow-ups
 
-Proposed from these numbers:
+All optional, for later (label `polish`):
 
-- Chromium takes 10.6 s from cage's modeset to DevTools: the biggest part of the boot.
-- couch-splash can't use couch-fbsplash's RGB565 cache; a pre-rendered 32-bit frame would cut most of the 0.77 s of black after cage's modeset.
-- Kodi uses 110 % of a core for 1080p60 H.264, with hardware decode.
-- The launcher spends 2.6 s of 6.8 s of main-thread time recalculating style while the focus moves; 3 of 825 frames missed.
-- `couchd.service`'s `After=network.target` puts NetworkManager's 2.9 s on the launcher's critical chain.
-- `/boot/firmware`'s fsck (0.78 s) could be skipped with fstab pass 0, in #25's `couch-fstab`.
+- #61: Chromium takes 10.6 s from cage's modeset to DevTools, the biggest part of the boot.
+- #62: couch-splash can't use couch-fbsplash's RGB565 cache; a 32-bit frame would cut most of the 0.77 s of black after cage's modeset.
+- #63: Kodi uses 110 % of a core for 1080p60 H.264, with hardware decode.
+- #64: the launcher spends 2.6 s of 6.8 s of main-thread time recalculating style while the focus moves; 3 of 825 frames missed.
+- #65: `couchd.service`'s `After=network.target` puts NetworkManager's 2.9 s on the launcher's critical chain.
+
+Considered and kept: the `/boot/firmware` fsck (see [Boot cuts](#boot-cuts)).
