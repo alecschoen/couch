@@ -222,8 +222,8 @@ default).
 - [ ] **L3** Open Plex. Expected: still signed in, no plex.tv/link code.
 - [ ] **L4** Settings: the things you changed in C are still as you left them.
 - [ ] **L5** Pull the Pi's power while YouTube plays. Plug it back in. Expected: it boots normally
-      to Home, with no "Restore pages?" bubble anywhere. **(pending merge)** Do this three
-      times; every boot is clean. (The full 20-pull run is under "With a laptop".)
+      to Home, with no "Restore pages?" bubble anywhere. Do this three times; every boot is
+      clean. (The full 20-pull run is under "With a laptop".)
 - [ ] **L6** Settings › Power › Turn off, OK twice, with "Turn the TV off too" off. Expected: the
       Couch logo stays up while it shuts down, the Pi's green light stops, and the TV stays on.
 - [ ] **L7** Unplug and replug the Pi. Then Settings › Power › "Turn the TV off too" on, and Turn
@@ -266,14 +266,20 @@ system/README.md, "Release access".
       `/etc/couch/update.toml` and re-run install.sh. Decide whether to keep the weekly full
       upgrade and the reboot when one is needed (both on by default, same file).
 
-### Power cuts (45 min) (pending merge)
+### Power cuts (45 min)
 
-The full test for SD card protection (#25): 20 plug pulls during use. After each, the
-launcher comes back by itself, YouTube is still signed in, a setting you changed is still
-changed, Plex opens signed in, and no "Restore pages?" bubble shows.
+The full test for SD card protection (#25, docs/sd-card.md): 20 real plug pulls during use.
+Overnight the Pi was only reset from software, and those resets checked Plex's settings
+file, not that Plex was still signed in. So after **each** pull, check:
+
+- the launcher comes back by itself;
+- no "Restore pages?" bubble, on Home or in YouTube;
+- YouTube is still signed in;
+- a setting you changed is still changed;
+- Plex opens signed in, with no plex.tv/link code.
 
 - [ ] **X4** 8 pulls with YouTube playing.
-- [ ] **X5** 4 on the launcher, within 2 s of changing a setting.
+- [ ] **X5** 4 on the launcher, within 2 s of changing a setting (before it's saved).
 - [ ] **X6** 4 with Plex playing.
 - [ ] **X7** 2 within 10 s of power-on, during the boot.
 - [ ] **X8** 2 while a Bluetooth speaker is connected.
@@ -284,6 +290,13 @@ changed, Plex opens signed in, and no "Restore pages?" bubble shows.
       ```
 
       Expected: only the normal journal recovery lines.
+- [ ] **X10** (If curious.) How much a boot writes to the card:
+
+      ```bash
+      ssh couch.local "awk '{print \$7 * 512 / 1e6 \" MB written since boot\"}' /sys/block/mmcblk0/stat"
+      ```
+
+      Expected: about 5–7 MB right after a boot, as measured overnight.
 
 ### Later, on your own
 
@@ -312,5 +325,5 @@ decides what the remote's buttons do.
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24, PR #54 (pending) |
-| Power cuts | #25, PR #51 (pending) |
+| Power cuts, SD card | #25, PR #51 |
 | Wi-Fi option | #31, PR #57 (pending) |
