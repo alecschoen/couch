@@ -26,20 +26,22 @@ row "cage's login session opens" "$(units | at 'pam_unix\(login:session\): sessi
 row "couchd sees Chromium" "$(units -u couchd | at 'attached to Chromium')"
 row "launcher page connected (UI ready)" "$(units -u couchd | at 'ui connected')"
 # When Chromium first painted the launcher, from the page's own clock (DevTools, loopback).
-boot_epoch=$(awk -v now="$(date +%s.%N)" '{printf "%.3f", now - $1}' /proc/uptime)
-paint=$(python3 - "$boot_epoch" <<'PY' 2>/dev/null
-import asyncio, json, sys, aiohttp
+# Counted back from performance.now(), not timeOrigin: the Pi has no clock battery, so the
+# wall clock jumps when NTP sets it, after the page has started.
+paint=$(python3 - <<'PY' 2>/dev/null
+import asyncio, json, aiohttp
 async def main():
     async with aiohttp.ClientSession() as s:
         tabs = await (await s.get("http://127.0.0.1:9222/json")).json()
         tab = next(t for t in tabs if t["type"] == "page" and ":8765" in t["url"])
         async with s.ws_connect(tab["webSocketDebuggerUrl"]) as ws:
-            js = "JSON.stringify([performance.timeOrigin, performance.getEntriesByType('paint').map(e => e.startTime)])"
+            js = "JSON.stringify([performance.now(), performance.getEntriesByType('paint').map(e => e.startTime)])"
             await ws.send_json({"id": 1, "method": "Runtime.evaluate", "params": {"expression": js}})
             reply = await ws.receive_json()
-    origin, paints = json.loads(reply["result"]["result"]["value"])
-    boot = float(sys.argv[1]) * 1000
-    print(f"{(origin - boot) / 1000:.2f} (page start), first paint {(origin + paints[0] - boot) / 1000:.2f}")
+            uptime = float(open("/proc/uptime").read().split()[0])
+    now, paints = json.loads(reply["result"]["result"]["value"])
+    start = uptime - now / 1000
+    print(f"{start + paints[0] / 1000:.2f} (page started {start:.2f})")
 asyncio.run(main())
 PY
 )
