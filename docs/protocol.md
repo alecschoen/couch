@@ -137,7 +137,7 @@ The text `ping` gets `pong`.
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
-| `apps.dev.crash` | Dev mode only: `app`. Crashes its tab for real (or the pretend Kodi) |
+| `apps.dev.crash` | Dev mode only: `app`. couchd acts as if its tab (or the pretend Kodi) crashed |
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
 
 couchd keeps sound on the output picked last. When that output goes away (a speaker out of

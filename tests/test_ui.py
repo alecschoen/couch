@@ -53,3 +53,10 @@ def test_fonts_are_bundled_with_their_licences():
     assert {"inter-latin.woff2", "space-grotesk-latin.woff2"} <= fonts
     assert (UI / "fonts" / "OFL-Inter.txt").is_file()
     assert (UI / "fonts" / "OFL-SpaceGrotesk.txt").is_file()
+
+
+def test_inline_brand_matches_the_brand_files():
+    """ui/js/brand.js carries copies of the brand SVGs; they must not drift."""
+    text = (UI / "js" / "brand.js").read_text()
+    svg = (UI / "brand" / "svg" / "lockup-stacked.svg").read_text().strip()
+    assert f"export const LOCKUP_STACKED = `{svg}`;" in text

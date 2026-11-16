@@ -659,7 +659,7 @@ class AppService(Service):
         self.display.exit_kodi(crashed=crashed)
 
     async def _dev_crash(self, args: dict[str, Any]) -> None:
-        """Dev mode only: crash an app's tab for real (Chromium's Page.crash)."""
+        """Dev mode only: act as if an app crashed (its tab, or the pretend Kodi)."""
         app = self._app(arg(args, "app", str))
         if app.kind == "kodi":
             await self._dev_kodi_exit({"crashed": True})
@@ -667,14 +667,7 @@ class AppService(Service):
         target = self._pages.get(app.id)
         if target is None:
             raise CommandError(f"{app.name} isn't open")
-        self._spawn(self._crash_tab(target))
-
-    async def _crash_tab(self, target: str) -> None:
-        with contextlib.suppress(CdpError):  # the call never answers: the tab is gone
-            attached = await self.chromium.call(
-                "Target.attachToTarget", {"targetId": target, "flatten": True}
-            )
-            await self.chromium.call("Page.crash", session=attached["sessionId"])
+        self._page_gone(target, True)  # what Chromium's Target.targetCrashed leads to
 
     async def _dev_network(self, args: dict[str, Any]) -> None:
         """Dev mode only: pretend the internet or the Plex server is gone (or back)."""

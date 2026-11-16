@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/screens/system.css">
 </head>
 <body>
   <div class="flood" id="flood"></div>
@@ -26,6 +27,7 @@
     import { kitScreen } from "./js/demo/kit.js";
     import { openQuickMenu } from "./js/demo/quickmenu.js";
     import { typeScreen } from "./js/demo/type.js";
+    import { systemScreens } from "./js/screens/system.js";
 
     const app = createApp();
     app.router
@@ -35,6 +37,7 @@
       .register("type", typeScreen);
     app.addEventListener("key", (e) => e.detail.key === "blue" && openQuickMenu(app));
     window.couchApp = app; // for poking at it from devtools
+    systemScreens(app); // Startup, Opening and errors: couchd decides. First, so Startup is frame one.
     app.start("foundation");
   </script>
 </body>

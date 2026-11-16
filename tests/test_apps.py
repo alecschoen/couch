@@ -488,3 +488,16 @@ async def test_dev_network_switch(ctx, checked, net):
     assert not net.online and net.plex_reach == "unreachable"
     with pytest.raises(CommandError, match="must be ok"):
         await run(ctx, "apps.dev.network", plex="maybe")
+
+
+async def test_dev_crash(ctx, apps, browser, display):
+    await run(ctx, "apps.launch", app="youtube")
+    await run(ctx, "apps.dev.crash", app="youtube")
+    await until(lambda: state(ctx)["error"] is not None)
+    assert state(ctx)["error"]["kind"] == "crashed"
+    assert state(ctx)["foreground"] == "launcher"
+    with pytest.raises(CommandError, match="isn't open"):
+        await run(ctx, "apps.dev.crash", app="youtube")
+    await run(ctx, "apps.launch", app="plex")
+    await run(ctx, "apps.dev.crash", app="plex")
+    await until(lambda: (state(ctx)["error"] or {}).get("app") == "plex")
