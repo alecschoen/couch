@@ -23,6 +23,7 @@ const NOTHING_NEARBY_MS = 6_000;
 // How long to keep a device "Connecting" while waiting for its sound to arrive. couchd waits
 // 15 s for the output before it gives up.
 const SOUND_WAIT_MS = 16_000;
+const OPTIONS_GUARD_MS = 600;
 
 // Is this audio output that device? Same rule as couchd's _output_matches: compare the hex
 // digits only, so `bluetooth:AA:BB:…` and `bluez_output.AA_BB_….1` both match.
@@ -213,7 +214,11 @@ export function bluetoothScreen(_params, app) {
 
   function openOptions(d) {
     if (options || !d?.paired) return;
+    // A held OK that arrives as plain repeated presses (no `repeat` flag) mustn't go on to
+    // press Disconnect: ignore OK for a moment after Options opens.
+    const openedAt = Date.now();
     const act = (fn) => async () => {
+      if (Date.now() - openedAt < OPTIONS_GUARD_MS) return;
       options?.();
       await fn();
       render();
