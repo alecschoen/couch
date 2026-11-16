@@ -95,9 +95,9 @@ summarise() {
 		END {
 			flush()
 			pressed = ""
-			for (c in codes) pressed = pressed (pressed == "" ? "" : "; ") c (codes[c] > 1 ? " ×" codes[c] : "")
+			for (c in codes) pressed = pressed (pressed == "" ? "" : "; ") c (codes[c] > 1 ? " x" codes[c] : "")
 			other = ""
-			for (o in others) other = other (other == "" ? "" : "; ") o (others[o] > 1 ? " ×" others[o] : "")
+			for (o in others) other = other (other == "" ? "" : "; ") o (others[o] > 1 ? " x" others[o] : "")
 			if (pressed == "" && other == "") pressed = "nothing"
 			rel = releases + 0
 			held = (first_press != "" && first_release != "") ? (first_release - first_press) " ms" : "-"
