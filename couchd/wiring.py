@@ -15,6 +15,7 @@ from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv, FakeWif
 from couchd.idle import IdleService
 from couchd.kodi import FakeKodi, KodiClient
 from couchd.kodi_rpc import KodiRpc
+from couchd.kodi_sounds import KodiSoundsService
 from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.networkmanager import NmWifi
 from couchd.overlay import OverlayService
@@ -84,15 +85,15 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
     rpc = None if dev else KodiRpc()  # one client for both: pausing and the overlays
     chromium = Chromium()
+    kodi = FakeKodi() if rpc is None else KodiClient(rpc)
     apps = AppService(ctx, display, chromium, connectivity=net, kodi_rpc=rpc)
-    overlay = OverlayService(
-        ctx,
-        chromium=chromium,
-        pages=apps.page,
-        kodi=FakeKodi() if rpc is None else KodiClient(rpc),
-        go_home=apps.home,
-    )
-    services = [apps, IdleService(ctx, idle_after=_idle_after()), EveningService(ctx)]
+    overlay = OverlayService(ctx, chromium=chromium, pages=apps.page, kodi=kodi, go_home=apps.home)
+    services = [
+        apps,
+        KodiSoundsService(ctx, kodi),  # Plex's clicks follow the UI sounds setting (#49)
+        IdleService(ctx, idle_after=_idle_after()),
+        EveningService(ctx),
+    ]
     return [*services, SplashService(ctx)], overlay
 
 

@@ -62,7 +62,8 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       against an edge a low thud. Hold Down in Settings: a light, steady ticking, not a
       rattle. Expected: quiet next to a video at the same volume, and no lag you can feel.
       Then try "TV only" with the sound on the jack (silent), and Off (silent). Write down
-      any sound that's too loud, too sharp or annoying: ____. Put it back to On.
+      any sound that's too loud, too sharp or annoying: ____. Then open Plex: Kodi's own
+      clicks when you move, and none with the setting on Off. Put it back to On.
 - [ ] **C3** Remote → Test your remote → OK. Press each button below and write what the box
       shows (it shows the name and the TV's code, or nothing if the TV keeps the button to
       itself). Return twice stops the test.

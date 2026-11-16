@@ -338,7 +338,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the idle clock; 0 = never |
 | `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
-| `audio.ui_sounds` | `on`, `tv`, `off` | `on` | The launcher's UI sounds (#49): on any output, only on the TV speakers, or off |
+| `audio.ui_sounds` | `on`, `tv`, `off` | `on` | UI sounds (#49), the launcher's and Plex's own: on any output, only on the TV speakers, or off |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |

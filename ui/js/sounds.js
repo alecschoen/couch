@@ -14,10 +14,11 @@
 //   toast   a message pops up
 //   error   an error screen goes up
 //
-// Only the launcher makes sounds, and only while it's in front: never over YouTube or Plex,
-// and not for the key that wakes the idle clock. The setting `audio.ui_sounds` says where:
-// "on" (any output, the default), "tv" (only while the sound is on the TV speakers: the jack
-// and Bluetooth can lag behind) or "off".
+// Only the launcher makes these, and only while it's in front: not over YouTube (which has no
+// sounds) or Plex (Kodi has its own, which couchd/kodi_sounds.py switches with the same
+// setting), and not for the key that wakes the idle clock. The setting `audio.ui_sounds` says
+// where: "on" (any output, the default), "tv" (only while the sound is on the TV speakers: the
+// jack and Bluetooth can lag behind) or "off".
 //
 // The sounds are made here with Web Audio, not loaded from files: a sine or triangle with a
 // short glide and a soft decay, through a low-pass filter so nothing is sharp at TV volume.

@@ -91,7 +91,7 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
   unless you turn it on; never while something plays).
 - **Sound**: where the sound goes, a volume limit, whether the TV remote's volume
   buttons work for headphones and Bluetooth, and UI sounds: the quiet clicks when you press
-  a button on Couch's own screens (On, TV only, or Off; never over YouTube or Plex).
+  a button on Couch's own screens and in Plex (On, TV only, or Off). YouTube has none.
 - **Remote**: what the buttons do, and a test that shows what each button sends.
 - **Updates**: what version Couch is, and Check now. Once overnight updates are set up
   (a one-time job on a computer), Couch updates itself at night, only when nothing is
