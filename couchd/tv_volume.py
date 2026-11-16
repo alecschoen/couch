@@ -11,6 +11,11 @@ All of it follows the `audio.tv_remote_volume` setting; off, the TV keeps its bu
 A button held down: the TV may or may not repeat it. Every press the TV sends is one step,
 and if no new press comes within `repeat_delay` while it's still held, couchd repeats it
 every `repeat_every` until the release.
+
+The output has to stay put for `settle` seconds before couchd changes its CEC role: when the
+TV powers on, its HDMI hotplug drops for a moment, the HDMI sink goes with it and sound
+falls back to the jack for about a second (seen on the KDL-40V55, COUCH-9). Taking the
+Audio System address for that second and giving it back is just noise on the bus.
 """
 
 import asyncio
@@ -38,12 +43,14 @@ class TvVolumeService(Service):
         *,
         repeat_delay: float = 0.5,
         repeat_every: float = 0.15,
+        settle: float = 2.0,
     ) -> None:
         self.ctx = ctx
         self.tv = tv
         self.audio = audio
         self.repeat_delay = repeat_delay
         self.repeat_every = repeat_every
+        self.settle = settle
         self._wanted: bool | None = None  # what the TV backend was last asked for
         self._wake = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
@@ -108,6 +115,9 @@ class TvVolumeService(Service):
 
     async def _apply(self) -> None:
         wanted = self.wanted()
+        if wanted != self._wanted and self._wanted is not None and self.settle:
+            await asyncio.sleep(self.settle)
+            wanted = self.wanted()
         if wanted != self._wanted:
             log.info("TV remote volume", extra={"couch": wanted})
             self._wanted = wanted

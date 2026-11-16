@@ -33,7 +33,7 @@ async def rig(ctx):
     services = [
         TvService(ctx, tv, wake_on_start=False),
         audio,
-        TvVolumeService(ctx, tv, audio, repeat_delay=0.05, repeat_every=0.01),
+        TvVolumeService(ctx, tv, audio, repeat_delay=0.05, repeat_every=0.01, settle=0),
     ]
     for service in services:
         await service.start()
@@ -171,10 +171,38 @@ async def test_setting_off_gives_the_buttons_back(ctx, rig):
     assert tv.system_audio()
 
 
+async def test_a_blip_to_the_jack_keeps_the_tv_as_it_was(ctx):
+    # The TV's hotplug drops when it wakes, and sound falls back to the jack for a moment.
+    tv = FakeTv(speed=0)
+    audio = AudioService(ctx, FakeAudio(speed=0))
+    volume = TvVolumeService(ctx, tv, audio, settle=0.1)
+    await audio.start()
+    await volume.start()
+    await settle()
+    asked = []
+    original = tv.set_system_audio
+
+    async def recording(on):
+        asked.append(on)
+        await original(on)
+
+    tv.set_system_audio = recording
+    await run(ctx, "audio.set_output", output="jack")
+    await asyncio.sleep(0.03)
+    await run(ctx, "audio.set_output", output="tv")
+    await asyncio.sleep(0.2)
+    assert asked == []
+    await run(ctx, "audio.set_output", output="jack")
+    await asyncio.sleep(0.2)
+    assert asked == [True]
+    await volume.stop()
+    await audio.stop()
+
+
 async def test_stop_gives_the_buttons_back(ctx, tmp_path):
     tv = FakeTv(speed=0)
     audio = AudioService(ctx, FakeAudio(speed=0))
-    volume = TvVolumeService(ctx, tv, audio)
+    volume = TvVolumeService(ctx, tv, audio, settle=0)
     await audio.start()
     await volume.start()
     await run(ctx, "audio.set_output", output="jack")
