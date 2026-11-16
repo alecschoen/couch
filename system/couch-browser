@@ -16,6 +16,16 @@
 #
 # couchd drives the tabs over DevTools on 127.0.0.1 only (couchd/chromium.py). Chromium
 # refuses DevTools WebSockets from web pages (they send an Origin), so pages can't use it.
+#
+# Power cuts (#25, docs/sd-card.md): the profile in /var/lib/couch/chromium holds the
+# sign-ins and stays on the SD card. The disk cache goes to /var/cache/couch/chromium, a
+# tmpfs, when install.sh set that up; 100 MB of it at most. After a power cut Chromium
+# thinks it crashed: --hide-crash-restore-bubble keeps its "Restore pages?" bubble off the TV
+# (--disable-session-crashed-bubble, its old name, is gone from current Chromium).
+cache=/var/cache/couch/chromium
+if [ -d "$cache" ] && [ -w "$cache" ]; then
+    set -- --disk-cache-dir="$cache" --disk-cache-size=104857600
+fi
 exec /usr/bin/chromium \
     --ozone-platform=wayland \
     --kiosk \
@@ -25,6 +35,7 @@ exec /usr/bin/chromium \
     --noerrdialogs \
     --disable-infobars \
     --disable-session-crashed-bubble \
+    --hide-crash-restore-bubble \
     --disable-features=Translate,MediaRouter \
     --password-store=basic \
     --autoplay-policy=no-user-gesture-required \
@@ -34,4 +45,5 @@ exec /usr/bin/chromium \
     --disable-renderer-accessibility \
     --remote-debugging-port="${COUCH_CDP_PORT:-9222}" \
     --remote-debugging-address=127.0.0.1 \
+    "$@" \
     "http://127.0.0.1:${COUCH_PORT:-8765}/"

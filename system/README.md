@@ -14,6 +14,11 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage/Chrom
 - `initramfs-splash`: an initramfs-tools hook, installed as `/etc/initramfs-tools/hooks/couch-splash`. It puts the splash (`/lib/firmware/couch-splash.tga`, from `ui/brand/splash.tga`) in the initramfs.
 - `70-couch-no-pointer.rules`: no mouse cursor on the TV. The kernel's CEC remote inputs (`vc4-hdmi-0`, `vc4-hdmi-1`) have mouse axes, so libinput would hand them to cage as pointers and cage would draw its cursor. This makes libinput ignore them. couchd doesn't use them: it reads `/dev/cec0` and types through its own Couch remote device.
 - `couch-fbsplash`, `couch-fbsplash.service`, `couch-fbsplash.rules`: draw the same splash again on vc4's framebuffer when vc4 takes the screen over, and once more at shutdown (see Boot below). The rule is installed as `/etc/udev/rules.d/70-couch-fbsplash.rules`.
+- Power cuts (#25, see [docs/sd-card.md](../docs/sd-card.md#power-cuts)). `install.sh --revert-sd` removes all of these:
+  - `journald-couch.conf`: installed as `/etc/systemd/journald.conf.d/50-couch.conf`. The journal stays in RAM (`Storage=volatile`).
+  - `var-cache-couch.mount` and `couch-cache.conf`: a 256 MB tmpfs on `/var/cache/couch`, and its `chromium` and `kodi` directories (`/etc/tmpfiles.d/couch-cache.conf`). `couch-browser` and `couch-kodi` keep their caches there when it exists.
+  - `couch-tmp.conf`: turns on systemd's `tmp.mount` on a system where `/tmp` isn't in RAM yet. Trixie doesn't need it.
+  - `couch-fstab`: adds `noatime` to `/` and `/boot/firmware` in `/etc/fstab`, and undoes exactly that, like `couch-bootfiles` (owner `sd-card`; original in `/etc/fstab.couch-orig`; `couch-fstab show`). It refuses any edit beyond the options column, and any edit that `findmnt --verify` likes less.
 - `wireplumber-couch.conf`: installed as `/etc/wireplumber/wireplumber.conf.d/50-couch.conf`. couchd picks the output and moves every stream itself, so WirePlumber is told not to send apps back to the output they last used.
 
 ## Sound
