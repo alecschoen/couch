@@ -7,7 +7,15 @@ The rule is simple, and re-applied whenever the backend reports a change:
 3. otherwise whatever is playing now, or the first output there is.
 
 So a Bluetooth speaker that drops out sends sound back to the TV, and when it comes back
-the sound goes back to it. Volume is remembered per output and put back on each switch.
+the sound goes back to it.
+
+Volume is remembered per output and put back whenever sound moves to it, at boot too. For
+VOLUME_SETTLE after that, a change couchd didn't make is the sound system still setting
+up (at boot, WirePlumber and ALSA can set the jack's level after couchd has, and a
+Bluetooth speaker reports its own level once it's connected), so couchd puts the saved
+volume back. After that, a change couchd didn't make is someone's (a speaker's own
+buttons, pactl) and becomes the remembered volume. Both are logged with their numbers.
+
 Every change of output, whatever caused it, gets one "Sound now on X" toast. A change the
 user made is announced at once. One that just happened is announced once it has held for
 ANNOUNCE_DELAY: the TV's HDMI sink vanishes for under a second whenever the TV switches to
@@ -40,6 +48,8 @@ VOLUME_LIMIT = "audio.volume_limit"  # a setting (couchd/settings.py)
 CYCLE_KEY = "red"
 ANNOUNCE_DELAY = 1.5
 VOLUME_STEP = 2  # one press of a volume button
+VOLUME_SETTLE = 15.0  # seconds after an output gets its volume back, see above
+VOLUME_PUT_BACKS = 5  # at most this many in that time: don't fight something forever
 
 
 class AudioService(Service):
@@ -58,6 +68,8 @@ class AudioService(Service):
         self._announced: str | None = None
         self._announcing: tuple[str, asyncio.Task] | None = None  # a delayed toast
         self._volume_for: str | None = None  # output whose saved volume was last applied
+        self._volume_settles = 0.0  # loop time until which other changes get put back
+        self._put_backs = 0
         self._gave_up: tuple | None = None  # (target, outputs) a switch failed for
         self._unwatch = None
 
@@ -159,17 +171,56 @@ class AudioService(Service):
             self._gave_up = attempt
 
     async def _apply_saved_volume(self, current: str) -> None:
-        if current == self._volume_for:
+        """Give `current` its saved volume when sound moves there, and keep it that way."""
+        now = asyncio.get_running_loop().time()
+        if current != self._volume_for:
+            self._volume_for = current
+            self._volume_settles = now + VOLUME_SETTLE
+            self._put_backs = 0
+            await self._restore_volume(current, why="output")
             return
-        self._volume_for = current
-        saved = (self.ctx.saved.get(SAVED_VOLUMES) or {}).get(current)
-        if isinstance(saved, int):
-            saved = min(saved, self._limit())
-        if isinstance(saved, int) and saved != self.backend.volume():
-            try:
-                await self.backend.set_volume(saved)
-            except BackendError as e:
-                log.warning("couldn't restore volume", extra={"output": current, "error": str(e)})
+        saved = self._saved_volume(current)
+        volume = self.backend.volume()
+        if saved is None or volume == saved:
+            if saved is None and now >= self._volume_settles:
+                self._remember_volume(current, volume)
+            return
+        if now < self._volume_settles and self._put_backs < VOLUME_PUT_BACKS:
+            self._put_backs += 1
+            log.info(
+                "volume changed while the output was settling, putting it back",
+                extra={"output": current, "volume": volume, "saved": saved},
+            )
+            await self._restore_volume(current, why="settling")
+        elif now >= self._volume_settles:
+            log.info(
+                "volume changed outside couchd, remembering it",
+                extra={"output": current, "volume": volume, "saved": saved},
+            )
+            if volume > self._limit():
+                await self.set_volume(self._limit(), source="limit")
+            else:
+                self._remember_volume(current, volume)
+
+    def _saved_volume(self, output_id: str) -> int | None:
+        saved = (self.ctx.saved.get(SAVED_VOLUMES) or {}).get(output_id)
+        return min(saved, self._limit()) if isinstance(saved, int) else None
+
+    def _remember_volume(self, output_id: str, volume: int) -> None:
+        volumes = dict(self.ctx.saved.get(SAVED_VOLUMES) or {})
+        volumes[output_id] = volume
+        self.ctx.saved.set(SAVED_VOLUMES, volumes)
+
+    async def _restore_volume(self, current: str, *, why: str) -> None:
+        saved = self._saved_volume(current)
+        if saved is None or saved == self.backend.volume():
+            return
+        try:
+            await self.backend.set_volume(saved)
+        except BackendError as e:
+            log.warning("couldn't restore volume", extra={"output": current, "error": str(e)})
+            return
+        log.info("volume restored", extra={"output": current, "volume": saved, "why": why})
 
     def _announce(self, current: str, *, now: bool) -> None:
         if current == self._announced:
@@ -272,12 +323,17 @@ class AudioService(Service):
         """Set the current output's volume, at most the limit, and remember it for that
         output. `source` says why, in the `volume_changed` message."""
         volume = max(0, min(volume, self._limit()))
-        await self.backend.set_volume(volume)
         current = self.backend.current()
+        # Saved first: PipeWire's change event can arrive before set_volume returns, and
+        # then this is couchd's own change, not one to put back or remember.
+        before = self.ctx.saved.get(SAVED_VOLUMES) or {}
         if current is not None:
-            volumes = dict(self.ctx.saved.get(SAVED_VOLUMES) or {})
-            volumes[current] = volume
-            self.ctx.saved.set(SAVED_VOLUMES, volumes)
+            self._remember_volume(current, volume)
+        try:
+            await self.backend.set_volume(volume)
+        except BackendError:
+            self.ctx.saved.set(SAVED_VOLUMES, before)
+            raise
         self._volume_changed(source)
 
     async def step_volume(self, by: int, *, source: str) -> None:

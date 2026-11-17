@@ -45,6 +45,8 @@ UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
 NO_POINTER_RULE=/etc/udev/rules.d/70-couch-no-pointer.rules
 UINPUT_MODULE_CONF=/etc/modules-load.d/couch-uinput.conf
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
+PIPEWIRE_CONF=/etc/pipewire/pipewire.conf.d/50-couch.conf
+PIPEWIRE_PULSE_CONF=/etc/pipewire/pipewire-pulse.conf.d/50-couch.conf
 # Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
 # ssh login) must stay off Bluetooth, or the two fight over the speaker.
 WIREPLUMBER_BT_DIR=$STATE/.config/wireplumber/wireplumber.conf.d
@@ -425,6 +427,15 @@ install_audio() {
             note "enabled $u for user sessions"
         fi
     done
+    local pipewire=0
+    ensure_file "$SRC/system/pipewire-couch.conf" "$PIPEWIRE_CONF" 644 && pipewire=1
+    ensure_file "$SRC/system/pipewire-pulse-couch.conf" "$PIPEWIRE_PULSE_CONF" 644 && pipewire=1
+    if ((pipewire)); then
+        # Read when PipeWire starts: restart it now if couch's session is up. That cuts
+        # whatever is playing for a moment; couchd and the launcher reconnect by themselves.
+        systemctl --user -M "$COUCH_USER@" -q restart \
+            pipewire.service pipewire-pulse.service wireplumber.service 2>/dev/null || true
+    fi
     if ensure_file "$SRC/system/wireplumber-couch.conf" "$WIREPLUMBER_CONF" 644; then
         # Picked up at WirePlumber's next start; restart it now if couch's session is up.
         systemctl --user -M "$COUCH_USER@" -q restart wireplumber.service 2>/dev/null || true
@@ -710,7 +721,7 @@ uninstall() {
     rm -f "$WIFI_RULE" "$WIFI_BOOT_UNIT" "$RFKILL_DROPIN"
     rmdir "$(dirname "$RFKILL_DROPIN")" 2>/dev/null || true
     systemctl daemon-reload
-    rm -f "$WIREPLUMBER_CONF"
+    rm -f "$WIREPLUMBER_CONF" "$PIPEWIRE_CONF" "$PIPEWIRE_PULSE_CONF"
     rm -rf "$PREFIX"
     rm -f "$WIREPLUMBER_BT_CONF"
     if ((purge)); then

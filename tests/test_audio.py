@@ -305,3 +305,62 @@ async def test_pipewire_restart_is_quiet(ctx, pi):
     await until(lambda: ctx.state.get("audio")["current"] == "tv")
     await settle()
     assert toasts(sub) == []
+
+
+# --- keeping the volume --------------------------------------------------------------------
+
+
+async def test_volume_set_by_the_sound_system_at_boot_is_put_back(ctx):
+    # At boot WirePlumber/ALSA can set the jack's level after couchd has put the saved
+    # volume back: couchd puts it back again.
+    ctx.saved.set(SAVED_OUTPUT, "jack")
+    ctx.saved.set(SAVED_VOLUMES, {"jack": 92})
+    server = FakePulse([pi_hdmi(volume=60), pi_jack(volume=25)], default=PI_JACK)
+    audio = PipewireAudio(server)
+    service = AudioService(ctx, audio)
+    await service.start()
+    await until(lambda: audio.volume() == 92)
+    put_back = ("set-sink-volume", PI_JACK, "92%")
+    assert server.calls.count(put_back) == 1  # at boot
+    await server.run("set-sink-volume", PI_JACK, "8%")  # not couchd
+    await asyncio.wait_for(until(lambda: server.calls.count(put_back) == 2), 1)
+    await settle()
+    assert audio.volume() == 92
+    assert ctx.saved.get(SAVED_VOLUMES) == {"jack": 92}
+    await service.stop()
+
+
+async def test_volume_changed_elsewhere_later_is_remembered(ctx, monkeypatch):
+    monkeypatch.setattr(audio_module, "VOLUME_SETTLE", 0)
+    ctx.saved.set(SAVED_OUTPUT, "jack")
+    ctx.saved.set(SAVED_VOLUMES, {"jack": 92})
+    server = FakePulse([pi_hdmi(volume=60), pi_jack(volume=25)], default=PI_JACK)
+    audio = PipewireAudio(server)
+    service = AudioService(ctx, audio)
+    await service.start()
+    await until(lambda: audio.volume() == 92)
+    await server.run("set-sink-volume", PI_JACK, "30%")  # a speaker's own buttons, say
+    await asyncio.wait_for(until(lambda: ctx.saved.get(SAVED_VOLUMES) == {"jack": 30}), 1)
+    await settle()
+    assert audio.volume() == 30
+    await service.stop()
+
+
+async def test_couchds_own_changes_while_settling_stick(ctx, fake):
+    for volume in (50, 52, 54):
+        await run(ctx, "audio.set_volume", volume=volume)
+    await settle()
+    assert ctx.state.get("audio")["volume"] == 54
+    assert ctx.saved.get(SAVED_VOLUMES) == {"tv": 54}
+
+
+async def test_a_failed_volume_change_isnt_remembered(ctx, fake, monkeypatch):
+    await run(ctx, "audio.set_volume", volume=50)
+
+    async def broken(volume):
+        raise BackendError("gone")
+
+    monkeypatch.setattr(fake.backend, "set_volume", broken)
+    with pytest.raises(BackendError):
+        await fake.set_volume(70, source="command")
+    assert ctx.saved.get(SAVED_VOLUMES) == {"tv": 50}

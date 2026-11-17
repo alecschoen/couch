@@ -27,6 +27,7 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage sessi
   - `var-cache-couch.mount` and `couch-cache.conf`: a 256 MB tmpfs on `/var/cache/couch`, and its `chromium` and `kodi` directories (`/etc/tmpfiles.d/couch-cache.conf`). `couch-browser` and `couch-kodi` keep their caches there when it exists.
   - `couch-tmp.conf`: turns on systemd's `tmp.mount` on a system where `/tmp` isn't in RAM yet. Trixie doesn't need it.
   - `couch-fstab`: adds `noatime` to `/` and `/boot/firmware` in `/etc/fstab`, and undoes exactly that, like `couch-bootfiles` (owner `sd-card`; original in `/etc/fstab.couch-orig`; `couch-fstab show`). It refuses any edit beyond the options column, and any edit that `findmnt --verify` likes less.
+- `pipewire-couch.conf` and `pipewire-pulse-couch.conf`: installed in `/etc/pipewire/pipewire.conf.d/` and `/etc/pipewire/pipewire-pulse.conf.d/` as `50-couch.conf`. They keep PipeWire's buffer at 21 ms or more: at 5 ms, which the launcher's UI-sound stream used to pull it down to, the Pi's headphone jack drops out and crackles.
 - `wireplumber-couch.conf`: installed as `/etc/wireplumber/wireplumber.conf.d/50-couch.conf`. couchd picks the output and moves every stream itself, so WirePlumber is told not to send apps back to the output they last used.
 
 ## Sound
