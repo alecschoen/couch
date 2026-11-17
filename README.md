@@ -155,3 +155,7 @@ An evening project, and young. It runs every day on one Pi 4 and one Sony TV ([w
 - **Performance numbers** for the native launcher ([docs/performance.md](docs/performance.md) still has the old web launcher's).
 
 Work is tracked in [issues](https://github.com/alecschoen/couch/issues). Issues labelled `needs-pi` can only be finished on the real Pi and TV.
+
+## License
+
+[MIT](LICENSE). The fonts, Inter and Space Grotesk, are under the SIL Open Font License ([`launcher/fonts`](launcher/fonts)). YouTube and Plex are their owners' trademarks; Couch isn't affiliated with either.

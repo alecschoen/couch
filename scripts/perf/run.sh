@@ -10,10 +10,10 @@
 # (progress on stderr). Long checks also keep a copy on the Pi in /tmp/couch-perf, in case
 # SSH drops. Nothing restarts or reboots; the `boot` check reads the last boot as it was.
 #
-# COUCH_HOST picks the Pi (default alecschoen@couch.local).
+# COUCH_HOST picks the Pi (default couch.local, as your own user; or user@host).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-host=${COUCH_HOST:-alecschoen@couch.local}
+host=${COUCH_HOST:-couch.local}
 py=/opt/couch/.venv/bin/python
 dir=${COUCH_PERF_RESULTS:-$here/../../perf-results/$(date +%F)}
 mkdir -p "$dir"

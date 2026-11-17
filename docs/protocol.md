@@ -110,7 +110,7 @@ service, does the work and couchd reads its status file:
 - `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
 - `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
   its health check and the previous install is back), `broken` (going back failed too),
-  `no-access` (not set up: the Pi can't read the releases of the private repo, no token in
+  `no-access` (not set up: the Pi can't read the releases of a private fork, no token in
   `/etc/couch/github-token` or one GitHub refuses), `failed` (couldn't check: no network, a
   broken download), `waiting` (something was
   playing; `waiting` says what), or null before the first run. `message` says more.

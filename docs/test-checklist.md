@@ -279,22 +279,13 @@ rewind and fast forward, previous and next, Prog + and −, Input, holds and rep
 
 ### Updates (15 min)
 
-Overnight updates (#24) need three things from you first. The details are in
-system/README.md, under "Updates" and "Release access". Until then Couch installs nothing by
-itself, and Settings › Updates says "Not turned on yet".
+Overnight updates (#24) need a release and your go-ahead first. The details are in
+system/README.md, under "Updates". Until then Couch installs nothing by itself, and
+Settings › Updates says "Not turned on yet".
 
-- [ ] **X1** Release access. The repo is private, so the Pi needs a token to read releases.
-      Recommended: on GitHub, Settings › Developer settings › Fine-grained tokens › Generate,
-      for this repo only, with Contents: Read-only and nothing else, and an expiry you'll
-      notice. Save it on the Pi:
-
-      ```bash
-      sudo sh -c 'umask 077; cat > /etc/couch/github-token'
-      ```
-
-      Paste it, Enter, Ctrl-D. Then Settings › Updates › Check now. Expected: "Up to date",
-      with "No releases yet" under it, instead of "Not set up yet". (The other ways, a deploy key, a public mirror of the release files or a public
-      repo, are in PR #54.)
+- [ ] **X1** Release access. The repo is public, so the Pi needs no token. Settings › Updates
+      › Check now. Expected: "Up to date", with "No releases yet" under it. (A private fork
+      needs a token: system/README.md, "Release access".)
 - [ ] **X2** Make the first release: a GitHub release tagged `vX.Y.Z` (for example `v0.1.0`),
       not a draft or prerelease. Nothing is tagged yet. Check now again: it installs it, and
       Home says "Updated to v0.1.0" the next time it's on screen.

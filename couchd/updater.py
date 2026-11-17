@@ -94,7 +94,7 @@ class UpdateError(RuntimeError):
 
 
 class NoAccess(UpdateError):
-    """The Pi can't read the releases: no token for the private repo, or a token GitHub
+    """The Pi can't read the releases: no token for a private fork, or a token GitHub
     refuses. Settings says "Not set up"; see the release-access options in system/README.md."""
 
 

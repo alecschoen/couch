@@ -14,7 +14,7 @@ launcher's frame times, the launches and the boot need measuring again, and `cou
 ## How to measure
 
 Run these from the PC. The scripts need the Pi to be running Couch normally, and SSH access
-as `alecschoen@couch.local` (set `COUCH_HOST` to change it).
+to `couch.local` (set `COUCH_HOST` to change it, e.g. `you@couch.local`).
 
 ```bash
 scripts/perf/run.sh short

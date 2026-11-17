@@ -3,6 +3,7 @@ name = "couch-launcher"
 version = "0.1.0"
 edition = "2024"
 description = "Couch's launcher (Home, Settings, Bluetooth...) drawn natively with Slint"
+license = "MIT"
 publish = false
 
 [features]
