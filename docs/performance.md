@@ -6,6 +6,11 @@ under `perf-results/<date>/`. Nothing was estimated. A blank cell means it wasn'
 _Status: measured on 2026-11-16 with f2ab061 deployed, using `run.sh short`, the three Kodi clips and one
 recorded reboot. YouTube playback wasn't measured: see [YouTube](#youtube)._
 
+_Most of these numbers are from the web launcher, a page in Chromium, which Couch has since
+replaced with the native one (`launcher/`). They're kept as the record that led there: the
+launcher's frame times, the launches and the boot need measuring again, and `couchperf.py`'s
+`launcher` check doesn't apply any more (see the top of that file)._
+
 ## How to measure
 
 Run these from the PC. The scripts need the Pi to be running Couch normally, and SSH access
@@ -138,14 +143,15 @@ Before #23, cage modesets at ~17.4 s and then shows black until Chromium's first
 ~24.7 s. That was measured in #4. The director also saw a brief white flash before the
 Startup screen: Chromium's window before the launcher paints.
 
-The fix is `system/couch-splash`, which cage starts before Chromium (`couch-session-start`).
+The fix is `system/couch-splash`, which `couch-session-start` starts before cage, so it's
+ready the moment cage takes the screen.
 It draws couch-fbsplash's own frame, so the logo stays on the same pixels. When Chromium's
 window maps over it, it maps a second window on top at once. It goes when couchd says the
 launcher has drawn (`couchd/splash.py`). [system/README.md](../system/README.md#session-splash)
 has the details.
 
-On this PC, `scripts/perf/cage-check.sh` runs the Pi's cage 0.2.0 headless with a fake browser
-that maps a white window. 4 runs recorded every frame, ~380 each:
+On this PC, `scripts/perf/cage-check.sh` ran cage 0.2.0 (Debian Trixie's) headless with a fake
+browser that maps a white window. 4 runs recorded every frame, ~380 each:
 
 | | |
 |---|---|
@@ -171,6 +177,20 @@ didn't draw from couch-fbsplash's cache here: the Pi's framebuffer is RGB565
 (`fb0-1920x1080-16-3840-11-5-5-6-0-5`), and couch-splash only reads a 32-bit one, so it
 rendered the TGA in Python (on the PC, 152 ms against 7 ms from a cache). A pre-rendered
 32-bit frame would remove most of that black.
+
+Starting couch-splash before cage, with its picture ready and waiting for cage's socket, cut
+that black from 0.77 s to 0.08 s (modeset at 15.38 s, splash on screen at 15.46 s). What's
+left is cage's own first frame: its modeset commits an empty buffer. Couch's cage
+(`cage/`, `-b`) draws the splash in that first frame instead. In `cage-check.sh`, on the Pi's
+cage 0.3.1 and wlroots 0.20 (headless, so this is cage's first recorded frame, not the modeset):
+
+| Run | Frames |
+|---|---|
+| The system's cage, with couch-splash | black×13 → splash×224 → ground×61 |
+| Couch's cage, with couch-splash | splash×236 → ground×60: no black |
+| The system's cage alone (`--no-splash`) | black×61 → white×91 → ground×151 |
+| Couch's cage alone (`--no-splash`) | splash×61 → white×92 → ground×149 |
+| Couch's cage's background against couch-splash's window | identical, all 921,600 pixels |
 
 The hand-over frames: the splash, then the Startup screen's logo on the same pixels with its
 bar and "Turning on the TV", then Home fading in.
