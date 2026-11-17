@@ -42,7 +42,7 @@ async def test_tabs(browser):
         tab = await chromium.open("https://www.youtube.com/tv")
         assert browser.active == tab
         await chromium.activate(pages[0].id)
-        assert browser.active == pages[0].id
+        assert browser.active == browser.focused == pages[0].id
         assert await chromium.evaluate(tab, "document.visibilityState") == "hidden"
         with pytest.raises(CdpError, match="ReferenceError"):
             await chromium.evaluate(tab, "nope()")

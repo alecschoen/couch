@@ -1,0 +1,26 @@
+Give the seat the keyboard group's keyboard, not the device's
+
+cage puts each keyboard in a group, and its key handlers hand the seat the group's keyboard,
+but a new keyboard set the device itself as the seat's keyboard. Devices come and go: when
+the session pauses (Couch switches the console to Kodi's tty2) libinput removes them, and
+wlroots doesn't add them back until the next input arrives. Meanwhile the seat had no
+keyboard, so a window that opened then got no keymap, and Chromium crashed on YouTube after
+Plex. The group stays and keeps its keymap.
+
+For Couch (https://github.com/alecschoen/couch), on top of Raspberry Pi OS's cage 0.3.1.
+
+--- a/seat.c
++++ b/seat.c
+@@ -414,7 +414,11 @@
+ 
+ 	cg_keyboard_group_add(keyboard, seat, virtual);
+ 
+-	wlr_seat_set_keyboard(seat->seat, keyboard);
++	/* Couch: the seat gets the group's keyboard, as the key handlers already do, not the
++	   device's. A device goes away whenever the session pauses (another VT, Kodi), and
++	   the seat's keyboard with it: windows that open after that get no keymap, and
++	   Chromium crashes without one. The group stays, with its keymap. */
++	wlr_seat_set_keyboard(seat->seat, keyboard->group ? &keyboard->group->keyboard : keyboard);
+ }
+ 
+ static void
