@@ -36,7 +36,7 @@ suite() {
     local minutes=$1 failed=0
     check boot boot || failed=1
     check sample-idle sample --seconds 60 || failed=1
-    check launcher launcher || failed=1
+    # (no `launcher` check: it measured the web launcher; see couchperf.py)
     check launch launch --runs 3 || failed=1
     check youtube youtube --minutes "$minutes" || failed=1
     check plex-info plex info --launch || failed=1

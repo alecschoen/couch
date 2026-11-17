@@ -1,0 +1,428 @@
+From: Couch <couch@localhost>
+Subject: [PATCH] Show a background picture until the first window maps
+
+Cage draws black from the moment it takes the screen until a client draws, and its first
+frame on a new output is an empty buffer (black) even when a client is already connected.
+On a TV that boots into a splash, that's a black blink between the boot splash and the
+first window.
+
+-b FILE loads an uncompressed 24-bit TGA into the bottom of the scene: centred, the rest of
+the output filled with its top-left pixel, as the Raspberry Pi kernel draws its fullscreen
+logo. A new output's first frame is drawn from the scene (as output_config_apply already
+does), so the modeset shows the picture, not black. The background is removed when the
+first window maps, so after that Cage draws exactly as without it.
+
+For Couch (https://github.com/alecschoen/couch), on top of Raspberry Pi OS's cage 0.3.1.
+---
+ background.c | 223 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ background.h |  15 ++++
+ cage.c       |  12 +++-
+ meson.build  |   1 +
+ output.c     |  22 ++++++
+ server.h     |   6 ++
+ view.c       |   4 ++
+ 7 files changed, 282 insertions(+), 1 deletion(-)
+diff --git a/background.c b/background.c
+new file mode 100644
+index 0000000..767d7e8
+--- /dev/null
++++ b/background.c
+@@ -0,0 +1,223 @@
++/*
++ * Cage: A Wayland kiosk.
++ *
++ * A background picture for the time before the first window: an uncompressed 24-bit TGA,
++ * centred, with the rest of the screen filled with its top-left pixel (the way the
++ * Raspberry Pi kernel draws its fullscreen boot logo). The first frame on a new output is
++ * drawn from the scene, so it shows this instead of black, and it goes when the first
++ * window maps, so from then on Cage draws exactly as without it.
++ *
++ * Added for Couch (https://github.com/alecschoen/couch).
++ *
++ * See the LICENSE file accompanying this file.
++ */
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <wayland-server-core.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/types/wlr_buffer.h>
++#include <wlr/types/wlr_scene.h>
++#include <wlr/util/log.h>
++
++#include "background.h"
++#include "server.h"
++
++#define FORMAT_XRGB8888 0x34325258 /* DRM_FORMAT_XRGB8888, 'XR24' */
++#define MAX_FILE_SIZE (64 * 1024 * 1024)
++
++struct pixel_buffer {
++	struct wlr_buffer base;
++	uint32_t *data;
++	size_t stride;
++};
++
++static void
++pixel_buffer_destroy(struct wlr_buffer *wlr_buffer)
++{
++	struct pixel_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
++	wlr_buffer_finish(wlr_buffer);
++	free(buffer->data);
++	free(buffer);
++}
++
++static bool
++pixel_buffer_begin_data_ptr_access(struct wlr_buffer *wlr_buffer, uint32_t flags, void **data, uint32_t *format,
++				   size_t *stride)
++{
++	struct pixel_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
++	if (flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE) {
++		return false;
++	}
++	*data = buffer->data;
++	*format = FORMAT_XRGB8888;
++	*stride = buffer->stride;
++	return true;
++}
++
++static void
++pixel_buffer_end_data_ptr_access(struct wlr_buffer *wlr_buffer)
++{
++}
++
++static const struct wlr_buffer_impl pixel_buffer_impl = {
++	.destroy = pixel_buffer_destroy,
++	.begin_data_ptr_access = pixel_buffer_begin_data_ptr_access,
++	.end_data_ptr_access = pixel_buffer_end_data_ptr_access,
++};
++
++static uint8_t *
++read_file(const char *path, size_t *len)
++{
++	FILE *f = fopen(path, "rb");
++	if (!f) {
++		return NULL;
++	}
++	uint8_t *data = NULL;
++	size_t size = 0, cap = 0;
++	for (;;) {
++		if (size == cap) {
++			cap = cap ? cap * 2 : 1 << 20;
++			if (cap > MAX_FILE_SIZE) {
++				free(data);
++				fclose(f);
++				return NULL;
++			}
++			uint8_t *grown = realloc(data, cap);
++			if (!grown) {
++				free(data);
++				fclose(f);
++				return NULL;
++			}
++			data = grown;
++		}
++		size_t n = fread(data + size, 1, cap - size, f);
++		size += n;
++		if (n == 0) {
++			break;
++		}
++	}
++	bool failed = ferror(f);
++	fclose(f);
++	if (failed) {
++		free(data);
++		return NULL;
++	}
++	*len = size;
++	return data;
++}
++
++/* The TGA's pixels as XRGB8888, top row first; NULL if it isn't an uncompressed 24-bit TGA. */
++static uint32_t *
++decode_tga(const uint8_t *data, size_t len, int *width, int *height)
++{
++	if (len < 18 || data[1] != 0 || data[2] != 2 || data[16] != 24) {
++		return NULL;
++	}
++	int w = data[12] | data[13] << 8;
++	int h = data[14] | data[15] << 8;
++	size_t offset = 18 + data[0];
++	if (w == 0 || h == 0 || len < offset || (len - offset) / 3 / (size_t) w < (size_t) h) {
++		return NULL;
++	}
++	uint32_t *pixels = malloc((size_t) w * h * 4);
++	if (!pixels) {
++		return NULL;
++	}
++	bool top_down = data[17] & 0x20;
++	for (int y = 0; y < h; y++) {
++		const uint8_t *row = data + offset + (size_t) (top_down ? y : h - 1 - y) * w * 3;
++		for (int x = 0; x < w; x++) {
++			const uint8_t *bgr = row + (size_t) x * 3;
++			pixels[(size_t) y * w + x] = 0xff000000u | (uint32_t) bgr[2] << 16 | (uint32_t) bgr[1] << 8 | bgr[0];
++		}
++	}
++	*width = w;
++	*height = h;
++	return pixels;
++}
++
++bool
++background_load(struct cg_server *server, const char *path)
++{
++	size_t len = 0;
++	uint8_t *data = read_file(path, &len);
++	if (!data) {
++		wlr_log_errno(WLR_ERROR, "Cannot read the background %s", path);
++		return false;
++	}
++	int width = 0, height = 0;
++	uint32_t *pixels = decode_tga(data, len, &width, &height);
++	free(data);
++	if (!pixels) {
++		wlr_log(WLR_ERROR, "The background %s isn't an uncompressed 24-bit TGA", path);
++		return false;
++	}
++
++	struct pixel_buffer *buffer = calloc(1, sizeof(*buffer));
++	if (!buffer) {
++		free(pixels);
++		return false;
++	}
++	wlr_buffer_init(&buffer->base, &pixel_buffer_impl, width, height);
++	buffer->data = pixels;
++	buffer->stride = (size_t) width * 4;
++
++	uint32_t corner = pixels[0];
++	const float fill[4] = {
++		((corner >> 16) & 0xff) / 255.0f,
++		((corner >> 8) & 0xff) / 255.0f,
++		(corner & 0xff) / 255.0f,
++		1.0f,
++	};
++
++	server->background = wlr_scene_tree_create(&server->scene->tree);
++	if (!server->background) {
++		wlr_buffer_drop(&buffer->base);
++		return false;
++	}
++	wlr_scene_node_lower_to_bottom(&server->background->node);
++	server->background_fill = wlr_scene_rect_create(server->background, 0, 0, fill);
++	server->background_image = wlr_scene_buffer_create(server->background, &buffer->base);
++	wlr_buffer_drop(&buffer->base); /* the scene buffer holds its own reference */
++	if (!server->background_fill || !server->background_image) {
++		background_remove(server);
++		return false;
++	}
++	server->background_width = width;
++	server->background_height = height;
++	wlr_log(WLR_INFO, "Background %s (%dx%d)", path, width, height);
++	return true;
++}
++
++static int
++floor_half(int n)
++{
++	return n >= 0 ? n / 2 : -((-n + 1) / 2);
++}
++
++void
++background_place(struct cg_server *server, int x, int y, int width, int height)
++{
++	if (!server->background || width <= 0 || height <= 0) {
++		return;
++	}
++	wlr_scene_node_set_position(&server->background_fill->node, x, y);
++	wlr_scene_rect_set_size(server->background_fill, width, height);
++	wlr_scene_node_set_position(&server->background_image->node, x + floor_half(width - server->background_width),
++				    y + floor_half(height - server->background_height));
++}
++
++void
++background_remove(struct cg_server *server)
++{
++	if (!server->background) {
++		return;
++	}
++	wlr_scene_node_destroy(&server->background->node);
++	server->background = NULL;
++	server->background_fill = NULL;
++	server->background_image = NULL;
++	wlr_log(WLR_DEBUG, "Background removed");
++}
+diff --git a/background.h b/background.h
+new file mode 100644
+index 0000000..50ab931
+--- /dev/null
++++ b/background.h
+@@ -0,0 +1,15 @@
++#ifndef CG_BACKGROUND_H
++#define CG_BACKGROUND_H
++
++#include <stdbool.h>
++
++struct cg_server;
++
++/* Load the background (an uncompressed 24-bit TGA) into the bottom of the scene. */
++bool background_load(struct cg_server *server, const char *path);
++/* Cover this box: the fill everywhere, the picture centred. */
++void background_place(struct cg_server *server, int x, int y, int width, int height);
++/* Take it out of the scene: the first window has mapped. */
++void background_remove(struct cg_server *server);
++
++#endif
+diff --git a/cage.c b/cage.c
+index 41364c3..ef93c5e 100644
+--- a/cage.c
++++ b/cage.c
+@@ -55,6 +55,7 @@
+ #include <wlr/xwayland.h>
+ #endif
+ 
++#include "background.h"
+ #include "idle_inhibit_v1.h"
+ #include "output.h"
+ #include "seat.h"
+@@ -243,6 +244,7 @@ usage(FILE *file, const char *cage)
+ 	fprintf(file,
+ 		"Usage: %s [OPTIONS] [--] [APPLICATION...]\n"
+ 		"\n"
++		" -b file Show this picture (a 24-bit TGA, centred) until the first window maps\n"
+ 		" -d\t Don't draw client side decorations, when possible\n"
+ 		" -D\t Enable debug logging\n"
+ 		" -h\t Display this help message\n"
+@@ -259,8 +261,11 @@ static bool
+ parse_args(struct cg_server *server, int argc, char *argv[])
+ {
+ 	int c;
+-	while ((c = getopt(argc, argv, "dDhm:sv")) != -1) {
++	while ((c = getopt(argc, argv, "b:dDhm:sv")) != -1) {
+ 		switch (c) {
++		case 'b':
++			server->background_path = optarg;
++			break;
+ 		case 'd':
+ 			server->xdg_decoration = true;
+ 			break;
+@@ -407,6 +412,11 @@ main(int argc, char *argv[])
+ 
+ 	server.scene_output_layout = wlr_scene_attach_output_layout(server.scene, server.output_layout);
+ 
++	/* Without it, or if it can't be read, Cage shows black until the first window, as ever. */
++	if (server.background_path) {
++		background_load(&server, server.background_path);
++	}
++
+ 	struct wlr_compositor *compositor = wlr_compositor_create(server.wl_display, 6, server.renderer);
+ 	if (!compositor) {
+ 		wlr_log(WLR_ERROR, "Unable to create the wlroots compositor");
+diff --git a/meson.build b/meson.build
+index e2cfba1..db0593f 100644
+--- a/meson.build
++++ b/meson.build
+@@ -91,6 +91,7 @@ if scdoc.found()
+ endif
+ 
+ cage_sources = [
++  'background.c',
+   'cage.c',
+   'idle_inhibit_v1.c',
+   'output.c',
+diff --git a/output.c b/output.c
+index 9f2a708..ed1af13 100644
+--- a/output.c
++++ b/output.c
+@@ -34,6 +34,7 @@
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ 
++#include "background.h"
+ #include "output.h"
+ #include "seat.h"
+ #include "server.h"
+@@ -179,6 +180,10 @@ handle_output_layout_change(struct wl_listener *listener, void *data)
+ {
+ 	struct cg_server *server = wl_container_of(listener, server, output_layout_change);
+ 
++	struct wlr_box box = {0};
++	wlr_output_layout_get_box(server->output_layout, NULL, &box);
++	background_place(server, box.x, box.y, box.width, box.height);
++
+ 	view_position_all(server);
+ 	update_output_manager_config(server);
+ }
+@@ -311,10 +316,27 @@ handle_new_output(struct wl_listener *listener, void *data)
+ 			wlr_output->scale);
+ 	}
+ 
++	/* The first frame comes from the scene, as when the output is configured later
++	   (output_config_apply), so it shows the background from the start. Otherwise wlroots
++	   commits an empty buffer: black, until the next frame. A new output goes at the
++	   layout's origin when it's the first, as output_layout_add_auto places it. */
++	if (server->background && wl_list_length(&server->outputs) == 1) {
++		int width = wlr_output->width, height = wlr_output->height;
++		if ((state.committed & WLR_OUTPUT_STATE_MODE) && state.mode) {
++			width = state.mode->width;
++			height = state.mode->height;
++		}
++		background_place(server, 0, 0, width, height);
++		if (!wlr_scene_output_build_state(output->scene_output, &state, NULL)) {
++			wlr_log(WLR_ERROR, "Cannot draw the background for output %s", wlr_output->name);
++		}
++	}
++
+ 	wlr_log(WLR_DEBUG, "Enabling new output %s", wlr_output->name);
+ 	if (wlr_output_commit_state(wlr_output, &state)) {
+ 		output_layout_add_auto(output);
+ 	}
++	wlr_output_state_finish(&state);
+ 
+ 	view_position_all(output->server);
+ 	update_output_manager_config(output->server);
+diff --git a/server.h b/server.h
+index 27f212a..09abc5e 100644
+--- a/server.h
++++ b/server.h
+@@ -42,6 +42,11 @@ struct cg_server {
+ 	struct wlr_scene_output_layout *scene_output_layout;
+ 
+ 	struct wlr_scene *scene;
++	/* The background picture until the first window maps (background.c), or NULL. */
++	struct wlr_scene_tree *background;
++	struct wlr_scene_rect *background_fill;
++	struct wlr_scene_buffer *background_image;
++	int background_width, background_height;
+ 	/* Includes disabled outputs; depending on the output_mode
+ 	 * some outputs may be disabled. */
+ 	struct wl_list outputs; // cg_output::link
+@@ -70,6 +75,7 @@ struct cg_server {
+ 
+ 	struct wlr_foreign_toplevel_manager_v1 *foreign_toplevel_manager;
+ 
++	const char *background_path;
+ 	bool xdg_decoration;
+ 	bool allow_vt_switch;
+ 	bool return_app_code;
+diff --git a/view.c b/view.c
+index 94fd75e..d571ee1 100644
+--- a/view.c
++++ b/view.c
+@@ -17,6 +17,7 @@
+ #include <wlr/types/wlr_output.h>
+ #include <wlr/types/wlr_scene.h>
+ 
++#include "background.h"
+ #include "output.h"
+ #include "seat.h"
+ #include "server.h"
+@@ -150,6 +151,9 @@ view_map(struct cg_view *view, struct wlr_surface *surface)
+ 	view->scene_tree = wlr_scene_subsurface_tree_create(&view->server->scene->tree, surface);
+ 	if (!view->scene_tree)
+ 		goto fail;
++	/* The first window is up: from now on Cage draws as without a background, so it costs
++	   nothing (and doesn't stop direct scanout) under windows that aren't opaque. */
++	background_remove(view->server);
+ 	view->scene_tree->node.data = view;
+ 
+ 	view->wlr_surface = surface;

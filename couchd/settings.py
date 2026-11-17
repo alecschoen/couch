@@ -90,7 +90,7 @@ def _schema(*settings: Setting) -> dict[str, Setting]:
 
 
 SCHEMA: dict[str, Setting] = _schema(
-    # Read by the UI (ui/js/settings.js).
+    # Read by the launcher (launcher/src/state.rs has the same defaults).
     # "sunset" follows the sun where the Pi's timezone is (couchd/evening.py).
     Setting(
         "display.evening", "choice", "sunset", ("sunset", "always", "off"), label="Evening colors"
@@ -108,7 +108,7 @@ SCHEMA: dict[str, Setting] = _schema(
     Setting("audio.volume_limit", "int", 100, min=10, max=100, step=5, label="Volume limit"),
     # Kept for the CEC volume keys (System Audio Mode); nothing acts on it yet.
     Setting("audio.tv_remote_volume", "bool", True, label="TV remote controls volume"),
-    # The launcher's UI sounds (#49, ui/js/sounds.js): everywhere, only on the TV speakers, or off.
+    # UI sounds (#49, launcher/src/sounds.rs): everywhere, only on the TV speakers, or off.
     Setting("audio.ui_sounds", "choice", "on", ("on", "tv", "off"), label="UI sounds"),
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
     # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.

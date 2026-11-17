@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from couchd.config import (
-    BUNDLED_UI_DIR,
     DEVICE_STATE_PATH,
     ConfigError,
     defaults,
@@ -21,7 +20,6 @@ def test_missing_file_gives_defaults(tmp_path):
     config = load_config(tmp_path / "nope.toml")
     assert config == defaults()
     assert config.server.port == 8765
-    assert config.paths.ui == BUNDLED_UI_DIR
     assert config.paths.state == DEVICE_STATE_PATH
     assert config.log.level == "info"
 
@@ -54,7 +52,6 @@ def test_values_override_defaults(tmp_path):
     config = load_config(path)
     assert config.server.port == 9000
     assert config.paths.state == Path("~/couch-state.json").expanduser()
-    assert config.paths.ui == BUNDLED_UI_DIR
     assert config.log.level == "debug"
     assert config.warnings == ()
 
@@ -75,7 +72,6 @@ def test_unknown_keys_warn_but_load(tmp_path):
         ("[server]\nport = true", "server.port must be an integer"),
         ("[server]\nport = 70000", "server.port must be 1-65535"),
         ("[log]\nlevel = 'loud'", "log.level must be one of"),
-        ("[paths]\nui = ''", "paths.ui must be a path string"),
         ("server = 1", "[server] must be a table"),
         ("[server\nport = 1", "config.toml"),
     ],

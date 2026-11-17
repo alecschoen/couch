@@ -22,11 +22,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="run on a PC with fake CEC, audio and Bluetooth backends",
     )
     parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="with --dev, don't open the launcher in a Chromium window",
-    )
-    parser.add_argument(
         "--config",
         type=Path,
         help=f"config file (default: {DEVICE_CONFIG_PATH}, or none with --dev)",
@@ -55,7 +50,6 @@ def check_config(path: Path | None, dev: bool) -> int:
         print(f"warning: {warning}")
     print(f"config: {path if path and path.exists() else '(defaults)'}")
     print(f"server.port = {config.server.port}")
-    print(f"paths.ui    = {config.paths.ui}")
     print(f"paths.state = {config.paths.state}")
     print(f"log.level   = {config.log.level}")
     return 0
@@ -82,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check_config:
         return check_config(path, args.dev)
     config = _load(path, args.dev)
-    daemon = Daemon(config, dev=args.dev, open_browser=args.dev and not args.no_browser)
+    daemon = Daemon(config, dev=args.dev)
     return asyncio.run(run_daemon(daemon))
 
 

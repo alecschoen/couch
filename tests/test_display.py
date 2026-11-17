@@ -62,15 +62,15 @@ def unit(systemd: Path, name: str) -> str:
 
 async def test_hands_the_screen_to_kodi_and_back(systemd):
     display = SystemdDisplay()
-    assert await display.owner() == "browser"
+    assert await display.owner() == "session"
     exits: list[bool] = []
 
     await display.start_kodi(exits.append)
     assert await display.owner() == "kodi"
     assert unit(systemd, SESSION_UNIT) == "active"  # waiting behind Kodi
 
-    await display.show_browser()
-    assert await display.owner() == "browser"
+    await display.show_session()
+    assert await display.owner() == "session"
     await until(lambda: exits)
     assert exits == [False]
     log = (systemd / "log").read_text()
@@ -87,7 +87,7 @@ async def test_kodi_crashing_is_reported(systemd):
     (systemd / KODI_UNIT).write_text("failed\n")
     await until(lambda: exits)
     assert exits == [True]
-    assert await display.owner() == "browser"  # the session was there all along
+    assert await display.owner() == "session"  # the session was there all along
     await display.stop()
 
 
@@ -103,14 +103,14 @@ async def test_a_session_that_wont_start(systemd):
     (systemd / f"{SESSION_UNIT}.broken").touch()
     display = SystemdDisplay()
     with pytest.raises(BackendError, match="couldn't start the launcher"):
-        await display.show_browser()
+        await display.show_session()
 
 
 async def test_a_session_that_died_behind_kodi_is_started_again(systemd):
     display = SystemdDisplay()
     await display.start_kodi(lambda failed: None)
     (systemd / SESSION_UNIT).write_text("failed\n")
-    await display.show_browser()
+    await display.show_session()
     assert unit(systemd, KODI_UNIT) == "inactive"
     assert unit(systemd, SESSION_UNIT) == "active"
     await display.stop()
@@ -118,7 +118,7 @@ async def test_a_session_that_died_behind_kodi_is_started_again(systemd):
 
 async def test_restarting_the_browser_session(systemd):
     display = SystemdDisplay()
-    await display.restart_browser()
+    await display.restart_session()
     assert f"restart {SESSION_UNIT}" in (systemd / "log").read_text()
 
 

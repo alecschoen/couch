@@ -1,16 +1,14 @@
 """The last stretch of the boot splash: from cage's start to the launcher's first frame (#23).
 
-The boot splash (#4) is drawn on the framebuffer until cage takes the screen. cage then
-shows black until a Wayland client draws, Chromium needs several seconds to start, and its
-window's first frames are white. So `couch-session-start` (cage's client) first starts
-`couch-splash`, a small Wayland client that draws the boot splash's own pixels and stays
-above Chromium's window, and only then starts Chromium.
+The boot splash (#4) is drawn on the framebuffer until cage takes the screen. Couch's cage
+(cage/) draws the same picture from its first frame, and `couch-session-start` starts
+`couch-splash` before it: a small Wayland client with the boot splash's own pixels, cage's
+first window. The launcher maps over it, and couch-splash goes by itself once it's covered.
 
-The splash must then go: while it's up, nothing on the launcher can be seen, and the
-compositor blends it over every frame. The launcher says when it has drawn its first frame
-(`ui.first_frame`), and this service ends couch-splash `HANDOVER_DELAY` seconds later,
-enough for that frame to be on screen under it. The launcher's first frame is the Startup
-screen, the same picture as the splash, so the hand-over can't be seen.
+This service is the backstop: the launcher says when it has drawn its first frame
+(`ui.first_frame`), and couchd ends couch-splash `HANDOVER_DELAY` seconds later if it's
+still there, enough for that frame to be on screen. The launcher's first frame is the
+Startup screen, the same picture as the splash, so the hand-over can't be seen.
 
 couch-session-start writes couch-splash's pid to `$XDG_RUNTIME_DIR/couch-splash.pid`.
 couchd runs as the same user, so it can signal it. In dev mode there's no such file and the

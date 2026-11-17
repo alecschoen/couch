@@ -1,6 +1,6 @@
 """Chromium over the DevTools Protocol (CDP), on 127.0.0.1 only.
 
-The kiosk Chromium (`system/couch-browser`, or the dev window) listens for DevTools on
+The kiosk Chromium for YouTube (`system/couch-browser`) listens for DevTools on
 127.0.0.1:9222. couchd holds one browser-level WebSocket to it and uses it to open, focus
 and close tabs ("targets"), and to run scripts in them: pausing a video when its app goes
 to the background now, overlays later (#18).
@@ -145,15 +145,24 @@ class Chromium:
         ]
 
     async def open(
-        self, url: str, setup: PageSetup | None = None, *, background: bool = False
+        self,
+        url: str,
+        setup: PageSetup | None = None,
+        *,
+        background: bool = False,
+        reuse: str | None = None,
     ) -> str:
         """Open `url` in a new tab and return its target id. With `setup`, the tab is set up
         before the page starts loading. A `background` tab loads behind the one in front
-        until it's activated."""
-        params: dict[str, Any] = {"url": url if setup is None else "about:blank"}
-        if background:
-            params["background"] = True
-        target_id = (await self.call("Target.createTarget", params))["targetId"]
+        until it's activated. With `reuse` (and `setup`), load it in that blank tab instead
+        of a new one: a browser just started has one, and a new tab costs a renderer."""
+        if reuse is not None and setup is not None:
+            target_id = reuse
+        else:
+            params: dict[str, Any] = {"url": url if setup is None else "about:blank"}
+            if background:
+                params["background"] = True
+            target_id = (await self.call("Target.createTarget", params))["targetId"]
         if setup is None:
             return target_id
         try:

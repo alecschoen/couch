@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from aiohttp import web
 
-from couchd.apps import DRAWING, PAUSE_MEDIA, READY, VISIBILITY
+from couchd.apps import PAUSE_MEDIA, PROBE, VISIBILITY
 from couchd.chromium import BINDING
 from couchd.overlay_page import GLOBAL, HELLO
 from couchd.overlay_page import SCRIPT as OVERLAY_SCRIPT
@@ -41,8 +41,7 @@ class FakeChromium:
     active: str | None = None
     up: bool = True  # False: refuse connections, as while the session restarts
     calls: list[str] = field(default_factory=list)
-    load_new_tabs: bool = True  # False: tabs opened from now on never finish loading
-    drawing: bool = True  # False: no frames (cage isn't drawing), so DRAWING never resolves
+    load_new_tabs: bool = True  # False: pages opened or navigated from now on never load
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
     _sockets: set = field(default_factory=set)
     _sessions: dict = field(default_factory=dict)  # session id -> tab id
@@ -113,8 +112,6 @@ class FakeChromium:
         try:
             async for msg in ws:
                 data = json.loads(msg.data)
-                if not self.drawing and data.get("params", {}).get("expression") == DRAWING:
-                    continue  # requestAnimationFrame never fires: no reply
                 reply = await self._handle(data["method"], data.get("params", {}), data, ws)
                 if "error" in reply:
                     await ws.send_json({"id": data["id"], "error": reply["error"]})
@@ -172,6 +169,7 @@ class FakeChromium:
                 return {}
             case "Page.navigate" if on:
                 on.url = params["url"]
+                on.loaded = self.load_new_tabs
                 return {"frameId": on.id, "loaderId": "L1"}
             case "Target.getTargets":
                 infos = [
@@ -203,11 +201,10 @@ class FakeChromium:
                 if params["expression"] == VISIBILITY:
                     visible = "visible" if self.active == tab.id else "hidden"
                     return {"result": {"type": "string", "value": visible}}
-                if params["expression"] == READY:
+                if params["expression"] == PROBE:
                     ready = "complete" if tab.loaded else "loading"
-                    return {"result": {"type": "string", "value": ready}}
-                if params["expression"] == DRAWING:
-                    return {"result": {"type": "boolean", "value": True}}
+                    probe = {"rs": ready, "fcp": None, "yt": 0, "img": 0}
+                    return {"result": {"type": "object", "value": probe}}
                 if params["expression"] == PAUSE_MEDIA:
                     tab.paused += 1
                     return {"result": {"type": "undefined"}}

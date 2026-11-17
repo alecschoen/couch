@@ -1,0 +1,231 @@
+// couchd's overlays drawn by the launcher (in YouTube: ui/js/overlay-view.js, ui/css/overlay.css): the
+// quick menu, a sheet that slides up in the app's colour, and the volume panel, top right.
+// couchd runs the menu itself (couchd/overlay.py); Rust (src/overlay.rs) sets OverlayData
+// from its state and this only draws it.
+
+import { Theme, Ease } from "tokens.slint";
+import { Line } from "components.slint";
+
+export struct MenuCard {
+    label: string,
+    value: string,
+}
+
+export global OverlayData {
+    // ---- The quick menu.
+    // A new sheet each time the menu opens, so it slides in from below again.
+    in property <int> menu-generation;
+    // There's a sheet (open, or still sliding out).
+    in property <bool> menu-shown;
+    // Up; false while it slides back down.
+    in property <bool> menu-open;
+    // The sheet's palette: the app's (couchd's), or the launcher's own screen colour.
+    in property <string> menu-palette: "system";
+    in property <string> menu-title;
+    in property <[MenuCard]> menu-cards;
+    // The focused card (couchd moves it).
+    in property <int> menu-focus;
+
+    // ---- The volume panel.
+    // A new panel each time it comes up (it drops in), the same one while it keeps changing.
+    in property <int> volume-generation;
+    in property <bool> volume-shown;
+    // Going: fades out, then `volume-shown` goes false.
+    in property <bool> volume-fading;
+    in property <string> volume-name;
+    // The number, or "Muted".
+    in property <string> volume-value;
+    // 0–1: the bar.
+    in property <float> volume-level;
+}
+
+// ---- A quick menu card (.qm-card): a label over a value. The focused one is wide and
+// inverted, like a focused Card; its width changes at once, the fill fades.
+component MenuCardView inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> focused;
+    in property <color> ink;
+    in property <color> ground;
+    property <color> fg: focused ? ground : ink;
+    width: focused ? Theme.card-w-focus : 345px;
+    height: 192px;
+    border-radius: Theme.radius-card;
+    border-width: Theme.border;
+    border-color: focused ? ink : ink.with-alpha(Theme.a-outline);
+    background: focused ? ink : ink.with-alpha(0);
+    animate background, border-color, fg { duration: Theme.dur-quick; easing: ease; }
+
+    Line {
+        x: Theme.border + 30px;
+        y: Theme.border + 27px;
+        width: parent.width - 2 * (Theme.border + 30px);
+        text: root.label;
+        font-size: Theme.text-xs;
+        color: root.fg;
+        opacity: Theme.a-muted;
+    }
+
+    Line {
+        x: Theme.border + 30px;
+        y: parent.height - Theme.border - 27px - self.height;
+        width: parent.width - 2 * (Theme.border + 30px);
+        text: root.value;
+        font-family: Theme.font-display;
+        font-size: Theme.text-row;
+        font-weight: 600;
+        color: root.fg;
+        overflow: elide;
+    }
+}
+
+// ---- The quick menu (.sheet.qm): the title and "Back to close", then the cards. Slides up
+// from the bottom as it's made, and back down when `open` goes false.
+component QuickMenu inherits Rectangle {
+    in property <bool> open;
+    property <string> palette: OverlayData.menu-palette;
+    property <color> ink: Theme.ink-of(palette);
+    property <color> ground: Theme.bg-of(palette);
+    // 0 → 1 once made: in. Back to 0 as it closes. Set, not bound, so both animate.
+    property <float> up: 0;
+    init => {
+        up = open ? 1 : 0;
+    }
+    changed open => {
+        up = open ? 1 : 0;
+    }
+    animate up { duration: Theme.dur-sheet; easing: Ease.out; }
+
+    Rectangle {
+        y: root.height - self.height * root.up;
+        height: lay.preferred-height;
+        background: root.ground;
+
+        lay := VerticalLayout {
+            padding-top: 51px;
+            padding-left: 84px;
+            padding-right: 84px;
+            padding-bottom: 60px;
+            // .qm's gap, over .sheet's 33px.
+            spacing: Theme.s5;
+            Rectangle {
+                height: title.height;
+                title := Line {
+                    x: 0;
+                    y: 0;
+                    text: OverlayData.menu-title;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-heading;
+                    font-weight: 600;
+                    letter-spacing: -0.025 * Theme.text-heading;
+                    color: root.ink;
+                }
+
+                // Its baseline on the title's (CSS align-items: baseline): Space Grotesk's at
+                // 45.9px down a 45px line, Inter's at 24.9px down a 24px one.
+                Line {
+                    x: parent.width - self.width;
+                    y: 21px;
+                    text: "Back to close";
+                    font-size: Theme.text-xs;
+                    color: root.ink;
+                    opacity: Theme.a-muted;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                spacing: Theme.s4;
+                for card[i] in OverlayData.menu-cards: MenuCardView {
+                    label: card.label;
+                    value: card.value;
+                    focused: OverlayData.menu-focus == i;
+                    ink: root.ink;
+                    ground: root.ground;
+                }
+            }
+        }
+    }
+}
+
+// ---- The volume panel (.volume-panel): the output's name and its volume, and a bar. In the
+// audio palette. Drops in from 18px above as it's made; fades out when `fading`.
+export component VolumePanel inherits Rectangle {
+    property <color> ink: Theme.ink-of("audio");
+    property <float> made: 0;
+    property <float> fade: OverlayData.volume-fading ? 0 : 1;
+    init => {
+        made = 1;
+    }
+    animate made { duration: Theme.dur-quick; easing: Ease.out; }
+    animate fade { duration: Theme.dur-quick; }
+    width: 540px;
+    height: lay.preferred-height;
+    opacity: made * fade;
+
+    Rectangle {
+        y: -18px * (1 - root.made);
+        border-radius: Theme.radius-card;
+        background: Theme.bg-of("audio");
+
+        lay := VerticalLayout {
+            padding-top: 27px;
+            padding-bottom: 27px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: Theme.s3;
+            HorizontalLayout {
+                spacing: Theme.s3;
+                Line {
+                    horizontal-stretch: 1;
+                    text: OverlayData.volume-name;
+                    font-size: Theme.text-base;
+                    color: root.ink;
+                    overflow: elide;
+                }
+
+                Line {
+                    horizontal-stretch: 0;
+                    text: OverlayData.volume-value;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-base;
+                    font-weight: 600;
+                    color: root.ink;
+                }
+            }
+
+            Rectangle {
+                height: 12px;
+                border-radius: 6px;
+                background: root.ink.with-alpha(0.25);
+                clip: true;
+                // Scaled, not widened, as on the web (its rounded end squeezes with it).
+                Rectangle {
+                    border-radius: 6px;
+                    background: root.ink;
+                    transform-origin: { x: 0, y: self.height / 2 };
+                    transform-scale-x: OverlayData.volume-level;
+                    animate transform-scale-x { duration: 160ms; easing: Ease.out; }
+                }
+            }
+        }
+    }
+}
+
+// The layer couchd's overlays draw in: the quick menu at the bottom, and the volume panel top
+// right where the toasts go. On the web the panel goes in the toast stack itself, on top,
+// pushing the toasts down; with `volume-panel: false` this leaves it to that stack.
+export component OverlayLayer inherits Rectangle {
+    in property <bool> volume-panel: true;
+    for gen in [OverlayData.menu-generation]: Rectangle {
+        if OverlayData.menu-shown: QuickMenu {
+            open: OverlayData.menu-open;
+        }
+    }
+    for gen in [OverlayData.volume-generation]: Rectangle {
+        if root.volume-panel && OverlayData.volume-shown: VolumePanel {
+            x: parent.width - 84px - self.width;
+            y: 66px;
+        }
+    }
+}

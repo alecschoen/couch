@@ -10,8 +10,12 @@ Conflicts=shutdown.target
 Before=shutdown.target couch-session.service
 
 [Service]
-Type=oneshot
+# simple, not oneshot: it plays the boot animation for several seconds, and couch-session
+# (ordered after it) mustn't wait for that. It ends on the still logo when couch-session
+# starts (SIGUSR1, from couch-session.service) and exits; RemainAfterExit keeps the unit
+# active so that ExecStop still draws the splash at shutdown.
+Type=simple
 RemainAfterExit=yes
-ExecStart=/opt/couch/bin/couch-fbsplash fb0
+ExecStart=/opt/couch/bin/couch-fbsplash fb0 --animate
 # "-": after --revert-boot the script may be gone before the unit stops.
 ExecStop=-/opt/couch/bin/couch-fbsplash fb0 --after-text tty1

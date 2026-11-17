@@ -10,14 +10,6 @@ from couchd.state import LiveState
 
 
 @pytest.fixture
-def ui_dir(tmp_path):
-    (tmp_path / "index.html").write_text("<h1>Couch</h1>")
-    (tmp_path / "js").mkdir()
-    (tmp_path / "js" / "couch.js").write_text("export {};")
-    return tmp_path
-
-
-@pytest.fixture
 def bus():
     return EventBus()
 
@@ -35,8 +27,8 @@ def commands():
 
 
 @pytest.fixture
-async def client(bus, state, commands, ui_dir):
-    app = create_app(bus=bus, state=state, commands=commands, ui_dir=ui_dir)
+async def client(bus, state, commands):
+    app = create_app(bus=bus, state=state, commands=commands)
     async with TestClient(TestServer(app, host="127.0.0.1")) as client:
         yield client
 
@@ -109,18 +101,9 @@ async def test_state_and_health(client, state):
     assert body["services"] == {"cec": "running", "bluetooth": "failed"}
 
 
-async def test_serves_ui_without_caching(client):
-    resp = await client.get("/")
-    assert resp.status == 200
-    assert "Couch" in await resp.text()
-    assert resp.headers["Cache-Control"] == "no-cache"
-    resp = await client.get("/js/couch.js")
-    assert resp.status == 200
-
-
-async def test_static_does_not_escape_ui_dir(client):
-    resp = await client.get("/../config.toml")
-    assert resp.status in (403, 404)
+async def test_serves_no_ui(client):
+    resp = await client.get("/")  # the launcher is native; nothing here for a browser
+    assert resp.status == 404
 
 
 @pytest.mark.parametrize(

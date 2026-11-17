@@ -15,7 +15,7 @@ for the Settings screen (None in a polar day or night). If the timezone is unkno
 no coordinates (UTC, say), `place` is None and `dark` falls back to 18:00-07:00.
 
 The UI combines it with the `display.evening` setting: "sunset" follows `dark`, "always"
-and "off" ignore it (ui/js/settings.js). It's rechecked every minute, so a clock that jumps
+and "off" ignore it (launcher/src/app.rs). It's rechecked every minute, so a clock that jumps
 at boot (the Pi has no real-time clock until NTP answers) is caught up within a minute.
 """
 

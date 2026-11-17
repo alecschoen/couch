@@ -13,7 +13,6 @@ from couchd.api import create_app
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.config import Config
-from couchd.devbrowser import DevBrowser
 from couchd.services import Context, Service, ServiceRegistry
 from couchd.settings import Settings
 from couchd.state import LiveState, SavedState
@@ -32,7 +31,6 @@ class Daemon:
         *,
         dev: bool = False,
         services: Iterable[Service] | None = None,
-        open_browser: bool = False,
     ):
         """`services=None` picks the standard set for the mode (fakes with `dev`)."""
         self.config = config
@@ -49,7 +47,6 @@ class Daemon:
             services = build_services(self.ctx, dev=dev)
         for service in services:
             self.services.add(service)
-        self.browser = DevBrowser(config.paths.state.parent / "chromium") if open_browser else None
         self.stopping = asyncio.Event()
         self.port: int | None = None
         self._runner: web.AppRunner | None = None
@@ -85,20 +82,13 @@ class Daemon:
         # The API comes up first and systemd is told we're ready right after, so the
         # launcher can appear while slower services (Bluetooth, CEC) are still starting.
         await self._start_api()
-        # The app manager opens the launcher at this URL if its tab is ever lost.
-        self.state.update("system", {"url": f"{self.url}/"})
         notify("READY=1")
         await self.services.start_all()
         log.info("couchd ready", extra={"url": self.url})
-        if self.browser is not None:
-            await self.browser.open(self.url)
 
     async def stop(self) -> None:
         notify("STOPPING=1")
-        # Services first, so the app manager lets go of the dev browser before it closes.
         await self.services.stop_all()
-        if self.browser is not None:
-            await self.browser.close()
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None
@@ -107,9 +97,7 @@ class Daemon:
         log.info("couchd stopped")
 
     async def _start_api(self) -> None:
-        app = create_app(
-            bus=self.bus, state=self.state, commands=self.commands, ui_dir=self.config.paths.ui
-        )
+        app = create_app(bus=self.bus, state=self.state, commands=self.commands)
         self._runner = web.AppRunner(app, handle_signals=False, shutdown_timeout=2.0)
         await self._runner.setup()
         site = web.TCPSite(self._runner, HOST, self.config.server.port)

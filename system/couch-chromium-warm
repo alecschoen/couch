@@ -1,0 +1,26 @@
+#!/bin/sh
+# couch-chromium-warm: read Chromium's files into the page cache, so YouTube opens quickly
+# the first time after boot too. couch-session-start runs it with the native launcher.
+#
+# With the native launcher, couchd starts Chromium only when YouTube opens (couch-chromium).
+# The first start after boot read its program, libraries and profile from the SD card: about
+# 7 s on the Pi 4, against under 2 s once they were cached. This reads them after the
+# launcher is up, at idle priority, so it doesn't slow anything down. The page cache isn't
+# held memory: the kernel drops it whenever something needs the room.
+#
+# Read only, nothing changes. Files that aren't there are skipped.
+sleep "${COUCH_WARM_DELAY:-15}"
+LIB=/usr/lib/chromium
+PROFILE=/var/lib/couch/chromium
+start=$(date +%s)
+{
+    for f in "$LIB/chromium" "$LIB"/*.pak "$LIB"/*.bin "$LIB/icudtl.dat" \
+        "$LIB/libEGL.so" "$LIB/libGLESv2.so" "$LIB/locales/en-US.pak" "$PROFILE/Local State"; do
+        [ -f "$f" ] && printf '%s\n' "$f"
+    done
+    ldd "$LIB/chromium" 2>/dev/null | awk '$3 ~ /^\// { print $3 }'
+    find "$PROFILE/Default" "$PROFILE/GPUPersistentCache" -type f -size -32M 2>/dev/null
+} | while IFS= read -r f; do
+    cat -- "$f" >/dev/null 2>&1
+done
+echo "couch-chromium-warm: Chromium's files are cached ($(($(date +%s) - start)) s)" >&2

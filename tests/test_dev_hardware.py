@@ -130,10 +130,10 @@ async def test_remote_rejects_unknown_keys(rig):
 
 
 def test_keyboard_map_only_uses_known_remote_keys():
-    js = (ROOT / "ui" / "js" / "keys.js").read_text()
-    table = js.split("export const KEYBOARD = {", 1)[1].split("};", 1)[0]
-    values = set(re.findall(r':\s*"([^"]+)"', table))
-    assert values, "couldn't parse the KEYBOARD table"
+    # The launcher's dev keyboard (launcher/ui/main.slint) sends remote.press with these.
+    slint = (ROOT / "launcher" / "ui" / "main.slint").read_text()
+    values = set(re.findall(r'root\.keyboard\("([^"]+)"\)', slint))
+    assert values, "couldn't parse the keyboard map"
     assert values <= REMOTE_KEYS
     # The ones the issue promises:
     for name in ("up", "down", "left", "right", "select", "back", "red", "green", "yellow", "blue"):

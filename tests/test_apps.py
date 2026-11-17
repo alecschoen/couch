@@ -1,4 +1,6 @@
-"""The app manager against a pretend Chromium (real DevTools over a socket) and pretend Kodi."""
+"""The app manager against a pretend Chromium (real DevTools over a socket) and pretend Kodi.
+The launcher is native: Chromium runs only while YouTube is open, started and stopped through
+the display (couch-chromium.service on the Pi)."""
 
 import asyncio
 
@@ -18,15 +20,16 @@ from couchd.state import LiveState, SavedState
 from tests.fake_chromium import FakeChromium
 from tests.fake_kodi import FakeKodi
 
-LAUNCHER = "http://127.0.0.1:8765/"
 YOUTUBE = "https://www.youtube.com/"
 
 
 @pytest.fixture(autouse=True)
-def fast_retries(monkeypatch):
+def fast(monkeypatch):
     monkeypatch.setattr(apps_module, "RETRY_MIN", 0.01)
     monkeypatch.setattr(apps_module, "RETRY_MAX", 0.05)
     monkeypatch.setattr(apps_module, "BROWSER_WAIT", 2.0)
+    monkeypatch.setattr(apps_module, "SESSION_POLL", 0.02)
+    monkeypatch.setattr(apps_module, "DRAW_WAIT", 0.2)
 
 
 @pytest.fixture
@@ -37,24 +40,29 @@ def ctx(tmp_path):
 
 @pytest.fixture
 async def browser():
+    """Not running until the display starts it, as on the Pi."""
     fake = FakeChromium()
-    fake.add_tab(LAUNCHER)
+    fake.up = False
     await fake.start()
     yield fake
     await fake.stop()
 
 
 @pytest.fixture
-def display():
-    return FakeDisplay(speed=0)
+def display(browser):
+    async def start():
+        browser.up = True
+        browser.add_tab("about:blank")
+
+    async def stop():
+        await browser.kill()
+
+    return FakeDisplay(speed=0, chromium=(start, stop))
 
 
 async def make_service(ctx, browser, display, **kwargs):
-    service = AppService(
-        ctx, display, Chromium(browser.port), launcher_url=LAUNCHER, opening_delay=0, **kwargs
-    )
+    service = AppService(ctx, display, Chromium(browser.port), opening_delay=0, **kwargs)
     await service.start()
-    await until(lambda: ctx.state.get("apps")["browser"] == "connected")
     return service
 
 
@@ -66,7 +74,7 @@ async def apps(ctx, browser, display):
 
 
 async def until(condition):
-    for _ in range(200):
+    for _ in range(300):
         if condition():
             return
         await asyncio.sleep(0.01)
@@ -81,42 +89,157 @@ async def run(ctx, name, **args):
     return await ctx.commands.run(name, args)
 
 
-# --- the launcher and YouTube --------------------------------------------------------------
+# --- Chromium only while YouTube is open ------------------------------------------------
 
 
-async def test_attaches_to_the_launcher(ctx, apps, browser):
+async def test_starts_without_chromium(ctx, apps, display):
     s = state(ctx)
     assert s["foreground"] == "launcher"
     assert s["running"] == ["launcher"]
     assert [a["id"] for a in s["list"]] == ["launcher", "youtube", "plex"]
     assert s["error"] is None and s["opening"] is None
-    assert "Target.setDiscoverTargets" in browser.calls
+    await asyncio.sleep(0.05)
+    assert display.chromium_starts == 0
 
 
-async def test_launch_opens_a_tab_and_brings_it_back_later(ctx, apps, browser):
+async def test_youtube_starts_chromium_and_home_stops_it(ctx, apps, browser, display):
     await run(ctx, "apps.launch", app="youtube")
+    assert display.chromium_starts == 1 and display.chromium_up
     youtube = browser.tab_for(YOUTUBE)
     assert youtube is not None and browser.active == youtube.id
     assert state(ctx)["foreground"] == "youtube"
     assert state(ctx)["running"] == ["launcher", "youtube"]
 
     await run(ctx, "apps.home")
-    assert browser.active == browser.tab_for(LAUNCHER).id
-    assert youtube.paused == 1  # its video stops when it leaves the screen
-    assert state(ctx)["running"] == ["launcher", "youtube"]
-
-    await run(ctx, "apps.launch", app="youtube")
-    assert browser.active == youtube.id
-    assert len(browser.tabs) == 2  # same tab, not a new one
-
-
-async def test_close_returns_to_the_launcher(ctx, apps, browser):
-    await run(ctx, "apps.launch", app="youtube")
-    await run(ctx, "apps.close", app="youtube")
-    assert browser.tab_for(YOUTUBE) is None
-    assert browser.active == browser.tab_for(LAUNCHER).id
+    assert not display.chromium_up  # its window going shows the launcher
     assert state(ctx)["foreground"] == "launcher"
     assert state(ctx)["running"] == ["launcher"]
+
+    await run(ctx, "apps.launch", app="youtube")  # and again, from scratch
+    assert display.chromium_starts == 2
+    assert state(ctx)["foreground"] == "youtube"
+
+
+async def test_youtube_loads_in_the_tab_chromium_starts_with(ctx, apps, browser, display):
+    """A new tab costs a renderer: YouTube loads in the blank one Chromium starts on."""
+    await run(ctx, "apps.launch", app="youtube")
+    assert "Target.createTarget" not in browser.calls
+    assert len(browser.tabs) == 1
+    youtube = browser.tab_for(YOUTUBE)
+    assert youtube is not None and youtube.user_agent  # set up before it loaded
+
+
+async def test_home_says_launcher_before_chromium_stops(ctx, browser):
+    """The native launcher maps over Chromium as soon as it hears, so Home shows at once
+    instead of after Chromium's exit."""
+    seen = []
+
+    async def start():
+        browser.up = True
+        browser.add_tab("about:blank")
+
+    async def stop():
+        seen.append(state(ctx)["foreground"])
+        await browser.kill()
+
+    display = FakeDisplay(speed=0, chromium=(start, stop))
+    service = await make_service(ctx, browser, display)
+    try:
+        await run(ctx, "apps.launch", app="youtube")
+        await run(ctx, "apps.home")
+        assert seen == ["launcher"]
+    finally:
+        await service.stop()
+
+
+async def test_close_stops_chromium(ctx, apps, display):
+    await run(ctx, "apps.launch", app="youtube")
+    await run(ctx, "apps.close", app="youtube")
+    assert not display.chromium_up
+    assert state(ctx)["foreground"] == "launcher"
+
+
+async def test_home_while_opening_stops_chromium(ctx, apps, browser, display):
+    browser.load_new_tabs = False  # YouTube never finishes loading
+    launch = asyncio.create_task(run(ctx, "apps.launch", app="youtube"))
+    await until(lambda: display.chromium_up and browser.tab_for(YOUTUBE) is not None)
+    await run(ctx, "apps.home")
+    await launch
+    assert not display.chromium_up
+    assert state(ctx)["foreground"] == "launcher" and state(ctx)["opening"] is None
+
+
+async def test_chromium_that_never_answers_is_an_error(ctx, apps, browser, display, monkeypatch):
+    monkeypatch.setattr(apps_module, "BROWSER_WAIT", 0.2)
+
+    async def start():
+        pass  # "starts", but DevTools never answers
+
+    display._chromium = (start, display._chromium[1])
+    with pytest.raises(CommandError, match="Couldn't open YouTube"):
+        await run(ctx, "apps.launch", app="youtube")
+    assert state(ctx)["error"]["kind"] == "failed"
+    assert not display.chromium_up
+
+
+async def test_chromium_dying_under_youtube(ctx, apps, browser, display):
+    await run(ctx, "apps.launch", app="youtube")
+    await browser.kill()
+    await until(lambda: state(ctx)["foreground"] == "launcher")
+    assert state(ctx)["error"]["kind"] == "crashed"
+    assert not display.chromium_up
+
+
+async def test_plex_from_youtube_stops_chromium_first(ctx, apps, display):
+    await run(ctx, "apps.launch", app="youtube")
+    await run(ctx, "apps.launch", app="plex")
+    assert not display.chromium_up
+    assert display.kodi_running and state(ctx)["foreground"] == "plex"
+
+
+async def test_back_from_plex_checks_the_launcher_draws(ctx, apps, display):
+    drawn = []
+
+    async def launcher():
+        # The native launcher: answers a draw check after its next frame.
+        with ctx.bus.subscribe() as sub:
+            async for message in sub:
+                if message["type"] == "draw_check":
+                    drawn.append(message["data"]["id"])
+                    await run(ctx, "ui.drawn", id=message["data"]["id"])
+
+    task = asyncio.create_task(launcher())
+    await asyncio.sleep(0)
+    await run(ctx, "apps.launch", app="plex")
+    await run(ctx, "apps.home")
+    assert drawn and display.session_restarts == 0
+    task.cancel()
+
+
+async def test_a_launcher_that_doesnt_draw_after_plex_is_restarted(ctx, apps, display):
+    await run(ctx, "apps.launch", app="plex")
+    await run(ctx, "apps.home")  # nobody answers the draw check
+    assert display.session_restarts == 1
+
+
+async def test_adopts_youtube_left_running(ctx, browser, display):
+    # couchd restarted while YouTube was up: stay there, and set it up again.
+    browser.up = True
+    tab_id = browser.add_tab(YOUTUBE + "tv#/watch")
+    display.chromium_up = True
+    service = await make_service(ctx, browser, display)
+    try:
+        await until(lambda: state(ctx)["foreground"] == "youtube")
+        assert display.chromium_up
+        assert state(ctx)["running"] == ["launcher", "youtube"]
+        assert browser.tabs[tab_id].user_agent == youtube.USER_AGENT
+        await browser.page_calls(tab_id, "home")
+        await until(lambda: state(ctx)["foreground"] == "launcher")
+    finally:
+        await service.stop()
+
+
+# --- the launcher and YouTube --------------------------------------------------------------
 
 
 async def test_bad_commands(ctx, apps):
@@ -128,11 +251,11 @@ async def test_bad_commands(ctx, apps):
         await run(ctx, "apps.launch")
 
 
-async def test_home_key_goes_home(ctx, apps, browser):
+async def test_home_key_goes_home(ctx, apps, display):
     await run(ctx, "apps.launch", app="youtube")
     ctx.bus.publish("key", {"key": "home"})
     await until(lambda: state(ctx)["foreground"] == "launcher")
-    assert browser.active == browser.tab_for(LAUNCHER).id
+    await until(lambda: not display.chromium_up)
 
 
 async def test_pause_key_pauses_the_app_in_front(ctx, apps, browser):
@@ -143,7 +266,6 @@ async def test_pause_key_pauses_the_app_in_front(ctx, apps, browser):
     youtube = browser.tab_for(YOUTUBE)
     await until(lambda: youtube.paused == 1)
     assert state(ctx)["foreground"] == "youtube"  # it stays on screen
-    assert browser.tab_for(LAUNCHER).paused == 0
 
 
 async def test_pause_key_pauses_kodi_over_json_rpc(ctx, browser, display):
@@ -172,7 +294,7 @@ async def test_youtube_gets_a_tv_user_agent_and_its_script(ctx, apps, browser):
     assert "isTypeSupported" in youtube.SCRIPT and "window.close" in youtube.SCRIPT
 
 
-async def test_leaving_youtube_goes_home_and_keeps_the_tab(ctx, apps, browser):
+async def test_youtube_asking_to_leave_goes_home(ctx, apps, browser, display):
     await run(ctx, "apps.launch", app="youtube")
     tab = browser.tab_for(YOUTUBE)
     await browser.page_calls(tab.id, "something else")  # ignored
@@ -181,24 +303,8 @@ async def test_leaving_youtube_goes_home_and_keeps_the_tab(ctx, apps, browser):
 
     await browser.page_calls(tab.id, "home")
     await until(lambda: state(ctx)["foreground"] == "launcher")
-    assert browser.active == browser.tab_for(LAUNCHER).id
-    assert state(ctx)["running"] == ["launcher", "youtube"]
-
-    # From the background it can't take anyone home.
-    await browser.page_calls(tab.id, "home")
-    await asyncio.sleep(0.05)
-    assert state(ctx)["foreground"] == "launcher"
-
-
-async def test_a_restarted_couchd_sets_youtube_up_again(ctx, browser, display):
-    tab_id = browser.add_tab(YOUTUBE + "tv#/watch")
-    service = await make_service(ctx, browser, display)
-    try:
-        assert browser.tabs[tab_id].user_agent == youtube.USER_AGENT
-        await browser.page_calls(tab_id, "home")
-        await until(lambda: state(ctx)["foreground"] == "launcher")
-    finally:
-        await service.stop()
+    await until(lambda: not display.chromium_up)
+    assert state(ctx)["running"] == ["launcher"]
 
 
 async def test_a_crashed_tab_goes_home_with_an_error(ctx, apps, browser):
@@ -230,63 +336,6 @@ async def test_crash_loops_are_capped(ctx, apps, browser):
     assert state(ctx)["error"]["kind"] == "repeated"
 
 
-async def test_a_crashed_launcher_is_reopened(ctx, apps, browser):
-    await browser.crash(browser.tab_for(LAUNCHER).id)
-    await until(lambda: browser.tab_for(LAUNCHER) is not None and len(browser.calls) > 0)
-    await until(lambda: state(ctx)["running"] == ["launcher"])
-    assert browser.active == browser.tab_for(LAUNCHER).id
-
-
-async def test_losing_the_browser_under_an_app(ctx, apps, browser):
-    await run(ctx, "apps.launch", app="youtube")
-    await browser.kill()
-    await until(lambda: state(ctx)["browser"] == "disconnected")
-    assert state(ctx)["foreground"] == "launcher"
-    assert state(ctx)["error"]["app"] == "youtube"
-
-    # systemd restarts the session, which opens the launcher again
-    browser.add_tab(LAUNCHER)
-    browser.up = True
-    await until(lambda: state(ctx)["browser"] == "connected")
-    assert state(ctx)["running"] == ["launcher"]
-    await run(ctx, "apps.launch", app="youtube")
-    assert state(ctx)["foreground"] == "youtube"
-
-
-async def test_adopts_the_tab_already_in_front(ctx, browser, display):
-    # couchd restarted while YouTube was on screen: stay there.
-    browser.add_tab(YOUTUBE + "tv#/watch")
-    service = await make_service(ctx, browser, display)
-    try:
-        assert state(ctx)["foreground"] == "youtube"
-        assert state(ctx)["running"] == ["launcher", "youtube"]
-    finally:
-        await service.stop()
-
-
-async def test_opens_the_launcher_if_its_tab_is_missing(ctx, browser, display):
-    browser.tabs.clear()
-    service = await make_service(ctx, browser, display)
-    try:
-        assert browser.tab_for(LAUNCHER) is not None
-        assert state(ctx)["running"] == ["launcher"]
-    finally:
-        await service.stop()
-
-
-async def test_waits_for_a_browser_that_starts_later(ctx, browser, display):
-    browser.up = False
-    service = AppService(ctx, display, Chromium(browser.port), launcher_url=LAUNCHER)
-    await service.start()
-    try:
-        await asyncio.sleep(0.05)
-        assert state(ctx)["browser"] == "disconnected"
-        browser.up = True
-        await until(lambda: state(ctx)["browser"] == "connected")
-    finally:
-        await service.stop()
-
-
 # --- Plex (Kodi) ---------------------------------------------------------------------------
 
 
@@ -308,34 +357,6 @@ async def test_plex_takes_the_screen_and_gives_it_back(ctx, apps, browser, displ
     await until(lambda: state(ctx)["foreground"] == "launcher")
     assert state(ctx)["error"] is None
     assert "plex" not in state(ctx)["running"]
-
-
-async def test_leaving_plex_puts_the_waiting_launcher_in_front(ctx, apps, browser, display):
-    """The browser session stays up behind Kodi, so coming back is just the launcher's tab."""
-    await run(ctx, "apps.launch", app="youtube")
-    await run(ctx, "apps.home")
-    await run(ctx, "apps.launch", app="plex")
-    browser.active = browser.tab_for(YOUTUBE).id  # whatever Chromium had in front meanwhile
-    await run(ctx, "apps.dev.kodi_exit")
-    await until(lambda: browser.active == browser.tab_for(LAUNCHER).id)
-    assert state(ctx)["foreground"] == "launcher"
-    assert len(browser.tabs) == 2  # nothing reopened
-
-
-async def test_a_launcher_that_doesnt_draw_after_plex_is_restarted(
-    ctx, apps, browser, display, monkeypatch
-):
-    monkeypatch.setattr(apps_module, "DRAW_WAIT", 0.1)
-    await run(ctx, "apps.launch", app="plex")
-    await run(ctx, "apps.dev.kodi_exit")
-    await until(lambda: state(ctx)["foreground"] == "launcher")
-    await asyncio.sleep(0.2)
-    assert display.browser_restarts == 0  # it drew
-
-    browser.drawing = False  # cage didn't take the screen back
-    await run(ctx, "apps.launch", app="plex")
-    await run(ctx, "apps.dev.kodi_exit")
-    await until(lambda: display.browser_restarts == 1)
 
 
 async def test_plex_opens_even_if_the_launcher_that_asked_goes_away(ctx, browser):
@@ -409,14 +430,14 @@ async def test_the_done_when_loop(ctx, apps, browser, display):
         await run(ctx, "apps.launch", app="youtube")
         assert browser.active == browser.tab_for(YOUTUBE).id
         await run(ctx, "apps.home")
-        assert browser.active == browser.tab_for(LAUNCHER).id
+        assert not display.chromium_up
         await run(ctx, "apps.launch", app="plex")
         assert state(ctx)["foreground"] == "plex"
         await run(ctx, "apps.dev.kodi_exit")
         await until(lambda: state(ctx)["foreground"] == "launcher")
     assert state(ctx)["error"] is None
     assert display.kodi_starts == 5
-    assert len(browser.tabs) == 2
+    assert display.chromium_starts == 5
 
 
 async def test_dev_kodi_exit_needs_kodi(ctx, apps):
@@ -426,16 +447,13 @@ async def test_dev_kodi_exit_needs_kodi(ctx, apps):
 
 async def test_adopts_a_running_kodi(ctx, browser, display):
     display.kodi_running = True
-    service = AppService(ctx, display, Chromium(browser.port), launcher_url=LAUNCHER)
-    await service.start()
+    service = await make_service(ctx, browser, display)
     try:
         assert state(ctx)["foreground"] == "plex"
-        assert state(ctx)["running"] == ["plex"]
-        await asyncio.sleep(0.05)
-        assert state(ctx)["browser"] == "disconnected"  # Kodi has the screen; no browser
+        assert state(ctx)["running"] == ["launcher", "plex"]
         display.exit_kodi(crashed=False)
-        await until(lambda: state(ctx)["browser"] == "connected")
-        assert state(ctx)["foreground"] == "launcher"
+        await until(lambda: state(ctx)["foreground"] == "launcher")
+        assert not display.chromium_up
     finally:
         await service.stop()
 
@@ -494,8 +512,8 @@ async def test_youtube_loads_behind_the_opening_screen(ctx, checked, browser):
     task = asyncio.create_task(run(ctx, "apps.launch", app="youtube"))
     await until(lambda: browser.tab_for(YOUTUBE) is not None)
     await asyncio.sleep(0.3)
-    # Opened in the background: the launcher (showing Opening) stays in front while it loads.
-    assert browser.active == browser.tab_for(LAUNCHER).id
+    # The launcher (showing Opening) stays in front while it loads.
+    assert state(ctx)["foreground"] == "launcher"
     assert state(ctx)["opening"] == "youtube"
     browser.tab_for(YOUTUBE).loaded = True
     await task
@@ -511,21 +529,7 @@ async def test_a_tab_that_never_loads_is_shown_anyway(ctx, checked, browser, mon
     assert browser.active == browser.tab_for(YOUTUBE).id
 
 
-async def test_home_gives_up_on_an_app_that_is_opening(ctx, checked, browser):
-    browser.load_new_tabs = False
-    task = asyncio.create_task(run(ctx, "apps.launch", app="youtube"))
-    await until(lambda: browser.tab_for(YOUTUBE) is not None)
-    await run(ctx, "apps.home")
-    await task  # returns quietly
-    assert state(ctx)["opening"] is None
-    assert state(ctx)["foreground"] == "launcher"
-    assert browser.active == browser.tab_for(LAUNCHER).id
-    assert state(ctx)["error"] is None
-    # The tab stays open behind the launcher, so the next launch is instant.
-    assert "youtube" in state(ctx)["running"]
-
-
-async def test_no_internet_shows_an_error_instead_of_youtube(ctx, checked, browser, net):
+async def test_no_internet_shows_an_error_instead_of_youtube(ctx, checked, display, net):
     net.online = False
     with pytest.raises(CommandError, match="needs the internet"):
         await run(ctx, "apps.launch", app="youtube")
@@ -535,21 +539,12 @@ async def test_no_internet_shows_an_error_instead_of_youtube(ctx, checked, brows
         "message": "YouTube needs the internet",
     }
     assert state(ctx)["opening"] is None
-    assert browser.tab_for(YOUTUBE) is None  # no tab with an error page in it
-    assert browser.active == browser.tab_for(LAUNCHER).id
+    assert display.chromium_starts == 0  # no Chromium with an error page in it
 
     net.online = True  # Try again
     seen = await apps_states(ctx, run(ctx, "apps.launch", app="youtube"))
     assert any(s.get("opening") == "youtube" for s in seen)
     assert any(s.get("error", "unset") is None for s in seen)
-    assert state(ctx)["foreground"] == "youtube"
-
-
-async def test_an_open_youtube_needs_no_check(ctx, checked, net):
-    await run(ctx, "apps.launch", app="youtube")
-    await run(ctx, "apps.home")
-    net.online = False
-    await run(ctx, "apps.launch", app="youtube")  # just back to the front
     assert state(ctx)["foreground"] == "youtube"
 
 

@@ -1,0 +1,577 @@
+// Settings: the categories on the left, the
+// chosen one's settings on the right, and the Sound output sheet. Rust
+// (src/screens/settings.rs) builds the rows, owns focus and sets SettingsData; this only
+// draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Icon, Line, Pill, Screen, Segment, Switch, Tab } from "../components.slint";
+
+// One line of the panel. `kind` picks how it's drawn:
+//   readout   label (and hint) with a value on the right
+//   link      the same, focusable (Sound > Output "TV speakers ›")
+//   toggle    label (and hint) with a switch
+//   segments  label (and hint) with a segmented control (`choices`, `selected`)
+//   stepper   label with "‹ value ›" (arrows while focused; faint at an end)
+//   remote    the "Test your remote" box
+//   pill      a primary pill (Updates > Check now)
+//   power     a big Restart / Turn off button
+export struct SettingsRow {
+    kind: string,
+    label: string,
+    hint: string,
+    value: string,
+    // toggle: on; remote: listening (solid border); power: primary (filled)
+    on: bool,
+    choices: [string],
+    selected: int,
+    // -1: not focused; else the focused slot (which segment, or 0)
+    focus: int,
+    at-start: bool,
+    at-end: bool,
+    // the divider above (not on the first line, nor next to focus)
+    hairline: bool,
+    // space above it, from the web's margins (Check now, the power buttons)
+    top: length,
+    // remote: the key just pressed, and the hint at the box's right
+    em: string,
+    sub: string,
+}
+
+export struct SheetRow {
+    title: string,
+    sub: string,
+    selected: bool,
+    disabled: bool,
+}
+
+export global SettingsData {
+    // The categories: which one is shown, and the one with focus (-1: focus is elsewhere).
+    in property <int> tab;
+    in property <int> tab-focus;
+    in property <[SettingsRow]> rows;
+    // The Sound output sheet.
+    in property <bool> sheet-open;
+    in property <[SheetRow]> sheet-rows;
+    in property <int> sheet-focus: -1;
+    // Display > Resolution's refresh rate: count frames while this is on.
+    in property <bool> measuring;
+    callback frame();
+}
+
+// Wrapped text with CSS's line-height. Slint's factor is relative to the font's own line
+// height (Inter's ascent + descent: 1.2099 em).
+component Para inherits Text {
+    in property <float> leading: 1.35;
+    wrap: word-wrap;
+    font-family: Theme.font-text;
+    line-height-factor: leading / 1.2099;
+    color: Theme.ink;
+}
+
+// A .setting line: label and hint on the left, the end control in @children. Padded so the
+// focus fill has room: it's 27px wider than the column on each side.
+component SettingLine inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value;
+    in property <bool> focused;
+    in property <bool> hairline;
+    property <color> fg: focused ? Theme.bg : Theme.ink;
+    border-radius: Theme.radius-row;
+    background: focused ? Theme.ink : Theme.ink.with-alpha(0);
+    animate background { duration: Theme.dur-quick; }
+
+    if root.hairline: Rectangle {
+        x: 27px;
+        y: 0;
+        width: parent.width - 54px;
+        height: 2px;
+        background: Theme.ink.with-alpha(Theme.a-hairline);
+    }
+
+    HorizontalLayout {
+        padding: 27px;
+        spacing: Theme.s5;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.s1;
+            horizontal-stretch: 1;
+            min-width: 0;
+            Line {
+                text: root.label;
+                font-size: Theme.text-md;
+                color: root.fg;
+                animate color { duration: Theme.dur-quick; }
+            }
+            if root.hint != "": Para {
+                text: root.hint;
+                font-size: Theme.text-xs;
+                color: root.fg;
+                opacity: Theme.a-faint;
+                animate color { duration: Theme.dur-quick; }
+            }
+        }
+        if root.value != "": VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Line {
+                text: root.value;
+                font-size: Theme.text-base;
+                color: root.fg;
+                opacity: root.focused ? 1 : Theme.a-muted;
+                animate color { duration: Theme.dur-quick; }
+            }
+        }
+        @children
+    }
+}
+
+// A dashed rounded outline (CSS `border: 3px dashed`): 6px dashes, 3px gaps along the sides;
+// the rounded corners are drawn solid.
+component Dashed inherits Rectangle {
+    in property <color> ink;
+    in property <length> radius;
+    in property <length> thickness: Theme.border;
+    property <length> across: self.width - 2 * radius;
+    property <length> down: self.height - 2 * radius;
+    property <int> n-across: max(1, round((across + 3px) / 9px));
+    property <int> n-down: max(1, round((down + 3px) / 9px));
+    property <length> step-across: across / n-across;
+    property <length> step-down: down / n-down;
+    // The corners: a solid rounded border, seen only in the four corner squares.
+    for c in [{ x: 0px, y: 0px }, { x: 1px, y: 0px }, { x: 0px, y: 1px }, { x: 1px, y: 1px }]: Rectangle {
+        x: c.x > 0 ? root.width - root.radius : 0;
+        y: c.y > 0 ? root.height - root.radius : 0;
+        width: root.radius;
+        height: root.radius;
+        clip: true;
+        Rectangle {
+            x: c.x > 0 ? -root.width + root.radius : 0;
+            y: c.y > 0 ? -root.height + root.radius : 0;
+            width: root.width;
+            height: root.height;
+            border-radius: root.radius;
+            border-width: root.thickness;
+            border-color: root.ink;
+        }
+    }
+    for i in root.n-across: Rectangle {
+        x: root.radius + i * root.step-across + (root.step-across - 6px) / 2;
+        y: 0;
+        width: 6px;
+        height: root.thickness;
+        background: root.ink;
+    }
+    for i in root.n-across: Rectangle {
+        x: root.radius + i * root.step-across + (root.step-across - 6px) / 2;
+        y: root.height - root.thickness;
+        width: 6px;
+        height: root.thickness;
+        background: root.ink;
+    }
+    for i in root.n-down: Rectangle {
+        x: 0;
+        y: root.radius + i * root.step-down + (root.step-down - 6px) / 2;
+        width: root.thickness;
+        height: 6px;
+        background: root.ink;
+    }
+    for i in root.n-down: Rectangle {
+        x: root.width - root.thickness;
+        y: root.radius + i * root.step-down + (root.step-down - 6px) / 2;
+        width: root.thickness;
+        height: 6px;
+        background: root.ink;
+    }
+}
+
+// Remote: "Test your remote" and the box that shows what the TV sends.
+component RemoteTest inherits Rectangle {
+    in property <SettingsRow> item;
+    property <bool> focused: item.focus >= 0;
+    property <color> fg: focused ? Theme.bg : Theme.ink;
+    // The hairline above it reaches the column's edges (it isn't a .setting).
+    Rectangle {
+        x: 27px;
+        y: 0;
+        width: parent.width - 54px;
+        height: 2px;
+        background: Theme.ink.with-alpha(Theme.a-hairline);
+    }
+    VerticalLayout {
+        padding-left: 27px;
+        padding-right: 27px;
+        padding-top: 27px;
+        padding-bottom: 27px;
+        spacing: Theme.s3;
+        Line {
+            text: root.item.label;
+            font-size: Theme.text-md;
+        }
+        box := Rectangle {
+            height: 96px;
+            border-radius: Theme.radius-tab;
+            background: root.focused ? Theme.ink : Theme.ink.with-alpha(0);
+            animate background { duration: Theme.dur-quick; }
+            if root.item.on: Rectangle {
+                border-radius: Theme.radius-tab;
+                border-width: Theme.border;
+                border-color: root.focused ? Theme.ink : Theme.ink.with-alpha(0.35);
+            }
+            if !root.item.on: Dashed {
+                radius: Theme.radius-tab;
+                ink: root.focused ? Theme.ink : Theme.ink.with-alpha(0.35);
+            }
+            if root.item.em == "": Line {
+                width: parent.width;
+                horizontal-alignment: center;
+                text: root.item.value;
+                font-size: Theme.text-base;
+                color: root.fg;
+                opacity: Theme.a-muted;
+                animate color { duration: Theme.dur-quick; }
+            }
+            if root.item.em != "": Line {
+                width: parent.width;
+                horizontal-alignment: center;
+                text: root.item.em;
+                font-family: Theme.font-display;
+                font-size: Theme.text-row;
+                font-weight: 600;
+                color: root.fg;
+            }
+            if root.item.em != "": Line {
+                x: parent.width - 36px - self.width;
+                text: root.item.sub;
+                font-size: Theme.text-xs;
+                color: root.fg;
+                opacity: Theme.a-faint;
+            }
+        }
+    }
+}
+
+// Power: Restart (primary, filled) and Turn off.
+component PowerAction inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary;
+    in property <bool> focused;
+    property <bool> solid: primary || focused;
+    height: 108px;
+    border-radius: Theme.radius-row;
+    border-width: Theme.border;
+    border-color: solid ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+    background: solid ? Theme.ink : Theme.ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+    // Already filled: focus shows as a ring of the ground inside the fill.
+    if root.primary && root.focused: Rectangle {
+        x: Theme.border;
+        y: Theme.border;
+        width: parent.width - 2 * Theme.border;
+        height: parent.height - 2 * Theme.border;
+        border-radius: Theme.radius-row - Theme.border;
+        border-width: 4px;
+        border-color: Theme.bg;
+    }
+    Line {
+        x: 36px + Theme.border;
+        leading: 1.35;
+        text: root.label;
+        font-family: Theme.font-display;
+        font-size: Theme.text-row;
+        font-weight: 600;
+        color: root.solid ? Theme.bg : Theme.ink;
+        animate color { duration: Theme.dur-quick; }
+    }
+}
+
+component PanelRow inherits VerticalLayout {
+    in property <SettingsRow> item;
+    property <bool> focused: item.focus >= 0;
+    padding-top: item.top;
+
+    if item.kind == "readout" || item.kind == "link": SettingLine {
+        label: root.item.label;
+        hint: root.item.hint;
+        value: root.item.value;
+        focused: root.focused;
+        hairline: root.item.hairline;
+    }
+    if item.kind == "toggle": SettingLine {
+        label: root.item.label;
+        hint: root.item.hint;
+        focused: root.focused;
+        hairline: root.item.hairline;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Switch {
+                on: root.item.on;
+                fg: root.focused ? Theme.bg : Theme.ink;
+                ground: root.focused ? Theme.ink : Theme.bg;
+            }
+        }
+    }
+    if item.kind == "segments": SettingLine {
+        label: root.item.label;
+        hint: root.item.hint;
+        hairline: root.item.hairline;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            HorizontalLayout {
+                spacing: Theme.s2;
+                for c[i] in root.item.choices: Segment {
+                    label: c;
+                    selected: root.item.selected == i;
+                    focused: root.item.focus == i;
+                }
+            }
+        }
+    }
+    if item.kind == "stepper": SettingLine {
+        label: root.item.label;
+        hint: root.item.hint;
+        focused: root.focused;
+        hairline: root.item.hairline;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            HorizontalLayout {
+                spacing: Theme.s3;
+                Line {
+                    text: "‹";
+                    font-size: Theme.text-md;
+                    color: root.focused ? Theme.bg : Theme.ink;
+                    opacity: !root.focused ? 0 : root.item.at-start ? 0.25 : 0.9;
+                    animate opacity { duration: Theme.dur-quick; }
+                }
+                Line {
+                    text: root.item.value;
+                    font-size: Theme.text-base;
+                    color: root.focused ? Theme.bg : Theme.ink;
+                    opacity: root.focused ? 1 : Theme.a-muted;
+                }
+                Line {
+                    text: "›";
+                    font-size: Theme.text-md;
+                    color: root.focused ? Theme.bg : Theme.ink;
+                    opacity: !root.focused ? 0 : root.item.at-end ? 0.25 : 0.9;
+                    animate opacity { duration: Theme.dur-quick; }
+                }
+            }
+        }
+    }
+    if item.kind == "remote": RemoteTest {
+        item: root.item;
+    }
+    if item.kind == "pill": HorizontalLayout {
+        padding-left: 27px;
+        alignment: start;
+        Pill {
+            label: root.item.label;
+            primary: root.item.on;
+            focused: root.focused;
+        }
+    }
+    if item.kind == "power": HorizontalLayout {
+        padding-left: 27px;
+        padding-right: 27px;
+        PowerAction {
+            label: root.item.label;
+            primary: root.item.on;
+            focused: root.focused;
+        }
+    }
+}
+
+// A row in the output sheet (components.css .row): title, sub-line, a check on the current one.
+component SheetItem inherits Rectangle {
+    in property <SheetRow> item;
+    in property <bool> focused;
+    property <color> fg: focused ? Theme.bg : Theme.ink;
+    min-height: Theme.row-h;
+    opacity: item.disabled ? 0.45 : 1;
+    border-radius: Theme.radius-row;
+    border-width: Theme.border;
+    border-color: focused || item.selected ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+    background: focused ? Theme.ink : Theme.ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+    HorizontalLayout {
+        padding-left: 36px + Theme.border;
+        padding-right: 36px + Theme.border;
+        padding-top: 18px + Theme.border;
+        padding-bottom: 18px + Theme.border;
+        spacing: Theme.s4;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.s1;
+            horizontal-stretch: 1;
+            Line {
+                leading: 1.15;
+                text: root.item.title;
+                font-family: Theme.font-display;
+                font-size: Theme.text-row;
+                font-weight: 600;
+                color: root.fg;
+                animate color { duration: Theme.dur-quick; }
+            }
+            if root.item.sub != "": Line {
+                text: root.item.sub;
+                font-size: Theme.text-xs;
+                color: root.fg;
+                opacity: 0.8;
+                animate color { duration: Theme.dur-quick; }
+            }
+        }
+        if root.item.selected: VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Icon {
+                name: "check";
+                tint: root.fg;
+            }
+        }
+    }
+}
+
+export component SettingsScreen inherits Screen {
+    property <length> body-top: Theme.screen-pad-top + Theme.text-sm * 1.35 + 27px + Theme.text-title + 54px;
+
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top;
+        text: "Home › Settings";
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top + Theme.text-sm * 1.35 + 27px;
+        leading: 1;
+        text: "Settings";
+        font-family: Theme.font-display;
+        font-size: Theme.text-title;
+        font-weight: 600;
+        letter-spacing: -0.025 * Theme.text-title;
+    }
+
+    // The categories.
+    VerticalLayout {
+        x: Theme.screen-pad-x;
+        y: root.body-top;
+        width: 450px;
+        height: self.preferred-height;
+        spacing: 15px;
+        // Each in a box of its own, so the nudge (Bump) moves it inside it.
+        for label[i] in ["Display", "Sound", "Network", "Remote", "Updates", "About", "Power"]: Rectangle {
+            height: Theme.tab-h;
+            Tab {
+                x: self.focused ? Bump.x : 0;
+                y: self.focused ? Bump.y : 0;
+                animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                width: parent.width;
+                height: parent.height;
+                label: label;
+                selected: SettingsData.tab == i;
+                focused: SettingsData.tab-focus == i;
+            }
+        }
+    }
+
+    // The chosen category's settings. 27px wider than the column each side, for the fills.
+    VerticalLayout {
+        x: Theme.screen-pad-x + 450px + 84px - 27px;
+        y: root.body-top;
+        width: parent.width - 2 * Theme.screen-pad-x - 450px - 84px + 54px;
+        height: self.preferred-height;
+        alignment: start;
+        for row in SettingsData.rows: Rectangle {
+            height: line.preferred-height;
+            line := PanelRow {
+                x: row.focus >= 0 ? Bump.x : 0;
+                y: row.focus >= 0 ? Bump.y : 0;
+                animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                width: parent.width;
+                height: parent.height;
+                item: row;
+            }
+        }
+    }
+
+    // Display > Resolution: a frame counter, only while measuring the refresh rate.
+    if SettingsData.measuring: Rectangle {
+        property <duration> tick: animation-tick();
+        changed tick => {
+            SettingsData.frame();
+        }
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        background: tick / 1ms > 0 ? #000 : #001;
+    }
+
+    // ---- The Sound output sheet: slides up from the bottom over a scrim.
+    property <float> sheet-shown: SettingsData.sheet-open ? 1 : 0;
+    property <float> scrim-shown: SettingsData.sheet-open ? 1 : 0;
+    animate sheet-shown { duration: Theme.dur-sheet; easing: Ease.out; }
+    animate scrim-shown { duration: Theme.dur-sheet; easing: ease; }
+
+    if root.scrim-shown > 0: Rectangle {
+        background: rgba(5, 5, 6, 0.5);
+        opacity: root.scrim-shown;
+    }
+    if root.sheet-shown > 0: Rectangle {
+        y: parent.height - self.height * root.sheet-shown;
+        width: parent.width;
+        height: sheet.preferred-height;
+        background: Theme.bg;
+        sheet := VerticalLayout {
+            padding-left: 84px;
+            padding-right: 84px;
+            padding-top: 51px;
+            padding-bottom: 60px;
+            spacing: 33px;
+            Rectangle {
+                height: Theme.text-heading * 1.1;
+                Line {
+                    x: 0;
+                    y: 0;
+                    leading: 1.1;
+                    text: "Sound output";
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-heading;
+                    font-weight: 600;
+                }
+                // Lined up on the title's baseline, as .spread does.
+                Line {
+                    x: parent.width - self.width;
+                    y: 12.27px;
+                    text: "Back to close";
+                    font-size: Theme.text-sm;
+                    opacity: Theme.a-muted;
+                }
+            }
+            VerticalLayout {
+                spacing: Theme.s3;
+                for item[i] in SettingsData.sheet-rows: Rectangle {
+                    height: choice.preferred-height;
+                    choice := SheetItem {
+                        x: self.focused ? Bump.x : 0;
+                        y: self.focused ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        width: parent.width;
+                        height: parent.height;
+                        item: item;
+                        focused: SettingsData.sheet-focus == i;
+                    }
+                }
+                if SettingsData.sheet-rows.length == 0: Line {
+                    text: "No sound outputs right now";
+                    font-size: Theme.text-md;
+                    opacity: Theme.a-muted;
+                }
+            }
+        }
+    }
+}

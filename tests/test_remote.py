@@ -415,20 +415,13 @@ async def test_a_tap_ends_a_hold(ctx, remote):
 
 async def test_held_back_takes_you_home_and_red_moves_the_sound(ctx, remote):
     browser = FakeChromium()
-    browser.add_tab("http://127.0.0.1:8765/")
+    browser.up = False  # Chromium runs only for YouTube
     await browser.start()
     audio = AudioService(ctx, FakeAudio(speed=0))
     await audio.start()
-    apps = AppService(
-        ctx,
-        FakeDisplay(speed=0),
-        Chromium(browser.port),
-        launcher_url="http://127.0.0.1:8765/",
-        opening_delay=0,
-    )
+    apps = AppService(ctx, FakeDisplay(speed=0), Chromium(browser.port), opening_delay=0)
     await apps.start()
     try:
-        await until(lambda: ctx.state.get("apps")["browser"] == "connected")
         await apps.launch("plex")
         assert ctx.state.get("apps")["foreground"] == "plex"
         remote.tv.key_pressed("red")

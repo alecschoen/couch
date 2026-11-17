@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Couch boot splash on a framebuffer: couch-fbsplash [fb0] [--after-text tty1]
+"""Draw the Couch boot splash on a framebuffer: couch-fbsplash [fb0] [--animate] [--after-text tty1]
 
 The kernel draws the splash itself (fullscreen_logo in cmdline.txt), but only on the
 firmware's framebuffer. When vc4 takes the screen over, about 6 s into the boot, the kernel
@@ -15,20 +15,35 @@ Pi resets. The frame drawn at boot is kept in /run, so that redraw is only a cop
 --after-text tty1 it first waits (up to 2 s) for tty1 to be back in text mode: logind puts it
 back once cage has gone, and fbcon then repaints the screen, which would wipe the splash.
 
+With --animate (the boot) it then plays the boot animation (/opt/couch/share/boot-animation.bin,
+made by scripts/render-boot-animation.py) from that still logo: the intro, then its idle loop
+until couch-session starts (couch-session.service sends SIGUSR1) or a minute has gone by, then
+the outro, which ends on the same still logo. So the boot always ends on the logo, before cage
+takes the screen. The file is drawn only on the screen it was made for (1920x1080, RGB565,
+vc4's framebuffer at boot); on any other, the still logo stays, as before. ExecStop stops a
+player that's still going (SIGTERM, from its pid in /run/couch-fbsplash) before drawing.
+
 Python's standard library only, any resolution, 16 or 32 bits per pixel.
 """
 
 import fcntl
 import os
+import signal
 import struct
 import sys
 import time
+import zlib
 from pathlib import Path
 
 TGA = Path("/lib/firmware/couch-splash.tga")
 CACHE = Path("/run/couch-fbsplash")
 FBIOGET_VSCREENINFO = 0x4600
 KDGETMODE = 0x4B3B  # 0 is KD_TEXT
+ANIMATION = Path("/opt/couch/share/boot-animation.bin")
+MAGIC = b"COUCHANIM\x01"
+RGB565 = ((11, 5), (5, 6), (0, 5))
+IDLE_LIMIT = 60.0  # seconds of the idle loop at most, if couch-session never starts
+CUED: list[bool] = []  # SIGUSR1 from couch-session.service: time to finish
 
 
 def read_tga(data: bytes):
@@ -101,8 +116,126 @@ def wait_for_text_mode(tty: str, timeout: float = 2.0) -> None:
         os.close(fd)
 
 
+class Animation:
+    """boot-animation.bin: a still frame, then intro, idle and outro frames, each a list of
+    changed rectangles (x, y, w, h, zlib'd RGB565 rows). See scripts/render-boot-animation.py."""
+
+    def __init__(self, data: bytes):
+        if data[: len(MAGIC)] != MAGIC:
+            raise ValueError("not a Couch boot animation")
+        at = len(MAGIC)
+        self.width, self.height, self.fps, _, *counts = struct.unpack_from("<HHBBHHH", data, at)
+        at += 12
+        self.data = data
+        frames = []
+        for _ in range(1 + sum(counts)):
+            (n,) = struct.unpack_from("<H", data, at)
+            at += 2
+            rects = []
+            for _ in range(n):
+                x, y, w, h, length = struct.unpack_from("<HHHHI", data, at)
+                at += 12
+                if x + w > self.width or y + h > self.height or at + length > len(data):
+                    raise ValueError("rectangle out of bounds")
+                rects.append((x, y, w, h, at, length))
+                at += length
+            frames.append(rects)
+        if at != len(data) or not self.fps:
+            raise ValueError("boot animation is truncated or has extra bytes")
+        intro, idle, _ = counts
+        self.still = frames[0]
+        self.intro = frames[1 : 1 + intro]
+        self.idle = frames[1 + intro : 1 + intro + idle]
+        self.outro = frames[1 + intro + idle :]
+
+    def fits(self, xres, yres, bpp, red, green, blue) -> bool:
+        return (xres, yres, bpp, (red, green, blue)) == (self.width, self.height, 16, RGB565)
+
+    def draw(self, fd: int, rects, base: int, stride: int) -> None:
+        """Write one frame's rectangles to the framebuffer; base is the visible area's offset."""
+        for x, y, w, h, at, length in rects:
+            pixels = memoryview(zlib.decompress(self.data[at : at + length]))
+            row = w * 2
+            if row == stride:  # whole rows: one write
+                os.pwrite(fd, pixels, base + y * stride)
+                continue
+            for r in range(h):
+                os.pwrite(fd, pixels[r * row : (r + 1) * row], base + (y + r) * stride + x * 2)
+
+
+class Finish(Exception):
+    """SIGTERM: stop drawing now (ExecStop draws the still splash itself)."""
+
+
+def play(anim: Animation, show, cued, clock=time.monotonic, sleep=time.sleep) -> None:
+    """Intro, idle until cued() (or IDLE_LIMIT), outro; show(frame) at anim.fps, never skipping
+    a frame (each one only holds what changed since the one before)."""
+    start = clock()
+    shown = 0
+
+    def step(frame):
+        nonlocal shown
+        shown += 1
+        wait = start + shown / anim.fps - clock()
+        if wait > 0:
+            sleep(wait)
+        show(frame)
+
+    for frame in anim.intro:
+        step(frame)
+    # The idle loop starts and ends on the intro's last frame, and so does the outro.
+    while anim.idle and not cued() and clock() - start < IDLE_LIMIT:
+        for frame in anim.idle:
+            step(frame)
+    for frame in anim.outro:
+        step(frame)
+
+
+def stop_player() -> None:
+    """Stop a boot animation that's still playing, so it can't draw over the shutdown splash."""
+    try:
+        pid = int((CACHE / "player.pid").read_text())
+        if b"couch-fbsplash" not in Path(f"/proc/{pid}/cmdline").read_bytes():
+            return
+        os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        return
+    end = time.monotonic() + 1.0
+    while time.monotonic() < end and Path(f"/proc/{pid}").exists():
+        time.sleep(0.02)
+
+
+def animate(dev, anim: Animation, base: int, stride: int) -> None:
+    def finish(*_):
+        raise Finish
+
+    signal.signal(signal.SIGTERM, finish)
+    pidfile = CACHE / "player.pid"
+    try:
+        pidfile.write_text(f"{os.getpid()}\n")
+    except OSError:
+        pass
+    fd = dev.fileno()
+    try:
+        play(anim, lambda frame: anim.draw(fd, frame, base, stride), lambda: bool(CUED))
+    except Finish:
+        pass
+    finally:
+        try:
+            pidfile.unlink()
+        except OSError:
+            pass
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
+    animating = "--animate" in args
+    if animating:
+        # First thing: couch-session's SIGUSR1 must never find the default action (exit).
+        signal.signal(signal.SIGUSR1, lambda *_: CUED.append(True))
+        args.remove("--animate")
+    else:
+        stop_player()
     if "--after-text" in args:
         i = args.index("--after-text")
         try:
@@ -113,13 +246,30 @@ def main(argv: list[str]) -> int:
     fb = args[0] if args else "fb0"
     sysfs = Path("/sys/class/graphics") / fb
     stride = int((sysfs / "stride").read_text())
+    anim = None
+    if animating:
+        try:
+            anim = Animation(ANIMATION.read_bytes())
+        except (OSError, ValueError, struct.error) as e:
+            print(f"couch-fbsplash: no boot animation: {e}", file=sys.stderr)
     with open(f"/dev/{fb}", "r+b", buffering=0) as dev:
         xres, yres, xoff, yoff, bpp, red, green, blue = screen_info(dev.fileno())
         if bpp not in (16, 32):
             print(f"couch-fbsplash: {fb} is {bpp} bpp; only 16 and 32 are drawn", file=sys.stderr)
             return 0
+        base = yoff * stride + xoff * bpp // 8
+        if anim and not anim.fits(xres, yres, bpp, red, green, blue):
+            print(f"couch-fbsplash: the boot animation isn't for {xres}x{yres} at {bpp} bpp",
+                  file=sys.stderr)
+            anim = None
         layout = "-".join(map(str, (*red, *green, *blue)))
         cached = CACHE / f"{fb}-{xres}x{yres}-{bpp}-{stride}-{layout}"
+        if anim:
+            # The animation's still frame is the TGA drawn as below, already packed: quicker.
+            anim.draw(dev.fileno(), anim.still, base, stride)
+            keep_frame(cached, dev, base, stride * yres)
+            animate(dev, anim, base, stride)
+            return 0
         try:
             frame = cached.read_bytes()
         except OSError:
@@ -130,10 +280,18 @@ def main(argv: list[str]) -> int:
                 cached.write_bytes(frame)
             except OSError:
                 pass  # only the shutdown redraw gets slower
-        dev.seek(yoff * stride + xoff * bpp // 8)
+        dev.seek(base)
         dev.write(frame)
     return 0
 
+
+def keep_frame(cached: Path, dev, base: int, size: int) -> None:
+    """Keep the still frame just drawn, for the shutdown redraw and couch-splash."""
+    try:
+        CACHE.mkdir(exist_ok=True)
+        cached.write_bytes(os.pread(dev.fileno(), size, base))
+    except OSError:
+        pass
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

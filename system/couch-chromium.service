@@ -1,0 +1,19 @@
+[Unit]
+Description=Couch Chromium for YouTube, over the native launcher (started by couchd)
+Documentation=https://github.com/alecschoen/couch
+# Only with the native launcher: a Wayland client of the session's cage on tty1 (see
+# couch-chromium). couchd starts it when YouTube opens and stops it when YouTube is left.
+After=couch-session.service
+BindsTo=couch-session.service
+
+[Service]
+Type=simple
+User=couch
+ExecStart=/opt/couch/bin/couch-chromium
+StandardOutput=journal
+StandardError=journal
+# couchd decides what runs next; never restart Chromium on our own.
+Restart=no
+TimeoutStopSec=5
+
+# No [Install]: couchd starts this unit, nothing else does.
