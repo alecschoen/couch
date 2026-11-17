@@ -13,6 +13,14 @@ outputs while it can't reach the server.
 Outputs get stable ids, because the preferred one is saved across reboots:
 `tv` (HDMI), `jack` (3.5 mm or other analog), `usb:<card>` and `bluetooth:<address>`.
 A second HDMI or analog sink becomes `tv:2`, `jack:2`, numbered in sink-name order.
+
+A lost sink comes back: when the TV goes to standby and back, the HDMI port goes away and
+returns, and WirePlumber makes the HDMI sink again. If something still had the old one open
+just then (Kodi playing, on Plex), that fails with "Device or resource busy" and WirePlumber
+doesn't try again: the card keeps its HDMI profile, available, with no sink, and sound
+stays on the jack. So a sound card whose profile should have a sink and has had none for
+HEAL_AFTER gets the profile set again (off, then back), which makes the sink. A few times
+at most, while it stays lost.
 """
 
 import asyncio
@@ -34,6 +42,11 @@ RETRY_MIN = 1.0
 RETRY_MAX = 5.0
 # Events come in bursts (a Bluetooth speaker connecting is a dozen); refresh once per burst.
 SETTLE = 0.05
+# A sound card with no sink for this long has lost it (see above), as opposed to one that's
+# just being made; it's set up again at most HEAL_TRIES times, HEAL_EVERY apart.
+HEAL_AFTER = 2.0
+HEAL_EVERY = 10.0
+HEAL_TRIES = 5
 
 _EVENT = re.compile(r"Event '(?:new|change|remove)' on (?:sink|server|card) #")
 _KIND_ORDER: dict[OutputKind, int] = {"tv": 0, "jack": 1, "usb": 2, "bluetooth": 3}
@@ -179,6 +192,25 @@ def _alsa_kind(sink: dict[str, Any], props: dict[str, Any]) -> OutputKind:
     return "jack"
 
 
+def lost_sinks(cards: list[dict[str, Any]], sinks: list[dict[str, Any]]) -> dict[str, str]:
+    """`pactl -f json list cards` and `list sinks` → {card name: its profile} for the ALSA
+    cards whose active profile is available and has a sink, but no sink of theirs exists."""
+    have = {s.get("properties", {}).get("device.name") for s in sinks}
+    lost = {}
+    for card in cards:
+        name, active = card.get("name", ""), card.get("active_profile")
+        profile = card.get("profiles", {}).get(active) or {}
+        if (
+            name.startswith("alsa_card.")
+            and active != "off"
+            and profile.get("available")
+            and profile.get("sinks", 0) > 0
+            and name not in have
+        ):
+            lost[name] = active
+    return lost
+
+
 def _active_port(sink: dict[str, Any]) -> dict[str, Any] | None:
     active = sink.get("active_port")
     return next((p for p in sink.get("ports") or [] if p.get("name") == active), None)
@@ -211,6 +243,9 @@ class PipewireAudio(AudioBackend):
         self._default: str | None = None
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
+        self._lost: dict[str, str] = {}  # card -> profile, while it has no sink
+        self._tries: dict[str, int] = {}  # card -> times set up again since it lost it
+        self._healer: asyncio.Task | None = None
         self.connected = asyncio.Event()  # tests wait on this
 
     # --- lifecycle ----------------------------------------------------------------------
@@ -220,11 +255,12 @@ class PipewireAudio(AudioBackend):
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+        for task in (self._task, self._healer):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._task = self._healer = None
 
     async def _run(self) -> None:
         delay = RETRY_MIN
@@ -277,7 +313,34 @@ class PipewireAudio(AudioBackend):
         async with self._lock:
             raw = await self.pactl.json("list", "sinks")
             info = await self.pactl.json("info")
+            cards = await self.pactl.json("list", "cards")
         self._set(sinks=parse_sinks(raw), default=info.get("default_sink_name"))
+        self._lost = lost_sinks(cards, raw)
+        self._tries = {card: n for card, n in self._tries.items() if card in self._lost}
+        if self._lost and (self._healer is None or self._healer.done()):
+            self._healer = asyncio.create_task(self._heal())
+
+    async def _heal(self) -> None:
+        """Set up again the cards that stay without their sink (see the module's docstring)."""
+        wait = HEAL_AFTER
+        try:
+            while True:
+                await asyncio.sleep(wait)
+                await self.refresh()  # still lost?
+                due = {c: p for c, p in self._lost.items() if self._tries.get(c, 0) < HEAL_TRIES}
+                if not due:
+                    return
+                for card, profile in due.items():
+                    self._tries[card] = self._tries.get(card, 0) + 1
+                    log.warning(
+                        "a sound card lost its output; setting it up again",
+                        extra={"card": card, "profile": profile, "try": self._tries[card]},
+                    )
+                    await self.pactl.run("set-card-profile", card, "off")
+                    await self.pactl.run("set-card-profile", card, profile)
+                wait = HEAL_EVERY
+        except PactlError as e:
+            log.warning("couldn't set up a sound card again", extra={"error": str(e)})
 
     def _set(self, *, sinks: list[Sink], default: str | None) -> None:
         if sinks == self._sinks and default == self._default:

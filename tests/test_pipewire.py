@@ -6,12 +6,15 @@ import os
 import pytest
 from fakepulse import (
     PI_HDMI0,
+    PI_HDMI0_CARD,
     PI_HDMI1,
     PI_JACK,
     SPEAKER,
     SPEAKER_ADDRESS,
     FakePulse,
+    card,
     pi_hdmi,
+    pi_hdmi_card,
     pi_jack,
     sink,
     speaker,
@@ -21,7 +24,7 @@ from fakepulse import (
 
 from couchd import pipewire
 from couchd.backends import BackendError, Output
-from couchd.pipewire import Pactl, PactlError, PipewireAudio, parse_sinks
+from couchd.pipewire import Pactl, PactlError, PipewireAudio, lost_sinks, parse_sinks
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +32,8 @@ def fast(monkeypatch):
     monkeypatch.setattr(pipewire, "SETTLE", 0)
     monkeypatch.setattr(pipewire, "RETRY_MIN", 0.01)
     monkeypatch.setattr(pipewire, "RETRY_MAX", 0.01)
+    monkeypatch.setattr(pipewire, "HEAL_AFTER", 0.01)
+    monkeypatch.setattr(pipewire, "HEAL_EVERY", 0.01)
 
 
 @pytest.fixture
@@ -213,3 +218,65 @@ async def test_pactl_failure_carries_its_message(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     with pytest.raises(PactlError, match="Connection refused"):
         await Pactl().json("info")
+
+
+# --- a sink WirePlumber failed to make again ---------------------------------------------
+
+HDMI_ON_CARD = {"device.name": PI_HDMI0_CARD}
+
+
+def test_a_card_whose_profile_has_no_sink_has_lost_it():
+    hdmi = pi_hdmi(extra=HDMI_ON_CARD)
+    assert lost_sinks([pi_hdmi_card()], [pi_jack()]) == {PI_HDMI0_CARD: "output:hdmi-stereo"}
+    assert lost_sinks([pi_hdmi_card()], [pi_jack(), hdmi]) == {}  # it has it
+    assert lost_sinks([pi_hdmi_card(available=False)], [pi_jack()]) == {}  # TV off: no port
+    assert lost_sinks([card(49, PI_HDMI0_CARD, "off")], [pi_jack()]) == {}
+    assert lost_sinks([card(70, "bluez_card.AA_BB", "a2dp-sink")], []) == {}  # ALSA only
+
+
+async def test_a_lost_hdmi_sink_is_made_again_and_the_tv_comes_back():
+    # After the TV's standby while Kodi played: WirePlumber couldn't make the HDMI sink again
+    # ("Device or resource busy") and left the card with its profile and no sink.
+    server = FakePulse([pi_jack()], default=PI_JACK)
+    server.cards = {PI_HDMI0_CARD: pi_hdmi_card()}
+    server.card_sinks = {PI_HDMI0_CARD: pi_hdmi(extra=HDMI_ON_CARD)}
+    audio = PipewireAudio(server)
+    await audio.start()
+    try:
+        await until(lambda: "tv" in [o.id for o in audio.outputs()])
+        profiles = [c for c in server.calls if c[0] == "set-card-profile"]
+        assert profiles == [
+            ("set-card-profile", PI_HDMI0_CARD, "off"),
+            ("set-card-profile", PI_HDMI0_CARD, "output:hdmi-stereo"),
+        ]
+    finally:
+        await audio.stop()
+
+
+async def test_a_card_that_never_makes_its_sink_is_left_after_a_few_tries():
+    server = FakePulse([pi_jack()], default=PI_JACK)
+    server.cards = {PI_HDMI0_CARD: pi_hdmi_card()}  # and setting it up makes no sink
+    audio = PipewireAudio(server)
+    await audio.start()
+    try:
+        tries = 2 * pipewire.HEAL_TRIES
+        await until(lambda: sum(c[0] == "set-card-profile" for c in server.calls) == tries)
+        await asyncio.sleep(0.1)
+        assert sum(c[0] == "set-card-profile" for c in server.calls) == tries
+    finally:
+        await audio.stop()
+
+
+async def test_a_card_with_its_sink_is_left_alone():
+    server = FakePulse([pi_hdmi(extra=HDMI_ON_CARD), pi_jack()], default=PI_HDMI0)
+    server.cards = {PI_HDMI0_CARD: pi_hdmi_card()}
+    audio = PipewireAudio(server)
+    await audio.start()
+    try:
+        await asyncio.wait_for(audio.connected.wait(), 1)
+        server.add_sink(usb_dac())  # something happens: it looks again
+        await until(lambda: len(audio.outputs()) == 3)
+        await asyncio.sleep(0.1)
+        assert not [c for c in server.calls if c[0] == "set-card-profile"]
+    finally:
+        await audio.stop()

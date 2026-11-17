@@ -20,6 +20,7 @@ PI_JACK = "alsa_output.platform-fe00b840.mailbox.stereo-fallback"
 USB_DAC = "alsa_output.usb-FiiO_K3-00.analog-stereo"
 SPEAKER_ADDRESS = "AA:BB:CC:DD:EE:01"
 SPEAKER = f"bluez_output.{SPEAKER_ADDRESS.replace(':', '_')}.1"
+PI_HDMI0_CARD = "alsa_card.platform-fef00700.hdmi"
 
 
 def sink(
@@ -68,6 +69,25 @@ def pi_hdmi(index: int = 51, name: str = PI_HDMI0, **kw: Any) -> dict[str, Any]:
     return sink(index, name, port_type="HDMI", **kw)
 
 
+def card(
+    index: int,
+    name: str,
+    active: str,
+    *,
+    available: bool = True,
+    sinks: int = 1,
+) -> dict[str, Any]:
+    """A sound card as `pactl -f json list cards` shows it, with `active` as its profile."""
+    profiles = {"off": {"description": "Off", "sinks": 0, "sources": 0, "available": True}}
+    if active != "off":
+        profiles[active] = {"description": active, "sinks": sinks, "available": available}
+    return {"index": index, "name": name, "active_profile": active, "profiles": profiles}
+
+
+def pi_hdmi_card(**kw: Any) -> dict[str, Any]:
+    return card(49, PI_HDMI0_CARD, "output:hdmi-stereo", **kw)
+
+
 def pi_jack(index: int = 52, **kw: Any) -> dict[str, Any]:
     kw.setdefault("priority", 700)  # higher than HDMI, as on the Pi: WirePlumber's pick
     return sink(index, PI_JACK, description="Built-in Audio", **kw)
@@ -112,6 +132,9 @@ class FakePulse(Pactl):
         self.sinks = {s["name"]: s for s in sinks}
         self.default = default if default is not None else (sinks[0]["name"] if sinks else None)
         self.streams: list[dict[str, Any]] = []
+        self.cards: dict[str, dict[str, Any]] = {}
+        # card -> the sink it makes when its profile is set (to other than "off")
+        self.card_sinks: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, ...]] = []
         self.up = True
         self._subscribers: list[asyncio.Queue[str | None]] = []
@@ -170,6 +193,16 @@ class FakePulse(Pactl):
                 for channel in self._need(name)["volume"].values():
                     channel["value"] = value
                 self._emit(f"Event 'change' on sink #{self.sinks[name]['index']}")
+            case ("set-card-profile", name, profile):
+                c = self.cards[name]
+                c["active_profile"] = profile
+                self._emit(f"Event 'change' on card #{c['index']}")
+                for s in [
+                    s for s in self.sinks.values() if s["properties"].get("device.name") == name
+                ]:
+                    self.remove_sink(s["name"])
+                if profile != "off" and name in self.card_sinks:
+                    self.add_sink(json.loads(json.dumps(self.card_sinks[name])))
             case ("set-sink-mute", name, flag):
                 self._need(name)["mute"] = flag == "1"
                 self._emit(f"Event 'change' on sink #{self.sinks[name]['index']}")
@@ -204,6 +237,8 @@ class FakePulse(Pactl):
                 }
             case ("list", "sink-inputs"):
                 return [dict(s) for s in self.streams]
+            case ("list", "cards"):
+                return list(self.cards.values())
         raise AssertionError(f"unexpected query {what}")
 
     def _emit(self, line: str | None) -> None:
