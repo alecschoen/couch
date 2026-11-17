@@ -45,8 +45,8 @@ SETTLE = 0.05
 # A sound card with no sink for this long has lost it (see above), as opposed to one that's
 # just being made; it's set up again at most HEAL_TRIES times, HEAL_EVERY apart.
 HEAL_AFTER = 2.0
-HEAL_EVERY = 30.0
-HEAL_TRIES = 3
+HEAL_EVERY = 10.0
+HEAL_TRIES = 5
 
 _EVENT = re.compile(r"Event '(?:new|change|remove)' on (?:sink|server|card) #")
 _KIND_ORDER: dict[OutputKind, int] = {"tv": 0, "jack": 1, "usb": 2, "bluetooth": 3}
