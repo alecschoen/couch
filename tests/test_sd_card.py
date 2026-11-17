@@ -66,7 +66,7 @@ def test_browser_puts_its_cache_in_ram_when_it_can(tmp_path):
     args = browser_args(tmp_path, cache_exists=True)
     assert f"--disk-cache-dir={tmp_path / 'cache'}" in args
     assert "--disk-cache-size=104857600" in args
-    assert args[-1] == "http://127.0.0.1:8765/"  # the URL stays last
+    assert args[-1] == "about:blank"  # the URL stays last; couchd loads YouTube
     assert "--hide-crash-restore-bubble" in args
 
 
@@ -74,7 +74,7 @@ def test_browser_puts_its_cache_in_ram_when_it_can(tmp_path):
 def test_browser_keeps_the_cache_in_its_profile_without_the_tmpfs(tmp_path):
     args = browser_args(tmp_path, cache_exists=False)
     assert not [a for a in args if a.startswith("--disk-cache")]
-    assert args[-1] == "http://127.0.0.1:8765/"
+    assert args[-1] == "about:blank"
 
 
 def test_install_sets_it_up_before_the_session_starts():

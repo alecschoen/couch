@@ -12,7 +12,7 @@ Live state section `updates`:
   checkout; null for a copy without git
 - `state`: "idle", "checking", "downloading", "installing", "rolling-back" or "system"
 - `result`: the last run's: "installed", "up-to-date", "rolled-back", "broken", "failed",
-  "no-access" (no token for the private repo: not set up yet), "waiting", or null before
+  "no-access" (no token for a private fork: not set up yet), "waiting", or null before
   the first; `message`: a sentence about it, or null
 - `last_check`: unix time of the last check, or null; `latest`: the newest release seen
 - `waiting`: why the last run waited ("something is playing"), or null

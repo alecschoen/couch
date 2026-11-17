@@ -1,82 +1,21 @@
-# Launcher UI
+# ui/
 
-The launcher's screens: plain HTML, CSS and JS modules with no build step, served by couchd. Built at 1920×1080 in the evening B3 style. See the design canvas linked from #14.
-
-Nothing loads from the network: the fonts are bundled and every file is local (`tests/test_ui.py` checks this).
-
-## Layout
+What's left of the web launcher, now that the launcher is native (`launcher/`):
 
 ```
-index.html            the page: registers screens and starts the app
-css/
-  fonts.css           Space Grotesk (display) and Inter (text), bundled woff2, SIL OFL
-  tokens.css          palettes, alphas, type sizes, spacing, radii, sizes, durations
-  base.css            page basics, the colour flood, screens, type classes, layout helpers
-  bluetooth.css       the Bluetooth screen's layout
-  home.css            Home's layout
-  overlay.css         the quick menu, the volume panel and their corner (also in YouTube)
-  components.css      cards, pills, segmented controls, rows, tabs, setting lines,
-                      switches, progress, toasts, sheet, key hints
-  settings.css        the Settings screen's own pieces (steppers, remote test, power)
-fonts/                woff2 files and their licences
-js/
-  couch.js            couchd client: state, commands, toasts, key events; reconnects
-  keys.js             keyboard → remote keys, in dev mode
-  app.js              createApp(): wires couch, theme, focus, router and toasts together
-  router.js           screens and the back stack (go, back, home)
-  focus.js            spatial focus engine (arrows move between focusables)
-  theme.js            palette flood transitions, evening colours
-  motion.js           animate() that respects Reduce motion; durations come from tokens.css
-  settings.js         user settings, kept by couchd (docs/protocol.md), and their hooks
-  components.js       h(), icons and the component builders
-  overlay-view.js     the overlays' drawing: quick menu, toasts, volume panel. Also injected
-                      into YouTube's page by couchd, so: no imports, DOM only, no keys
-  overlay.js          draws couchd's overlays in the launcher (docs/protocol.md, Overlays)
-  screens/            the launcher's screens, one module each: home.js (the first screen),
-                      bluetooth.js, settings.js
-  demo/               the foundation demo: home cards, Components, Type, Console
+brand/                the logo, the boot splash and boot animation, icons (brand/README.md)
+js/overlay-view.js    the overlays couchd draws over YouTube: quick menu, toasts, volume panel
+css/tokens.css        palettes, type sizes, spacing, radii and durations, for the overlays
+css/components.css    the base pieces the overlays use (pills, sheet, toasts)
+css/overlay.css       the quick menu, the volume panel and their corner
+fonts/                Space Grotesk and Inter (woff2, SIL OFL), embedded in the overlays
 ```
 
-## Palettes
+couchd builds one script from these (`couchd/overlay_page.py`) and injects it into YouTube's
+page over DevTools, inside a closed shadow root: so `overlay-view.js` has no imports, only
+touches the DOM, and never takes focus or listens for keys. couchd routes the remote's keys
+while the quick menu is open. Nothing loads from the network
+(`tests/test_launcher_sources.py` checks).
 
-Each app has a vivid and a deep tone (`tokens.css`). Set `data-palette="yt|plex|audio|bt|settings|system|idle"` on an element and it gets `--palette-bg`, `--palette-ink` and `--ground`; the router floods the whole screen with the top screen's palette. Evening colors (on by default; *After sunset* = 18:00–07:00) swap every palette to its deep tone.
-
-Outlines and hairlines are `currentColor` at an alpha, so they follow the ink, including on a focused (inverted) element.
-
-## Focus
-
-Focus is a solid ink fill: the engine puts `.is-focused` on the focused element and the CSS inverts it. It doesn't rely on `:focus`, which a window without OS focus never gets. Focusables are enabled `<button>`s and anything with `tabindex="-1"` or `data-focusable`.
-
-Markup hooks (details at the top of `js/focus.js`):
-
-- `data-focus-group`: coming back into the group returns to where its focus was.
-- `data-focus-enter-start`: the first time into a group, start at its default, not the nearest.
-- `data-focus-default`: where focus starts in a screen or group.
-- `data-focus-key="…"`: a stable id, so focus survives a re-render.
-- `data-scroll`: a scroll container that follows focus.
-
-Listen for `couch:focus` (bubbles) to react to focus arriving. A sheet calls `focus.pushScope(el, { onKey })` to keep focus inside it.
-
-## Screens
-
-```js
-app.router.register("bluetooth", (params, app) => ({
-  el,                 // the screen's root element
-  palette: "bt",      // or a function, for screens whose colour follows focus
-  onKey(key, detail) {}, // optional: return true to take a key before focus does
-  onShow() {}, onHide() {}, destroy() {},
-}));
-app.router.go("bluetooth");
-```
-
-Keys go: the open sheet's scope → the top screen's `onKey` → arrows move focus, OK clicks, Back pops, Home goes to the first screen. `detail` is the key message's data. A held OK comes once as `select` with `hold: true` (#8); a screen that wants a long press (Bluetooth: Options on a device) takes it in `onKey`, and otherwise it clicks like a short press. The app then fires its own `key` event with `taken: true` if a scope or screen took the key, so global handlers can stand aside. The quick menu isn't one of them: couchd runs it, and
-the keys it takes come marked `overlay: true` and never reach a screen.
-
-## Motion
-
-Only `transform` and `opacity` animate (no blur, no big shadows). Durations are CSS custom properties; Reduce motion sets them to zero, so CSS transitions and `motion.animate()` both stop.
-
-## Dev mode
-
-`uv run couchd --dev` opens the UI with fake hardware. Keyboard: arrows, Enter = OK, Backspace = Back, H = Home, Space = play/pause, F1–F4 = colour keys (F4 = blue opens the quick menu). `scripts/overlay-demo.sh` walks
-through the overlays: the quick menu, toasts and the volume panel, over each app.
+The launcher draws the same overlays itself (`launcher/ui/overlay.slint`), and its design
+tokens (`launcher/ui/tokens.slint`) are these, by hand: change one, change the other.

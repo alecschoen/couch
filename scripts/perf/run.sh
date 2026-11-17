@@ -10,10 +10,10 @@
 # (progress on stderr). Long checks also keep a copy on the Pi in /tmp/couch-perf, in case
 # SSH drops. Nothing restarts or reboots; the `boot` check reads the last boot as it was.
 #
-# COUCH_HOST picks the Pi (default alecschoen@couch.local).
+# COUCH_HOST picks the Pi (default couch.local, as your own user; or user@host).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-host=${COUCH_HOST:-alecschoen@couch.local}
+host=${COUCH_HOST:-couch.local}
 py=/opt/couch/.venv/bin/python
 dir=${COUCH_PERF_RESULTS:-$here/../../perf-results/$(date +%F)}
 mkdir -p "$dir"
@@ -36,7 +36,7 @@ suite() {
     local minutes=$1 failed=0
     check boot boot || failed=1
     check sample-idle sample --seconds 60 || failed=1
-    check launcher launcher || failed=1
+    # (no `launcher` check: it measured the web launcher; see couchperf.py)
     check launch launch --runs 3 || failed=1
     check youtube youtube --minutes "$minutes" || failed=1
     check plex-info plex info --launch || failed=1

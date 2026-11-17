@@ -3,6 +3,7 @@ name = "couchd"
 version = "0.1.0"
 description = "Background service for Couch, a remote-first TV launcher for Raspberry Pi 4."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.10",

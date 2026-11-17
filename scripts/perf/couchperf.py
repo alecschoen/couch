@@ -20,6 +20,11 @@ Checks:
   plex      Kodi's side: `plex info` (settings, display modes), `plex watch` (what Kodi plays
             and how), `plex nav` (move around PM4K over JSON-RPC and say what's focused)
 
+Not yet ported to the native launcher: `launcher` traces the web launcher's Chromium tab,
+and `launch` (Kodi → launcher) and `boot` (the launcher's first paint) look for that tab
+too, so they fail or say nothing about the launcher now. `sample`, `youtube` and `plex`
+are fine.
+
 Talks only to loopback: couchd's API (8765), Chromium's DevTools (9222), Kodi's JSON-RPC
 (9090). It never signs anything in or out and doesn't touch Chromium's or Kodi's profiles.
 Remote presses go through couchd's API, as the TV remote's would.

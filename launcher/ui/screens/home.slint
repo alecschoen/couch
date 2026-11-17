@@ -1,0 +1,132 @@
+// Home: the B3 colour flood. Clock and date top left, the current
+// sound output top right, a headline for the current card, and the card row. Rust
+// (src/screens/home.rs) fills HomeData and moves focus; this only draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Card, Line, Pill, Screen } from "../components.slint";
+
+export struct OutputPill {
+    id: string,
+    name: string,
+    selected: bool,
+    available: bool,
+}
+
+export global HomeData {
+    in property <string> time;
+    in property <string> date;
+    in property <string> sound;
+    // The row's current card (wide): YouTube, Plex, Audio, Bluetooth, Settings.
+    in property <int> current;
+    in property <string> headline;
+    in property <string> blurb;
+    // On Audio with outputs: the pills instead of the blurb.
+    in property <bool> show-outputs;
+    in property <[OutputPill]> outputs;
+    // Focus is in the output pills (on `output-focus`), not on the cards.
+    in property <bool> in-outputs;
+    in property <int> output-focus;
+}
+
+export component HomeScreen inherits Screen {
+    property <[string]> labels: ["YouTube", "Plex", "Audio", "Bluetooth", "Settings"];
+
+    // Top: the clock and date, and the sound output.
+    VerticalLayout {
+        x: Theme.screen-pad-x;
+        y: 84px;
+        height: self.preferred-height;
+        spacing: 9px;
+        Line {
+            leading: 1;
+            text: HomeData.time;
+            font-family: Theme.font-clock;
+            font-size: Theme.text-clock;
+            font-weight: 500;
+            letter-spacing: -0.03 * Theme.text-clock;
+            color: Theme.ink;
+        }
+        Line {
+            text: HomeData.date;
+            font-family: Theme.font-text;
+            font-size: Theme.text-md;
+            color: Theme.ink;
+            opacity: Theme.a-muted;
+        }
+    }
+    Line {
+        x: parent.width - Theme.screen-pad-x - self.width;
+        y: 84px + Theme.s3;
+        text: HomeData.sound;
+        font-family: Theme.font-text;
+        font-size: Theme.text-sm;
+        color: Theme.ink;
+        opacity: Theme.a-muted;
+    }
+
+    // Bottom: headline, blurb or output pills, then the cards.
+    VerticalLayout {
+        x: Theme.screen-pad-x;
+        width: parent.width - 2 * Theme.screen-pad-x;
+        height: self.preferred-height;
+        y: parent.height - 96px - self.height;
+        spacing: 0;
+        VerticalLayout {
+            spacing: 21px;
+            padding-bottom: Theme.s6;
+            Line {
+                leading: 1;
+                text: HomeData.headline;
+                font-family: Theme.font-display;
+                font-size: Theme.text-title;
+                font-weight: 600;
+                letter-spacing: -0.025 * Theme.text-title;
+                color: Theme.ink;
+            }
+            if !HomeData.show-outputs: Line {
+                text: HomeData.blurb;
+                font-family: Theme.font-text;
+                font-size: Theme.text-md;
+                color: Theme.ink;
+                opacity: Theme.a-muted;
+            }
+            if HomeData.show-outputs: HorizontalLayout {
+                alignment: start;
+                spacing: Theme.s3;
+                // Each in a box of its own size, so the nudge (Bump) moves it inside it.
+                for o[i] in HomeData.outputs: Rectangle {
+                    width: pill.min-width;
+                    height: pill.height;
+                    pill := Pill {
+                        x: self.focused ? Bump.x : 0;
+                        y: self.focused ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        width: parent.width;
+                        label: o.name;
+                        selected: o.selected;
+                        disabled: !o.available;
+                        filled: !HomeData.in-outputs;
+                        focused: HomeData.in-outputs && HomeData.output-focus == i;
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 27px;
+            for label[i] in root.labels: Rectangle {
+                width: card.width;
+                height: card.height;
+                card := Card {
+                    x: self.focused ? Bump.x : 0;
+                    y: self.focused ? Bump.y : 0;
+                    animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                    label: label;
+                    wide: HomeData.current == i;
+                    focused: HomeData.current == i && !HomeData.in-outputs;
+                    strong: true;
+                }
+            }
+        }
+    }
+}

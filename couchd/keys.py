@@ -1,8 +1,8 @@
 """Remote buttons, by name. These names are what the UI receives in `key` messages.
 
 The CEC backend (couchd/cec_tv.py) maps the TV remote onto them; #8 adds key repeat and
-per-app routing. In dev mode, and with a USB keyboard on the Pi, the UI maps keyboard keys
-onto them (ui/js/keys.js) and sends `remote.press`.
+per-app routing. In dev mode, and with a USB keyboard on the Pi, the launcher maps keyboard
+keys onto them (launcher/ui/main.slint) and sends `remote.press`.
 """
 
 REMOTE_KEYS = frozenset(

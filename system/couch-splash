@@ -1,27 +1,24 @@
 #!/usr/bin/python3 -I
-"""Hold the Couch splash over cage until the launcher has drawn (#23): couch-splash
+"""Hold the Couch splash over cage until the launcher is over it (#23): couch-splash
 
 The splash shows from power-on: first the kernel draws it, then couch-fbsplash draws it on
-vc4's framebuffer. When cage takes the screen it shows black until a client draws, and when
-Chromium's window appears its first frames are white, before the launcher paints. This is
-cage's first client and keeps the same picture on screen through both.
+vc4's framebuffer. Couch's cage (cage/) draws the same picture from its first frame until the
+first window maps; the system's cage shows black until a client draws. This is cage's first
+client and keeps the picture on screen until the launcher's window is over it.
 
 It draws exactly what couch-fbsplash drew: its frame cached in /run, or the same TGA rendered
 the same way (centred, the rest filled with its top-left pixel). So the logo doesn't move.
 
-cage stacks each newly mapped window on top and focuses it. When Chromium's window maps,
-cage takes the focus from ours, and we hear about that at once
-(xdg_toplevel.configure without "activated"). Then we map a second window we prepared
-earlier, so it lands on top of Chromium, normally before cage draws its next frame. So
-nothing Chromium draws before the launcher is ready can be seen.
+cage stacks each newly mapped window on top and focuses it. When the launcher's window maps,
+cage takes the focus from ours, and we hear about that at once (xdg_toplevel.configure
+without "activated"), and go. The launcher's first frame is its Startup screen, the same
+picture, so the hand-over can't be seen. couchd also ends this process after the launcher's
+first frame (couchd/splash.py, through the pid that couch-session-start writes), and with no
+word from either it gives up after TIMEOUT seconds, so a broken launcher can't stay hidden.
 
-The buffer is ARGB with every pixel opaque, and no opaque region is declared. That way
-wlroots doesn't count Chromium as hidden and keeps sending it frame callbacks. The launcher
-renders underneath as usual, and its first frame reaches couchd (`ui.first_frame`). couchd
-then ends this process (couchd/splash.py, through the pid that couch-session-start writes).
-cage gives the focus back to Chromium, which already shows the Startup frame: the same
-picture. With no word from couchd it gives up after TIMEOUT seconds, so a broken launcher
-can't stay hidden.
+couch-session-start starts it before cage, with --wait: it gets its picture ready, then
+waits for cage's socket, so it's on screen a frame or two after cage takes the screen instead
+of most of a second later.
 
 Python's standard library only, speaking the Wayland wire protocol directly.
 """
@@ -38,7 +35,7 @@ import time
 from pathlib import Path
 
 TIMEOUT = 30.0
-REMAPS = 4  # how many times we go back on top of a new window before letting it be
+WAIT = 20.0  # --wait: how long cage's socket may take to appear
 FBSPLASH = Path("/opt/couch/bin/couch-fbsplash")
 FBSPLASH_CACHE = Path("/run/couch-fbsplash")
 TGAS = (Path("/lib/firmware/couch-splash.tga"), Path("/opt/couch/ui/brand/splash.tga"))
@@ -190,17 +187,16 @@ class Splash:
         self.compositor = self.shm = self.wm_base = None
         self.windows: dict[int, Window] = {}  # by xdg_surface id
         self.toplevels: dict[int, Window] = {}
-        self.top: Window | None = None  # the mapped window that should be on top
-        self.spare: Window | None = None  # configured, waiting to be mapped
+        self.top: Window | None = None  # our window
         self.pool: int | None = None
         self.buffer_size = (0, 0)
-        self.remaps = 0
         self.presentation: int | None = None
         self.clock_id = time.CLOCK_MONOTONIC
         self.feedback: dict[int, tuple[Window, float]] = {}  # feedback id -> (window, commit)
         self.sync_id: int | None = None
         self.error: str | None = None
         self.closed = False
+        self.covered_by_another = False  # another window is over ours: time to go
         self.send(self.DISPLAY, 1, self.REGISTRY)  # wl_display.get_registry
         self.sync_id = self.new_id()
         self.send(self.DISPLAY, 0, self.sync_id)  # wl_display.sync: globals are in after it
@@ -284,7 +280,6 @@ class Splash:
         if "wp_presentation" in self.globals:  # only to log when the splash reached the screen
             self.presentation = self.bind_global("wp_presentation", 1)
         self.top = self.make_window()
-        self.spare = self.make_window()
 
     def bind_global(self, iface: str, version: int) -> int:
         name, have = self.globals[iface]
@@ -346,26 +341,27 @@ class Splash:
         self.send(window.surface, 6)
 
     def covered(self) -> None:
-        """Another window was mapped over ours: go back on top with the spare one."""
+        """Another window was mapped over ours: the launcher's. Our part is done."""
         log("a new window is over ours")
-        if self.remaps >= REMAPS or self.spare is None:
-            log("another window is on top; letting it be")
-            return
-        self.remaps += 1
-        window, self.spare = self.spare, None
-        self.top = window
-        if window.configured:
-            self.map(window)
-        log("back on top of a new window", remap=self.remaps)
-        self.spare = self.make_window() if self.remaps < REMAPS else None
+        self.covered_by_another = True
 
 
-def connect() -> socket.socket:
+def connect(wait: float = 0.0, sleep=time.sleep, clock=time.monotonic) -> socket.socket:
+    """cage's socket. With wait, it may not be there yet (cage is still starting), or be an
+    old one nobody listens on (the last cage's): keep trying for that long."""
     name = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
     path = name if name.startswith("/") else os.path.join(os.environ["XDG_RUNTIME_DIR"], name)
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(path)
-    return sock
+    deadline = clock() + wait
+    while True:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(path)
+            return sock
+        except (FileNotFoundError, ConnectionRefusedError):
+            sock.close()
+            if clock() >= deadline:
+                raise
+            sleep(0.005)
 
 
 def flush(sock: socket.socket, splash: Splash) -> None:
@@ -384,15 +380,29 @@ def ended(*_) -> None:
     os._exit(0)
 
 
-def run() -> int:
+def ready_pixels(width: int = 1920, height: int = 1080):
+    """splash_pixels, with the screen's usual size worked out now, before cage is there."""
+    ready = {(width, height): splash_pixels(width, height)}
+
+    def pixels_for(w: int, h: int) -> bytes:
+        return ready.pop((w, h), None) or splash_pixels(w, h)
+
+    return pixels_for
+
+
+def run(args: list[str]) -> int:
     signal.signal(signal.SIGTERM, ended)
-    started = time.monotonic()
+    wait = "--wait" in args
+    pixels_for = ready_pixels() if wait else splash_pixels
     try:
-        sock = connect()
+        sock = connect(WAIT if wait else 0.0)
     except (OSError, KeyError) as e:
         log(f"no Wayland display: {e}")
         return 1
-    splash = Splash()
+    if wait:
+        log("cage is up")
+    started = time.monotonic()
+    splash = Splash(pixels_for)
     flush(sock, splash)
     buf = b""
     sock.settimeout(0.5)
@@ -420,12 +430,13 @@ def run() -> int:
         if splash.error:
             log(f"Wayland error: {splash.error}")
             return 1
-        if splash.closed:
+        if splash.closed or splash.covered_by_another:
             break
-    log("splash ending", reason="closed" if splash.closed else "timeout", remaps=splash.remaps)
+    reason = "closed" if splash.closed else "covered" if splash.covered_by_another else "timeout"
+    log("splash ending", reason=reason)
     sock.close()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(run(sys.argv[1:]))

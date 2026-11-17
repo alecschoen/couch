@@ -30,7 +30,7 @@ Timing is couchd's, because TVs differ in whether, and how often, they repeat a 
 
 `remote.press` acts like a quick press and release of one button, for curl and tests;
 `hold: true` makes it a long press of OK or Back. With `keyboard: true` it is a key typed on
-a keyboard into the launcher (ui/js/keys.js): it goes to the launcher whatever is in front,
+a keyboard into the launcher (launcher/ui/main.slint): it goes to the launcher whatever is in front,
 so a key the virtual keyboard typed into a launcher that wasn't supposed to have the screen
 can't come back to be typed again. `remote.hold` holds a button down for some seconds,
 through the same press and release as the TV's, to try repeat with curl.

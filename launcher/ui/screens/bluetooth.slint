@@ -1,0 +1,348 @@
+// Bluetooth: your devices on the left,
+// devices nearby on the right, a tip about pairing mode at the bottom, and the Options sheet
+// (Disconnect, Forget). Rust (src/screens/bluetooth.rs) owns the devices, focus and scrolling
+// and fills BluetoothData; this only draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Icon, Line, Pill, Screen } from "../components.slint";
+
+// The layout, in px from the screen's top left, as the web lays it out at 1920×1080. Rust
+// works out focus moves and scrolling from the same numbers (bluetooth.rs GEOMETRY).
+export global BluetoothLayout {
+    out property <length> col-x0: 108px;
+    out property <length> col-x1: 996px;
+    out property <length> col-w: 816px;
+    // Where the rows start, and the height they have before the tip.
+    out property <length> rows-top: 360px;
+    out property <length> rows-h: 557.55px;
+    // A row: 120.65 tall (its text and padding), 18 apart.
+    out property <length> row-h: 120.65px;
+    out property <length> row-step: 138.65px;
+}
+
+export struct BtRow {
+    // The device's address: focus and the scroll follow it.
+    key: string,
+    title: string,
+    sub: string,
+    // On the right: "" (nothing), "spinner" (working on it) or "check" (connected, sound here).
+    end: string,
+    focused: bool,
+}
+
+export global BluetoothData {
+    in property <string> sound;
+    // "Looking for devices", with its pulse, while the radio scans.
+    in property <bool> looking;
+    in property <[BtRow]> yours;
+    in property <[BtRow]> nearby;
+    // Said instead of rows ("Nothing paired yet", "Nothing new nearby"); "" for none.
+    in property <string> yours-note;
+    in property <string> nearby-note;
+    // How far each column is scrolled.
+    in property <length> yours-scroll;
+    in property <length> nearby-scroll;
+
+    // The Options sheet. Its name and pills stay set while it slides away.
+    in property <bool> sheet-open;
+    in property <string> sheet-title;
+    in property <bool> sheet-disconnect;
+    // The focused pill: 0 Disconnect, 1 Forget.
+    in property <int> sheet-focus;
+}
+
+// A ring with its right quarter open, turning (the web's .spinner: a 4px border with the right
+// side transparent, 0.8 s a turn).
+component Spinner inherits Rectangle {
+    in property <color> ink;
+    width: 36px;
+    height: 36px;
+    Path {
+        width: 36px;
+        height: 36px;
+        viewbox-width: 36;
+        viewbox-height: 36;
+        // From 45° (bottom right) round through the left to −45° (top right): radius 16.
+        commands: "M 29.3137 29.3137 A 16 16 0 1 1 29.3137 6.6863";
+        stroke: root.ink;
+        stroke-width: 4px;
+        fill: transparent;
+        transform-rotation: Theme.reduced ? 0deg : Math.mod(animation-tick() / 1ms, 800) / 800 * 360deg;
+    }
+}
+
+// The dot by "Looking for devices": 0.35 → 1 → 0.35 opacity every 1.4 s, eased in and out.
+component Pulse inherits Rectangle {
+    in property <color> ink;
+    // Its peak opacity (the label it's in is faded too).
+    in property <float> peak: 1;
+    property <float> t: Math.mod(animation-tick() / 1ms, 1400) / 1400;
+    property <float> u: t < 0.5 ? t * 2 : 2 - t * 2;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: ink;
+    opacity: peak * (Theme.reduced ? 1 : 0.35 + 0.65 * u * u * (3 - 2 * u));
+}
+
+// A device in a column: name, what OK will do, and a spinner or tick on the right.
+component DeviceRow inherits Rectangle {
+    in property <BtRow> item;
+    in property <length> nudge-x;
+    in property <length> nudge-y;
+    property <color> fg: item.focused ? Theme.bg : Theme.ink;
+    height: BluetoothLayout.row-h;
+    Rectangle {
+        x: root.nudge-x;
+        y: root.nudge-y;
+        width: parent.width;
+        height: parent.height;
+        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+        border-radius: Theme.radius-row;
+        border-width: Theme.border;
+        border-color: root.item.focused ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+        background: root.item.focused ? Theme.ink : Theme.ink.with-alpha(0);
+        animate background, border-color { duration: Theme.dur-quick; }
+
+        HorizontalLayout {
+            padding-left: 36px + Theme.border;
+            padding-right: 36px + Theme.border;
+            spacing: Theme.s4;
+            VerticalLayout {
+                alignment: center;
+                spacing: Theme.s1;
+                Line {
+                    leading: 1.15;
+                    text: root.item.title;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-row;
+                    font-weight: 600;
+                    color: root.fg;
+                    overflow: elide;
+                    animate color { duration: Theme.dur-quick; }
+                }
+                Line {
+                    text: root.item.sub;
+                    font-size: Theme.text-xs;
+                    color: root.fg;
+                    opacity: 0.8;
+                    animate color { duration: Theme.dur-quick; }
+                }
+            }
+            if root.item.end == "spinner": VerticalLayout {
+                alignment: center;
+                Spinner { ink: root.fg; }
+            }
+            if root.item.end == "check": VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 39px;
+                    height: 39px;
+                    source: @image-url("bt-check.svg");
+                    colorize: root.fg;
+                    image-rendering: smooth;
+                }
+            }
+        }
+    }
+}
+
+// One column: its label, then its rows (scrolled, clipped to the room above the tip) or a note.
+component Column inherits Rectangle {
+    in property <string> label;
+    in property <bool> looking;
+    in property <[BtRow]> rows;
+    in property <string> note;
+    in property <length> scroll;
+    // More rows than fit: the browser shrinks each to its smallest height, a whole 120px
+    // (bluetooth.rs row_size).
+    property <bool> tight: rows.length * BluetoothLayout.row-step - 18px > BluetoothLayout.rows-h;
+    property <length> row-h: tight ? 120px : BluetoothLayout.row-h;
+    property <length> row-step: tight ? 138px : BluetoothLayout.row-step;
+    // Scrolls smoothly to where Rust says, as the browser's smooth scrollTo.
+    property <length> shown-scroll: scroll;
+    animate shown-scroll { duration: Theme.reduced ? 0ms : 300ms; easing: Ease.in-out; }
+
+    // The label, 6px + the list's 18px gap above the rows.
+    HorizontalLayout {
+        x: 0;
+        y: BluetoothLayout.rows-top - 24px - self.height;
+        height: 27px * 1.35;
+        alignment: start;
+        spacing: 15px;
+        Line {
+            text: root.label;
+            font-size: Theme.text-sm;
+            opacity: 0.8;
+        }
+        if root.looking: HorizontalLayout {
+            spacing: 15px;
+            VerticalLayout {
+                alignment: center;
+                Pulse { ink: Theme.ink; peak: 0.8; }
+            }
+            Line {
+                text: "Looking for devices";
+                font-size: Theme.text-sm;
+                opacity: 0.64;
+            }
+        }
+    }
+
+    Rectangle {
+        y: BluetoothLayout.rows-top;
+        height: BluetoothLayout.rows-h;
+        clip: true;
+        for r[i] in root.rows: DeviceRow {
+            x: 0;
+            y: i * root.row-step - root.shown-scroll;
+            width: parent.width;
+            height: root.row-h;
+            item: r;
+            nudge-x: r.focused ? Bump.x : 0;
+            nudge-y: r.focused ? Bump.y : 0;
+        }
+        if root.note != "": Line {
+            x: 0;
+            y: (BluetoothLayout.row-h - self.height) / 2;
+            text: root.note;
+            font-size: Theme.text-base;
+            opacity: 0.8;
+        }
+    }
+}
+
+// The Options sheet: slides up from the bottom over a scrim (components.js openSheet).
+component OptionsSheet inherits Rectangle {
+    property <bool> open: BluetoothData.sheet-open;
+    property <length> sheet-h: 51px + 45px * 1.1 + 33px + Theme.pill-h + 60px;
+
+    Rectangle {
+        background: #050506.with-alpha(0.5);
+        opacity: root.open ? 1 : 0;
+        animate opacity { duration: Theme.dur-sheet; }
+    }
+
+    Rectangle {
+        x: 0;
+        y: root.open ? root.height - root.sheet-h : root.height;
+        animate y { duration: Theme.dur-sheet; easing: Ease.out; }
+        width: root.width;
+        height: root.sheet-h;
+        background: Theme.bg;
+
+        Line {
+            x: 84px;
+            y: 51px;
+            leading: 1.1;
+            text: BluetoothData.sheet-title;
+            font-family: Theme.font-display;
+            font-size: Theme.text-heading;
+            font-weight: 600;
+        }
+        // Baseline to baseline with the heading.
+        Line {
+            x: parent.width - 84px - self.width;
+            y: 51px + 11.5px;
+            text: "Back to close";
+            font-size: Theme.text-sm;
+            opacity: Theme.a-muted;
+        }
+        HorizontalLayout {
+            x: 84px;
+            y: 51px + 45px * 1.1 + 33px;
+            height: Theme.pill-h;
+            alignment: start;
+            spacing: Theme.s3;
+            if BluetoothData.sheet-disconnect: Rectangle {
+                width: disconnect.min-width;
+                disconnect := Pill {
+                    x: BluetoothData.sheet-focus == 0 ? Bump.x : 0;
+                    y: BluetoothData.sheet-focus == 0 ? Bump.y : 0;
+                    width: parent.width;
+                    label: "Disconnect";
+                    focused: BluetoothData.sheet-focus == 0;
+                }
+            }
+            Rectangle {
+                width: forget.min-width;
+                forget := Pill {
+                    x: BluetoothData.sheet-focus == 1 ? Bump.x : 0;
+                    y: BluetoothData.sheet-focus == 1 ? Bump.y : 0;
+                    width: parent.width;
+                    label: "Forget";
+                    focused: BluetoothData.sheet-focus == 1;
+                }
+            }
+        }
+    }
+}
+
+export component BluetoothScreen inherits Screen {
+    // Top: where you are, and where the sound is.
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top;
+        text: "Home › Bluetooth";
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: parent.width - Theme.screen-pad-x - self.width;
+        y: Theme.screen-pad-top;
+        text: BluetoothData.sound;
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top + 27px * 1.35 + 27px;
+        leading: 1;
+        text: "Bluetooth";
+        font-family: Theme.font-display;
+        font-size: Theme.text-title;
+        font-weight: 600;
+        letter-spacing: -0.025 * Theme.text-title;
+    }
+
+    Column {
+        x: BluetoothLayout.col-x0;
+        y: 0;
+        height: parent.height;
+        width: BluetoothLayout.col-w;
+        label: "Your devices";
+        rows: BluetoothData.yours;
+        note: BluetoothData.yours-note;
+        scroll: BluetoothData.yours-scroll;
+    }
+    Column {
+        x: BluetoothLayout.col-x1;
+        y: 0;
+        height: parent.height;
+        width: BluetoothLayout.col-w;
+        label: "Nearby";
+        looking: BluetoothData.looking;
+        rows: BluetoothData.nearby;
+        note: BluetoothData.nearby-note;
+        scroll: BluetoothData.nearby-scroll;
+    }
+
+    // The tip, at the bottom.
+    HorizontalLayout {
+        x: Theme.screen-pad-x;
+        y: parent.height - Theme.screen-pad-bottom - self.height;
+        height: 27px * 1.35;
+        spacing: 21px;
+        opacity: Theme.a-muted;
+        VerticalLayout {
+            alignment: center;
+            Icon { name: "info"; }
+        }
+        Line {
+            text: "Put your speaker or headphones in pairing mode. That's usually holding its Bluetooth button until a light blinks.";
+            font-size: Theme.text-sm;
+        }
+    }
+
+    OptionsSheet { }
+}

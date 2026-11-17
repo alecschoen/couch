@@ -1,0 +1,453 @@
+// The base components, as in ui/css/components.css. Nothing here takes keys: Rust decides
+// what has focus and sets `focused` (and the rest) on each one.
+//
+// Focus is always a solid ink fill: the element takes the palette's ink as its background and
+// the ground colour as its text. Every component takes `ink` and `ground` (the palette's
+// ground under it), defaulting to the current palette's, so a sheet in another palette can
+// pass its own.
+
+import { Theme, Ease } from "tokens.slint";
+
+export component Icon inherits Image {
+    in property <string> name;
+    in property <color> tint: Theme.ink;
+    width: 36px;
+    height: 36px;
+    colorize: tint;
+    image-rendering: smooth;
+    source: name == "tv" ? @image-url("icons/tv.svg")
+        : name == "headphones" ? @image-url("icons/headphones.svg")
+        : name == "bluetooth" ? @image-url("icons/bluetooth.svg")
+        : name == "speaker" ? @image-url("icons/speaker.svg")
+        : name == "power" ? @image-url("icons/power.svg")
+        : name == "check" ? @image-url("icons/check.svg")
+        : name == "plus" ? @image-url("icons/plus.svg")
+        : name == "minus" ? @image-url("icons/minus.svg")
+        : name == "info" ? @image-url("icons/info.svg")
+        : name == "chevron" ? @image-url("icons/chevron.svg")
+        : name == "update" ? @image-url("icons/update.svg")
+        : name == "muted" ? @image-url("icons/muted.svg")
+        : name == "usb" ? @image-url("icons/usb.svg")
+        : @image-url("icons/info.svg");
+}
+
+// One line of text in a box `leading` × its size tall, the glyphs centred in it: CSS's
+// line-height, so layouts match the design's.
+export component Line inherits Text {
+    in property <float> leading: 1.35;
+    height: self.font-size * leading;
+    vertical-alignment: center;
+    font-family: Theme.font-text;
+    color: Theme.ink;
+}
+
+// Text in the display face (Space Grotesk) or the text face (Inter), in the ink.
+export component DisplayText inherits Text {
+    font-family: Theme.font-display;
+    font-weight: 600;
+    color: Theme.ink;
+}
+
+export component BodyText inherits Text {
+    font-family: Theme.font-text;
+    font-size: Theme.text-base;
+    color: Theme.ink;
+}
+
+// ---- Card: the B3 app card. `wide` is the row's current card (wider); `strong` gives a wide
+// card that doesn't have focus a full-ink outline (Home, while focus is in the output pills).
+export component Card inherits Rectangle {
+    in property <string> label;
+    in property <bool> focused;
+    in property <bool> wide;
+    in property <bool> strong;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    width: wide ? Theme.card-w-focus : Theme.card-w;
+    height: Theme.card-h;
+    animate width { duration: Theme.dur-card; easing: Ease.out; }
+
+    bg := Rectangle {
+        border-radius: Theme.radius-card;
+        border-width: Theme.border;
+        border-color: root.focused || (root.wide && root.strong) ? root.ink : root.ink.with-alpha(Theme.a-outline);
+        background: root.focused ? root.ink : root.ink.with-alpha(0);
+        animate background, border-color { duration: Theme.dur-quick; }
+    }
+
+    Text {
+        x: 30px;
+        y: parent.height - 27px - self.preferred-height;
+        text: root.label;
+        font-family: Theme.font-display;
+        font-size: Theme.text-card;
+        font-weight: 600;
+        color: root.focused ? root.ground : root.ink;
+        animate color { duration: Theme.dur-quick; }
+    }
+}
+
+// ---- Pill: a rounded option or action. `selected` marks the current choice; `primary` is
+// filled; `filled` fills a selected pill while focus is elsewhere (Home's outputs).
+export component Pill inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> focused;
+    in property <bool> selected;
+    in property <bool> primary;
+    in property <bool> filled;
+    in property <bool> disabled;
+    in property <length> pill-height: Theme.pill-h;
+    in property <length> pad: 36px;
+    in property <length> font-size: Theme.text-base;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    property <bool> solid: focused || primary || (filled && selected);
+    height: pill-height;
+    min-width: lay.preferred-width;
+    opacity: disabled ? 0.45 : 1;
+    border-radius: self.height / 2;
+    border-width: Theme.border;
+    border-color: solid || (selected && !focused) ? ink : ink.with-alpha(Theme.a-outline);
+    background: solid ? ink : ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+
+    // A primary pill is already filled: focus shows as a ring of the ground inside the fill.
+    if root.primary && root.focused: Rectangle {
+        x: Theme.border;
+        y: Theme.border;
+        width: parent.width - 2 * Theme.border;
+        height: parent.height - 2 * Theme.border;
+        border-radius: self.height / 2;
+        border-width: 4px;
+        border-color: root.ground;
+    }
+
+    lay := HorizontalLayout {
+        padding-left: root.pad + Theme.border;
+        padding-right: root.pad + Theme.border;
+        spacing: Theme.s2;
+        alignment: center;
+        if root.icon != "": Icon {
+            name: root.icon;
+            width: 30px;
+            height: 30px;
+            y: (parent.height - self.height) / 2;
+            tint: root.solid ? root.ground : root.ink;
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-family: Theme.font-text;
+            font-size: root.font-size;
+            font-weight: 500;
+            color: root.solid ? root.ground : root.ink;
+            animate color { duration: Theme.dur-quick; }
+        }
+    }
+}
+
+// ---- Segment: one choice of a segmented control (Evening colors: After sunset / Always / Off).
+export component Segment inherits Rectangle {
+    in property <string> label;
+    in property <bool> focused;
+    in property <bool> selected;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    height: Theme.segment-h;
+    min-width: txt.preferred-width + 60px + 2 * Theme.border;
+    border-radius: self.height / 2;
+    border-width: Theme.border;
+    border-color: focused ? ink : selected ? ink : ink.with-alpha(0);
+    background: focused ? ink : selected ? ink.with-alpha(0) : ink.with-alpha(Theme.a-tint);
+    animate background, border-color { duration: Theme.dur-quick; }
+    txt := Text {
+        text: root.label;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-family: Theme.font-text;
+        font-size: Theme.text-sm;
+        font-weight: 500;
+        color: root.focused ? root.ground : root.ink;
+        animate color { duration: Theme.dur-quick; }
+    }
+}
+
+// ---- Row: an item in a list: a title, a sub-line, and text on the right (`end`).
+export component Row inherits Rectangle {
+    in property <string> title;
+    in property <string> sub;
+    in property <string> end-text;
+    in property <string> end-icon;
+    in property <bool> focused;
+    in property <bool> selected;
+    in property <bool> disabled;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    property <color> fg: focused ? ground : ink;
+    min-height: Theme.row-h;
+    opacity: disabled ? 0.45 : 1;
+    border-radius: Theme.radius-row;
+    border-width: Theme.border;
+    border-color: focused || selected ? ink : ink.with-alpha(Theme.a-outline);
+    background: focused ? ink : ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+
+    HorizontalLayout {
+        padding-left: 36px + Theme.border;
+        padding-right: 36px + Theme.border;
+        padding-top: 18px + Theme.border;
+        padding-bottom: 18px + Theme.border;
+        spacing: Theme.s4;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.s1;
+            Text {
+                text: root.title;
+                font-family: Theme.font-display;
+                font-size: Theme.text-row;
+                font-weight: 600;
+                color: root.fg;
+                overflow: elide;
+            }
+            if root.sub != "": Text {
+                text: root.sub;
+                font-family: Theme.font-text;
+                font-size: Theme.text-xs;
+                color: root.fg;
+                opacity: 0.8;
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: Theme.s2;
+            if root.end-icon != "": Icon {
+                name: root.end-icon;
+                y: (parent.height - self.height) / 2;
+                tint: root.fg;
+            }
+            if root.end-text != "": Text {
+                text: root.end-text;
+                vertical-alignment: center;
+                font-family: Theme.font-text;
+                font-size: Theme.text-base;
+                color: root.fg;
+            }
+        }
+    }
+}
+
+// ---- Tab: a category in a side list (Settings).
+export component Tab inherits Rectangle {
+    in property <string> label;
+    in property <bool> focused;
+    in property <bool> selected;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    height: Theme.tab-h;
+    border-radius: Theme.radius-tab;
+    background: focused ? ink : selected ? ink.with-alpha(Theme.a-tint) : ink.with-alpha(0);
+    animate background { duration: Theme.dur-quick; }
+    Text {
+        x: 33px;
+        text: root.label;
+        vertical-alignment: center;
+        height: parent.height;
+        font-family: Theme.font-display;
+        font-size: Theme.text-card;
+        font-weight: 600;
+        color: root.focused ? root.ground : root.ink;
+        animate color { duration: Theme.dur-quick; }
+    }
+}
+
+// ---- Switch: on/off, drawn inside a Setting line. `fg`/`ground` are the line's colours.
+export component Switch inherits Rectangle {
+    in property <bool> on;
+    in property <color> fg: Theme.ink;
+    in property <color> ground: Theme.bg;
+    width: Theme.switch-w;
+    height: Theme.switch-h;
+    border-radius: self.height / 2;
+    background: on ? fg : fg.with-alpha(Theme.a-track);
+    animate background { duration: Theme.dur-quick; }
+    Rectangle {
+        y: 6px;
+        x: root.on ? root.width - Theme.knob - 6px : 6px;
+        width: Theme.knob;
+        height: Theme.knob;
+        border-radius: self.width / 2;
+        background: root.on ? root.ground : root.fg;
+        animate x { duration: Theme.dur-quick; easing: Ease.out; }
+        animate background { duration: Theme.dur-quick; }
+    }
+}
+
+// ---- Setting: a label (and hint) with its value on the right, between hairlines. Padded so
+// the focus fill has room; place it 27px wider than the column on each side (x: -27px).
+// `hairline` draws the divider above it (not on the first line, nor next to focus).
+export component Setting inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value;
+    in property <bool> focused;
+    in property <bool> hairline;
+    in property <bool> has-switch;
+    in property <bool> switch-on;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    property <color> fg: focused ? ground : ink;
+    border-radius: Theme.radius-row;
+    background: focused ? ink : ink.with-alpha(0);
+    animate background { duration: Theme.dur-quick; }
+
+    if root.hairline: Rectangle {
+        x: 27px;
+        y: 0;
+        width: parent.width - 54px;
+        height: 2px;
+        background: root.ink.with-alpha(Theme.a-hairline);
+    }
+
+    @children
+
+    HorizontalLayout {
+        padding: 27px;
+        spacing: Theme.s5;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.s1;
+            horizontal-stretch: 1;
+            Text {
+                text: root.label;
+                font-family: Theme.font-text;
+                font-size: Theme.text-md;
+                color: root.fg;
+            }
+            if root.hint != "": Text {
+                text: root.hint;
+                font-family: Theme.font-text;
+                font-size: Theme.text-xs;
+                color: root.fg;
+                opacity: Theme.a-faint;
+                wrap: word-wrap;
+            }
+        }
+        if root.value != "": Text {
+            text: root.value;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            font-family: Theme.font-text;
+            font-size: Theme.text-base;
+            color: root.fg;
+            opacity: Theme.a-muted;
+        }
+        if root.has-switch: VerticalLayout {
+            alignment: center;
+            Switch {
+                on: root.switch-on;
+                fg: root.fg;
+                ground: root.focused ? root.ink : root.ground;
+            }
+        }
+    }
+}
+
+// ---- Progress: a bar (value 0–1), or `busy`: a short bar sliding back and forth.
+export component Progress inherits Rectangle {
+    in property <float> value;
+    in property <bool> busy;
+    in property <length> thickness: 12px;
+    in property <float> track: 0.25;
+    in property <color> ink: Theme.ink;
+    height: thickness;
+    border-radius: thickness / 2;
+    clip: true;
+    background: ink.with-alpha(track);
+    // 1.3 s per sweep, eased: from -100% to 250% of the bar's 40%.
+    property <float> sweep: Theme.reduced ? 0 : Math.mod(animation-tick() / 1300ms, 1);
+    property <float> eased: sweep < 0.5 ? 4 * sweep * sweep * sweep : 1 - Math.pow(-2 * sweep + 2, 3) / 2;
+    Rectangle {
+        border-radius: root.thickness / 2;
+        background: root.ink;
+        width: root.busy ? parent.width * 0.4 : parent.width * Math.clamp(root.value, 0, 1);
+        // Reduced motion: no sweep, so it rests at the start, as the web's does without its animation.
+        x: root.busy && !Theme.reduced ? self.width * (-1 + 3.5 * root.eased) : 0;
+        animate width { duration: root.busy ? 0ms : Theme.dur-quick; easing: Ease.out; }
+    }
+}
+
+// ---- Toast: top right, ink on the ground; red for an error. `em` is drawn bold after `text`
+// ("Sound now on" + "TV speakers").
+export component Toast inherits Rectangle {
+    in property <string> text;
+    in property <string> em;
+    in property <string> icon: "check";
+    in property <bool> error;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    property <color> fg: error ? #ffffff : ground;
+    border-radius: Theme.radius-card;
+    background: error ? Theme.key-red : ink;
+    width: min(900px, lay.preferred-width);
+    height: lay.preferred-height;
+    lay := HorizontalLayout {
+        padding-left: 39px;
+        padding-right: 39px;
+        padding-top: 27px;
+        padding-bottom: 27px;
+        spacing: 21px;
+        Icon {
+            name: root.icon;
+            tint: root.fg;
+            y: (parent.height - self.height) / 2;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.text;
+                vertical-alignment: center;
+                font-family: Theme.font-text;
+                font-size: Theme.text-base;
+                font-weight: 500;
+                color: root.fg;
+                overflow: elide;
+            }
+            if root.em != "": Text {
+                text: root.em;
+                vertical-alignment: center;
+                font-family: Theme.font-text;
+                font-size: Theme.text-base;
+                font-weight: 600;
+                color: root.fg;
+            }
+        }
+    }
+}
+
+// ---- Breadcrumb: "Home › Bluetooth"
+export component Breadcrumb inherits Text {
+    font-family: Theme.font-text;
+    font-size: Theme.text-sm;
+    color: Theme.ink;
+    opacity: 0.8;
+}
+
+// ---- Screen: the frame every screen draws in. Slides in from 24px below (or above, going
+// back) and fades in, as the router does.
+export component Screen inherits Rectangle {
+    in property <bool> entering: true;
+    property <float> shown: 0;
+    property <length> offset: entering ? 24px : -24px;
+    opacity: shown;
+    init => {
+        shown = 1;
+        offset = 0;
+    }
+    animate opacity { duration: Theme.dur-screen; easing: Ease.out; }
+    animate offset { duration: Theme.dur-screen; easing: Ease.out; }
+    Rectangle {
+        y: root.offset;
+        @children
+    }
+}

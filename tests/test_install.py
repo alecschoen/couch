@@ -34,6 +34,9 @@ def test_every_system_file_it_installs_exists():
         "couch-kodi.service",
         "couch-kodi",
         "couch-kodi-vt",
+        "couch-chromium",
+        "couch-chromium-warm",
+        "couch-chromium.service",
         "couch.rules",
         "kodi",
         "60-couch-uinput.rules",
@@ -49,14 +52,14 @@ def test_every_system_file_it_installs_exists():
         assert path.is_dir() if name == "kodi" else path.is_file(), name
 
 
-def test_session_runs_the_installed_browser_wrapper():
+def test_session_runs_the_installed_launcher():
     unit = (ROOT / "system" / "couch-session.service").read_text()
-    assert "ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-session-start" in unit
+    assert "ExecStart=/opt/couch/bin/couch-session-start --start-cage" in unit
     for name in ("couch-session-start", "couch-browser"):
         wrapper = rf'"\$SRC/system/{name}" "\$PREFIX/bin/{name}" 755'
         assert re.search(wrapper, INSTALL.read_text()), name
     start = (ROOT / "system" / "couch-session-start").read_text()
-    assert "exec /opt/couch/bin/couch-browser" in start
+    assert "exec /opt/couch/bin/couch-launcher" in start
 
 
 def test_the_session_splash_is_installed_next_to_what_it_draws_with():
@@ -101,6 +104,7 @@ def test_polkit_rule_covers_only_our_units():
     rule = (ROOT / "system" / "couch.rules").read_text()
     assert set(re.findall(r'"([\w-]+\.service)"', rule)) == {
         "couch-session.service",
+        "couch-chromium.service",  # the native launcher's Chromium for YouTube
         "couch-kodi.service",
         "couch-update-now.service",  # Check now (#24): start only
     }

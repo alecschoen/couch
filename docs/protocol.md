@@ -2,11 +2,12 @@
 
 couchd listens on `http://127.0.0.1:8765`. It only answers requests whose `Host` is
 loopback, and refuses any browser request with a non-loopback `Origin`. So pages like
-youtube.com/tv, running in the same Chromium, can't reach it.
+youtube.com/tv, running in Chromium on the same Pi, can't reach it. It serves no pages: the
+launcher (launcher/, native) is its one UI, and curl or a script can use the same API.
 
 ## WebSocket: `/ws`
 
-The UI opens one socket. Every message is a JSON object with a `type`.
+The launcher opens one socket. Every message is a JSON object with a `type`.
 
 **`state`**: the live state, grouped into sections.
 
@@ -84,8 +85,8 @@ With `display.evening` on `sunset` the launcher uses its deep colours while `dar
 
   A launch, `apps.home` or `apps.clear_error` clears it, and so does 2 minutes passing.
   There's no toast: the error screen says it.
-- `browser`: `connected` or `disconnected` (DevTools link to Chromium; it's
-  `disconnected` while Kodi has the screen).
+- `browser`: `connected` or `disconnected`: couchd's DevTools link to the Chromium that
+  runs YouTube. Chromium only runs while YouTube is open, so it's mostly `disconnected`.
 
 Output ids are stable across reboots: `tv` (HDMI), `jack` (the 3.5 mm jack), `usb:<card>`,
 and `bluetooth:<address>`, the same address as in the `bluetooth` section. A second HDMI or
@@ -109,11 +110,11 @@ service, does the work and couchd reads its status file:
 - `state`: `idle`, `checking`, `downloading`, `installing`, `rolling-back` or `system`.
 - `result`: the last run's: `installed`, `up-to-date`, `rolled-back` (the new release failed
   its health check and the previous install is back), `broken` (going back failed too),
-  `no-access` (not set up: the Pi can't read the releases of the private repo, no token in
+  `no-access` (not set up: the Pi can't read the releases of a private fork, no token in
   `/etc/couch/github-token` or one GitHub refuses), `failed` (couldn't check: no network, a
   broken download), `waiting` (something was
   playing; `waiting` says what), or null before the first run. `message` says more.
-- `announce`: an update the UI hasn't told anyone about yet. `ui/js/updates.js` shows it as
+- `announce`: an update the UI hasn't told anyone about yet. The launcher shows it as
   a toast ("Updated to v0.2.0", or "Couldn't update to v0.3.0. Couch stayed on v0.2.0") the
   next time the launcher is on the TV, then sends `updates.announced`. Null after that.
 
@@ -164,7 +165,7 @@ colour keys stand down (`remote.raw_keys`, for Settings' remote test). Their `ke
 say `raw: true`, Red doesn't move the sound and Blue doesn't open the quick menu, so the
 screen gets them like any other key; `home` still goes home. The claim is the launcher's
 only, and lapses 15 s after it was made or after the last key. A keyboard (in dev mode, or plugged into the Pi) is turned
-into `remote.press` commands by `ui/js/keys.js`, so it takes the same path through couchd as
+into `remote.press` commands by the launcher (`launcher/ui/main.slint`), so it takes the same path through couchd as
 the TV remote.
 
 When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops: the
@@ -191,6 +192,14 @@ well as being typed into the app.
 
 Live state `audio.volume` and `audio.muted` follow as usual. With sound on the TV there are
 no `tv_remote` events: the TV's volume buttons are the TV's, and it shows its own bar.
+
+**`draw_check`**: couchd wants to know the launcher is on screen (back
+from Plex, cage should be drawing it again): it answers with `ui.drawn` and the same `id` after
+its next frame. No answer within 2 s and couchd restarts the session.
+
+```json
+{"type": "draw_check", "data": {"id": 3}}
+```
 
 **`result`**: the reply to a command, matched by `id`.
 
@@ -234,6 +243,7 @@ The text `ping` gets `pong`.
 | `idle.activity` | Counts as a key press for idle detection |
 | `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
 | `ui.first_frame` | `at` (ms on the page's clock, optional). The launcher sends it once per page load, after its first frame is drawn. couchd then ends the session's boot splash, if it's still up (#23) |
+| `ui.drawn` | `id`. The launcher's answer to a `draw_check` |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
 | `apps.dev.crash` | Dev mode only: `app`. couchd acts as if its tab (or the pretend Kodi) crashed |
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
@@ -299,8 +309,8 @@ the app in front changes. `overlay.menu`:
 
 `host` says who draws it:
 
-- `launcher`: the launcher, from this state (`ui/js/overlay.js`).
-- `chromium`: YouTube. couchd injects the launcher's own overlay code
+- `launcher`: the launcher, from this state (`launcher/src/overlay.rs`).
+- `chromium`: YouTube. couchd injects the same overlays as web code
   (`ui/js/overlay-view.js` with its CSS and fonts) into the page over DevTools, in a closed
   shadow root that can't take focus or keys (`couchd/overlay_page.py`). It's part of the
   tab's setup, so a reload or a navigation gets it again.

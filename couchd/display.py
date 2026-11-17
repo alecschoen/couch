@@ -1,41 +1,46 @@
-"""Who owns the screen: the browser session (cage + Chromium) or Kodi.
+"""Who owns the screen: the session (cage, with the launcher and YouTube) or Kodi.
 
 Only one program can drive the HDMI output at a time: the one on the console (VT) in front.
 On the Pi each is a systemd unit with a logind session on its own VT:
 
-- `couch-session.service`: cage + Chromium on tty1, the launcher and YouTube. Enabled at
-  boot, and left running while Plex is up.
+- `couch-session.service`: cage on tty1, running the launcher (launcher/). Enabled at boot,
+  and left running while Plex is up.
+- `couch-chromium.service`: Chromium in the same cage, started only while YouTube is open:
+  cage puts its window on top of the launcher's, and stopping it shows the launcher again at
+  once.
 - `couch-kodi.service`: Kodi on DRM/GBM on tty2, for Plex (#22). Started only by couchd. It
   switches the console to tty2 as it starts, which pauses cage (logind takes the screen and
   input from it), and back to tty1 however it ends, which gives them back. So leaving Plex
-  shows the launcher as it was, without starting cage and Chromium again. The unit also
+  shows the launcher as it was, without starting the session again. The unit also
   starts the session (OnSuccess/OnFailure) in case it wasn't running, so the launcher comes
   back even if couchd isn't.
 
 couchd runs as `couch`, and a polkit rule (`system/couch.rules`) lets that user start, stop
-and reset just these two units.
+and reset just these units.
 
-`FakeDisplay` is the dev-mode stand-in: the dev Chromium window stays up, and "Kodi" is a
-pretend process that exits when told to (`apps.dev.kodi_exit`). It lives here rather than in
-fakes.py because nothing else uses it.
+`FakeDisplay` is the dev-mode stand-in: "Kodi" is a pretend process that exits when told to
+(`apps.dev.kodi_exit`), and Chromium for YouTube is pretend too, unless it was given a way to
+start and stop a real one (`chromium`). It lives
+here rather than in fakes.py because nothing else uses it.
 """
 
 import asyncio
 import contextlib
 import logging
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from couchd.backends import Backend, BackendError
 
 log = logging.getLogger(__name__)
 
-Owner = Literal["browser", "kodi", "none"]
+Owner = Literal["session", "kodi", "none"]
 # Called once when Kodi stops, for any reason, with whether it failed (crashed, killed).
 KodiExit = Callable[[bool], None]
 
 SESSION_UNIT = "couch-session.service"
+CHROMIUM_UNIT = "couch-chromium.service"
 KODI_UNIT = "couch-kodi.service"
 SYSTEMCTL_TIMEOUT = 30.0
 KODI_START_TIMEOUT = 10.0
@@ -47,17 +52,30 @@ class Display(Backend):
         """What has the screen right now. "none" means neither is running (a stuck screen)."""
 
     @abstractmethod
-    async def show_browser(self) -> None:
-        """Put the browser session in front: stop Kodi if it's running, and start the session
+    async def show_session(self) -> None:
+        """Put the session in front: stop Kodi if it's running, and start the session
         if it isn't."""
 
     @abstractmethod
-    async def restart_browser(self) -> None:
-        """Start the browser session again from scratch (behind the splash)."""
+    async def restart_session(self) -> None:
+        """Start the session again from scratch (behind the splash)."""
+
+    @abstractmethod
+    async def start_chromium(self) -> None:
+        """Start Chromium over the launcher, in the session. Returns once it's starting;
+        its DevTools port answers a moment later."""
+
+    @abstractmethod
+    async def stop_chromium(self) -> None:
+        """Stop that Chromium (nothing if it isn't running)."""
+
+    @abstractmethod
+    async def chromium_running(self) -> bool:
+        """Is that Chromium running (couchd restarted while YouTube was up)?"""
 
     @abstractmethod
     async def start_kodi(self, on_exit: KodiExit) -> None:
-        """Start Kodi in front of the browser session. Returns once Kodi is running."""
+        """Start Kodi in front of the session. Returns once Kodi is running."""
 
     @abstractmethod
     async def watch_kodi(self, on_exit: KodiExit) -> None:
@@ -79,10 +97,10 @@ class SystemdDisplay(Display):
         if await self._state(KODI_UNIT) in ("active", "activating", "reloading"):
             return "kodi"
         if await self._state(SESSION_UNIT) in ("active", "activating", "reloading"):
-            return "browser"
+            return "session"
         return "none"
 
-    async def show_browser(self) -> None:
+    async def show_session(self) -> None:
         if await self._state(KODI_UNIT) in ("active", "activating", "reloading"):
             # Its ExecStopPost switches the console back to tty1, where the session is.
             code, out = await _systemctl("stop", KODI_UNIT)
@@ -94,11 +112,25 @@ class SystemdDisplay(Display):
         if code != 0:
             raise BackendError(f"couldn't start the launcher: {out or code}")
 
-    async def restart_browser(self) -> None:
+    async def restart_session(self) -> None:
         await _systemctl("reset-failed", SESSION_UNIT)
         code, out = await _systemctl("restart", SESSION_UNIT)
         if code != 0:
             raise BackendError(f"couldn't restart the launcher: {out or code}")
+
+    async def start_chromium(self) -> None:
+        await _systemctl("reset-failed", CHROMIUM_UNIT)
+        code, out = await _systemctl("start", CHROMIUM_UNIT)
+        if code != 0:
+            raise BackendError(f"couldn't start Chromium: {out or code}")
+
+    async def stop_chromium(self) -> None:
+        code, out = await _systemctl("stop", CHROMIUM_UNIT)
+        if code != 0:
+            log.warning("couldn't stop Chromium", extra={"detail": out or code})
+
+    async def chromium_running(self) -> bool:
+        return await self._state(CHROMIUM_UNIT) in ("active", "activating", "reloading")
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await _systemctl("reset-failed", KODI_UNIT)
@@ -171,27 +203,53 @@ async def _systemctl(*args: str) -> tuple[int, str]:
     return process.returncode or 0, out.decode(errors="replace").strip()
 
 
-class FakeDisplay(Display):
-    """Dev mode: the browser is always there; "Kodi" runs until `exit_kodi()`."""
+# Starts or stops a dev Chromium for YouTube (or a pretend one in the tests).
+ChromiumControl = Callable[[], Awaitable[None]]
 
-    def __init__(self, *, speed: float = 1.0) -> None:
+
+class FakeDisplay(Display):
+    """Dev mode: the session is always there; "Kodi" runs until `exit_kodi()`. For the
+    launcher's Chromium, `chromium` is a (start, stop) pair; without it, it only pretends."""
+
+    def __init__(
+        self, *, speed: float = 1.0, chromium: tuple[ChromiumControl, ChromiumControl] | None = None
+    ) -> None:
         super().__init__()
         self.speed = speed
         self.kodi_running = False
         self.kodi_starts = 0
-        self.browser_restarts = 0
+        self.session_restarts = 0
         self.fail_next_start = False
+        self.chromium_up = False
+        self.chromium_starts = 0
+        self._chromium = chromium
         self._on_exit: KodiExit | None = None
 
     async def owner(self) -> Owner:
-        return "kodi" if self.kodi_running else "browser"
+        return "kodi" if self.kodi_running else "session"
 
-    async def show_browser(self) -> None:
+    async def show_session(self) -> None:
         if self.kodi_running:
             self.exit_kodi(crashed=False)
 
-    async def restart_browser(self) -> None:
-        self.browser_restarts += 1
+    async def restart_session(self) -> None:
+        self.session_restarts += 1
+
+    async def start_chromium(self) -> None:
+        self.chromium_starts += 1
+        self.chromium_up = True
+        if self._chromium is not None:
+            await self._chromium[0]()
+
+    async def stop_chromium(self) -> None:
+        if not self.chromium_up:
+            return
+        self.chromium_up = False
+        if self._chromium is not None:
+            await self._chromium[1]()
+
+    async def chromium_running(self) -> bool:
+        return self.chromium_up
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
         await asyncio.sleep(0.5 * self.speed)

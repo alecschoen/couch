@@ -7,7 +7,6 @@
 # port = 8765
 
 [paths]
-# ui = "/opt/couch/ui"
 # state = "/var/lib/couch/state.json"
 
 [log]

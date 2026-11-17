@@ -24,7 +24,13 @@ StandardOutput=journal
 StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
-ExecStart=/usr/bin/cage -s -- /opt/couch/bin/couch-session-start
+# The boot animation (couch-fbsplash.service) finishes on the still logo once this starts, a
+# second or two before cage takes the screen. "+": as root; "-": it's usually over already.
+ExecStartPre=-+/usr/bin/systemctl kill --kill-whom=main --signal=SIGUSR1 couch-fbsplash.service
+# couch-session-start starts couch-splash, which waits for cage with its picture ready, then
+# becomes cage (-s) with itself as cage's client: no black between the boot splash and the
+# launcher.
+ExecStart=/opt/couch/bin/couch-session-start --start-cage
 Restart=always
 RestartSec=2
 

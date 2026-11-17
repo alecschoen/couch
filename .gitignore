@@ -9,3 +9,4 @@ build/
 .DS_Store
 perf-results/
 perf-clips/
+target/

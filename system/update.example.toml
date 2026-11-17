@@ -12,7 +12,7 @@
 # asset named couch-*.tar.gz installs that; otherwise GitHub's source tarball for the tag.
 # source = "https://api.github.com/repos/alecschoen/couch/releases/latest"
 
-# A GitHub token that can read the repo's releases, if it's private. Root only (chmod 600).
+# A GitHub token that can read the repo's releases, if they're in a private fork. Root only (chmod 600).
 # Sent to api.github.com, github.com and codeload.github.com only.
 # token_file = "/etc/couch/github-token"
 

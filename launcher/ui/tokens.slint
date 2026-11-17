@@ -1,0 +1,139 @@
+// Design tokens: the evening B3 design at the TV's 1920×1080, the same values as
+// ui/css/tokens.css. Every component and screen uses these; don't hard-code colours, sizes or
+// timings.
+
+import "../fonts/SpaceGrotesk-Light.ttf";
+import "../fonts/SpaceGrotesk-Medium.ttf";
+import "../fonts/SpaceGrotesk-SemiBold.ttf";
+import "../fonts/SpaceGroteskTabular-Light.ttf";
+import "../fonts/SpaceGroteskTabular-Medium.ttf";
+import "../fonts/Inter-Regular.ttf";
+import "../fonts/Inter-Medium.ttf";
+import "../fonts/Inter-SemiBold.ttf";
+import "../fonts/Inter-Bold.ttf";
+
+export global Theme {
+    // ---- Set from Rust (app.rs): the palette of the screen on top, evening colours, and
+    // reduced motion.
+    in property <string> palette: "system";
+    in property <bool> evening: false;
+    in property <bool> reduced: false;
+
+    // ---- Palettes: vivid (daytime), deep (evening), and the ink drawn on them.
+    public pure function vivid(name: string) -> color {
+        if name == "yt" { return #c4302b; }
+        if name == "plex" { return #e5a00d; }
+        if name == "audio" { return #1b6e8c; }
+        if name == "bt" { return #2e4ab0; }
+        if name == "settings" { return #3c3c42; }
+        if name == "idle" { return #0c0d12; }
+        return #121214;
+    }
+    public pure function deep(name: string) -> color {
+        if name == "yt" { return #8a201c; }
+        if name == "plex" { return #b57d09; }
+        if name == "audio" { return #134f64; }
+        if name == "bt" { return #213684; }
+        if name == "settings" { return #2b2b30; }
+        if name == "idle" { return #0c0d12; }
+        return #121214;
+    }
+    public pure function ink-of(name: string) -> color {
+        if name == "plex" { return #1f1600; }
+        if name == "idle" { return #e9e6e0; }
+        return #ffffff;
+    }
+    // The ground of a palette now: deep in the evening, vivid otherwise.
+    public pure function bg-of(name: string) -> color {
+        return evening ? deep(name) : vivid(name);
+    }
+
+    // The current palette's ground and ink.
+    out property <color> bg: bg-of(palette);
+    out property <color> ink: ink-of(palette);
+
+    // The remote's colour keys, for hints; red is also the error toast.
+    out property <color> key-red: #c23b32;
+    out property <color> key-blue: #2f5fd0;
+
+    // ---- Ink alphas (outlines and fills mix the ink with transparent).
+    out property <float> a-outline: 0.40;
+    out property <float> a-hairline: 0.14;
+    out property <float> a-track: 0.20;
+    out property <float> a-tint: 0.12;
+    out property <float> a-muted: 0.85;
+    out property <float> a-faint: 0.75;
+
+    // ---- Type
+    out property <string> font-display: "Space Grotesk";
+    out property <string> font-text: "Inter";
+    // The display face with fixed-width digits, for clocks (CSS tabular-nums).
+    out property <string> font-clock: "Space Grotesk Tabular";
+
+    out property <length> text-hero: 210px;
+    out property <length> text-clock-idle: 300px;
+    out property <length> text-date-idle: 36px;
+    out property <length> text-idle-hint: 25px;
+    out property <length> text-clock: 168px;
+    out property <length> text-wordmark: 120px;
+    out property <length> text-title: 96px;
+    out property <length> text-heading: 45px;
+    out property <length> text-row: 35px;
+    out property <length> text-card: 32px;
+    out property <length> text-lg: 33px;
+    out property <length> text-md: 31px;
+    out property <length> text-base: 29px;
+    out property <length> text-sm: 27px;
+    out property <length> text-xs: 24px;
+
+    // ---- Space
+    out property <length> s1: 6px;
+    out property <length> s2: 12px;
+    out property <length> s3: 18px;
+    out property <length> s4: 24px;
+    out property <length> s5: 36px;
+    out property <length> s6: 54px;
+    out property <length> s7: 72px;
+    out property <length> s8: 96px;
+
+    out property <length> screen-pad-top: 80px;
+    out property <length> screen-pad-x: 108px;
+    out property <length> screen-pad-bottom: 90px;
+
+    // ---- Shapes and sizes
+    out property <length> radius-card: 30px;
+    out property <length> radius-row: 27px;
+    out property <length> radius-tab: 24px;
+    out property <length> border: 3px;
+
+    out property <length> card-h: 198px;
+    out property <length> card-w: 255px;
+    out property <length> card-w-focus: 450px;
+    out property <length> row-h: 120px;
+    out property <length> tab-h: 87px;
+    out property <length> pill-h: 78px;
+    out property <length> segment-h: 69px;
+    out property <length> switch-w: 87px;
+    out property <length> switch-h: 48px;
+    out property <length> knob: 36px;
+
+    // ---- Motion. Reduced motion makes every duration zero.
+    out property <duration> dur-quick: reduced ? 0ms : 200ms;
+    out property <duration> dur-card: reduced ? 0ms : 280ms;
+    out property <duration> dur-sheet: reduced ? 0ms : 320ms;
+    out property <duration> dur-screen: reduced ? 0ms : 240ms;
+    out property <duration> dur-flood: reduced ? 0ms : 500ms;
+}
+
+// The "nothing that way" nudge (focus.js _bump): an arrow with nowhere to go moves the focused
+// thing 9px that way and back. The app sets it (App::bump); whatever is focused follows it.
+export global Bump {
+    in property <length> x;
+    in property <length> y;
+}
+
+// The CSS easings: --ease-out and --ease-in-out.
+export global Ease {
+    out property <easing> out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    out property <easing> in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}

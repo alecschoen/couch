@@ -13,7 +13,8 @@ from typing import Any
 
 DEVICE_CONFIG_PATH = Path("/etc/couch/config.toml")
 DEVICE_STATE_PATH = Path("/var/lib/couch/state.json")
-# The repo checkout (or /opt/couch on the Pi) holds ui/ next to the couchd package.
+# The repo checkout (or /opt/couch on the Pi) holds ui/ next to the couchd package: the
+# overlays' view and fonts (couchd/overlay_page.py) and the brand pictures.
 BUNDLED_UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 LOG_LEVELS = ("debug", "info", "warning", "error")
@@ -30,7 +31,6 @@ class ServerConfig:
 
 @dataclass(frozen=True)
 class PathsConfig:
-    ui: Path = BUNDLED_UI_DIR
     state: Path = DEVICE_STATE_PATH
 
 

@@ -38,13 +38,15 @@ STATE=/var/lib/couch
 UNIT_DIR=/etc/systemd/system
 UNITS=(couchd.service couch-session.service)
 # Installed but not enabled: couchd starts Kodi when Plex is launched.
-STATIC_UNITS=(couch-kodi.service)
+STATIC_UNITS=(couch-kodi.service couch-chromium.service)
 KODI_VT_GETTYS=(getty@tty2.service autovt@tty2.service)
 POLKIT_RULE=/etc/polkit-1/rules.d/50-couch.rules
 UINPUT_RULE=/etc/udev/rules.d/60-couch-uinput.rules
 NO_POINTER_RULE=/etc/udev/rules.d/70-couch-no-pointer.rules
 UINPUT_MODULE_CONF=/etc/modules-load.d/couch-uinput.conf
 WIREPLUMBER_CONF=/etc/wireplumber/wireplumber.conf.d/50-couch.conf
+PIPEWIRE_CONF=/etc/pipewire/pipewire.conf.d/50-couch.conf
+PIPEWIRE_PULSE_CONF=/etc/pipewire/pipewire-pulse.conf.d/50-couch.conf
 # Bluetooth's is in couch's own WirePlumber config, not /etc: anyone else's WirePlumber (an
 # ssh login) must stay off Bluetooth, or the two fight over the speaker.
 WIREPLUMBER_BT_DIR=$STATE/.config/wireplumber/wireplumber.conf.d
@@ -99,6 +101,7 @@ PACKAGES=(
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
     pipewire wireplumber pipewire-pulse  # audio (#10)
     pulseaudio-utils                     # pactl: how couchd talks to PipeWire
+    libpulse0 libfontconfig1             # the native launcher: its UI sounds, its fonts
     bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
     polkitd                              # lets couchd switch to Kodi and back, and reboot
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
@@ -290,7 +293,8 @@ install_couch() {
     ensure_dir "$STATE/chromium" "$COUCH_USER" 700
     ensure_dir "$STATE/kodi" "$COUCH_USER" 700
 
-    # couchd runs from an editable install, so its bundled UI is /opt/couch/ui.
+    # couchd runs from an editable install. /opt/couch/ui is what it builds YouTube's overlays
+    # from (ui/js/overlay-view.js, ui/css, ui/fonts), plus the brand (the boot splash).
     ensure_tree "$SRC/couchd" "$PREFIX/couchd" && code=1
     ensure_tree "$SRC/ui" "$PREFIX/ui" && session=1
     local pyproject=0
@@ -308,10 +312,27 @@ install_couch() {
     fi
 
     ensure_file "$SRC/system/couch-browser" "$PREFIX/bin/couch-browser" 755 && session=1
-    # cage's client: couch-splash over everything until the launcher has drawn, then
-    # Chromium (#23). couch-splash draws with couch-fbsplash's code, installed below.
+    # couch-session's command: couch-splash over everything until the launcher has drawn, cage,
+    # and the launcher (#23). couch-splash draws with couch-fbsplash's code, installed below.
     ensure_file "$SRC/system/couch-session-start" "$PREFIX/bin/couch-session-start" 755 && session=1
     ensure_file "$SRC/system/couch-splash" "$PREFIX/bin/couch-splash" 755 && session=1
+    # Couch's cage: the system's, patched to draw the boot logo from its first frame (cage/),
+    # when the source has one (cage/dist, made by cage/build.sh). couch-session-start runs it
+    # in place of /usr/bin/cage.
+    if [[ -f $SRC/cage/dist/cage-$(uname -m) ]]; then
+        ensure_file "$SRC/cage/dist/cage-$(uname -m)" "$PREFIX/bin/cage" 755 && session=1
+    fi
+    # The launcher (launcher/, Rust): a prebuilt binary, when the source has one (launcher/dist,
+    # made by launcher/cross-build.sh on a PC). The session runs it; Chromium runs over it
+    # only for YouTube (couch-chromium.service, started by couchd).
+    if [[ -f $SRC/launcher/dist/couch-launcher-$(uname -m) ]]; then
+        ensure_file "$SRC/launcher/dist/couch-launcher-$(uname -m)" "$PREFIX/bin/couch-launcher" 755 && session=1
+    elif [[ ! -x $PREFIX/bin/couch-launcher ]]; then
+        echo "  warning: no launcher binary: build one with launcher/cross-build.sh and run" \
+            "install.sh again (the session can't start without it)" >&2
+    fi
+    ensure_file "$SRC/system/couch-chromium" "$PREFIX/bin/couch-chromium" 755 || true
+    ensure_file "$SRC/system/couch-chromium-warm" "$PREFIX/bin/couch-chromium-warm" 755 || true
     ensure_file "$SRC/system/couch-kodi" "$PREFIX/bin/couch-kodi" 755 || true
     ensure_file "$SRC/system/couch-kodi-vt" "$PREFIX/bin/couch-kodi-vt" 755 || true
     # polkitd picks up rule changes by itself.
@@ -406,6 +427,15 @@ install_audio() {
             note "enabled $u for user sessions"
         fi
     done
+    local pipewire=0
+    ensure_file "$SRC/system/pipewire-couch.conf" "$PIPEWIRE_CONF" 644 && pipewire=1
+    ensure_file "$SRC/system/pipewire-pulse-couch.conf" "$PIPEWIRE_PULSE_CONF" 644 && pipewire=1
+    if ((pipewire)); then
+        # Read when PipeWire starts: restart it now if couch's session is up. That cuts
+        # whatever is playing for a moment; couchd and the launcher reconnect by themselves.
+        systemctl --user -M "$COUCH_USER@" -q restart \
+            pipewire.service pipewire-pulse.service wireplumber.service 2>/dev/null || true
+    fi
     if ensure_file "$SRC/system/wireplumber-couch.conf" "$WIREPLUMBER_CONF" 644; then
         # Picked up at WirePlumber's next start; restart it now if couch's session is up.
         systemctl --user -M "$COUCH_USER@" -q restart wireplumber.service 2>/dev/null || true
@@ -505,6 +535,8 @@ install_boot() {
     # The kernel draws it only until vc4 takes the screen over; couch-fbsplash draws it on
     # vc4's framebuffer from then until cage.
     ensure_file "$SRC/system/couch-fbsplash" "$PREFIX/bin/couch-fbsplash" 755 || true
+    # The boot animation it plays from the still logo (scripts/render-boot-animation.py).
+    ensure_file "$SRC/ui/brand/boot-animation.bin" "$PREFIX/share/boot-animation.bin" 644 || true
     if ensure_file "$SRC/system/couch-fbsplash.service" "$FBSPLASH_UNIT" 644; then
         systemctl daemon-reload
         REBOOT=1
@@ -625,7 +657,8 @@ uninstall_boot() {
     fi
     # The rule first: initramfs-tools copies /etc/udev/rules.d into the initramfs.
     if [[ -e $FBSPLASH_RULE || -e $FBSPLASH_UNIT ]]; then
-        rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT" "$PREFIX/bin/couch-fbsplash"
+        rm -f "$FBSPLASH_RULE" "$FBSPLASH_UNIT" "$PREFIX/bin/couch-fbsplash" \
+            "$PREFIX/share/boot-animation.bin"
         udevadm control --reload 2>/dev/null || true
         systemctl daemon-reload
     fi
@@ -688,7 +721,7 @@ uninstall() {
     rm -f "$WIFI_RULE" "$WIFI_BOOT_UNIT" "$RFKILL_DROPIN"
     rmdir "$(dirname "$RFKILL_DROPIN")" 2>/dev/null || true
     systemctl daemon-reload
-    rm -f "$WIREPLUMBER_CONF"
+    rm -f "$WIREPLUMBER_CONF" "$PIPEWIRE_CONF" "$PIPEWIRE_PULSE_CONF"
     rm -rf "$PREFIX"
     rm -f "$WIREPLUMBER_BT_CONF"
     if ((purge)); then

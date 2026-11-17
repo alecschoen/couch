@@ -1,0 +1,201 @@
+// The system screens (startup, opening, error): the takeovers couchd's state asks for. Rust (src/screens/system.rs) fills SystemData.
+//
+//   startup   the Couch lockup where the boot splash draws it, a thin busy bar and what's
+//             being waited for; appears at once (no slide-in), the bar and line fade in
+//   opening   the app's name, big, bottom left, a thin busy bar and "Opening"
+//   error     the app, what happened, why, and Try again / Go home
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Line, Pill, Progress } from "../components.slint";
+
+export global SystemData {
+    // Startup: "Turning on the TV", "Getting ready" or "Taking longer than usual".
+    in property <string> startup-label;
+    // Opening: the app's name. Error: the app's name, above the title.
+    in property <string> app-name;
+    // Error: the title and body, a line each (broken where the web breaks them). A single
+    // line that Rust couldn't break is wrapped here.
+    in property <[string]> title-lines;
+    in property <[string]> body-lines;
+    // The focused pill: 0 Try again, 1 Go home.
+    in property <int> focus;
+}
+
+// A line of text `leading` × its size tall, as Line, that wraps if it has to (then its lines
+// are as far apart as the font's own spacing, not `leading`).
+component WrapLine inherits Text {
+    in property <float> leading;
+    property <length> natural: probe.preferred-height;
+    property <int> lines: max(1, round(self.preferred-height / max(1px, natural)));
+    probe := Text {
+        visible: false;
+        text: "X";
+        font-family: root.font-family;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+    }
+    wrap: word-wrap;
+    vertical-alignment: center;
+    height: lines * self.font-size * leading;
+    color: Theme.ink;
+}
+
+// The enter animation (components.slint Screen), except for Startup: it takes over from the
+// boot splash, so its first frame is the splash.
+export component SystemScreen inherits Rectangle {
+    in property <string> kind;
+    in property <bool> entering: true;
+    property <bool> still: kind == "startup";
+    property <float> shown: still ? 1 : 0;
+    property <length> offset: still ? 0 : entering ? 24px : -24px;
+    // Startup's bar and line: 0 → 1 after the first frame.
+    property <float> fade: 0;
+    init => {
+        shown = 1;
+        offset = 0;
+        fade = 1;
+    }
+    animate shown, offset { duration: still ? 0ms : Theme.dur-screen; easing: Ease.out; }
+    animate fade { duration: Theme.reduced ? 0ms : 600ms; delay: Theme.reduced ? 0ms : 300ms; easing: Ease.out; }
+
+    Rectangle {
+        y: root.offset;
+        opacity: root.shown;
+
+        // ---- Startup: exactly where ui/brand/splash.svg draws the lockup.
+        if root.kind == "startup": Rectangle {
+            Image {
+                x: 789.96px;
+                y: 412.32px;
+                width: 340.08px;
+                height: 255.36px;
+                source: @image-url("lockup-stacked.svg");
+                colorize: Theme.ink;
+                image-rendering: smooth;
+            }
+            Progress {
+                x: 795px;
+                y: 710px;
+                width: 330px;
+                thickness: 6px;
+                track: 0.15;
+                busy: true;
+                opacity: root.fade;
+            }
+            Line {
+                x: 0;
+                y: 752px;
+                width: parent.width;
+                horizontal-alignment: center;
+                text: SystemData.startup-label;
+                font-size: 28.5px;
+                opacity: Theme.a-faint * root.fade;
+            }
+        }
+
+        // ---- Opening: bottom left, 108px in.
+        if root.kind == "opening": VerticalLayout {
+            x: 108px;
+            y: parent.height - 108px - self.height;
+            height: self.preferred-height;
+            spacing: 36px;
+            Line {
+                leading: 0.9;
+                text: SystemData.app-name;
+                font-family: Theme.font-display;
+                font-size: Theme.text-hero;
+                font-weight: 600;
+                letter-spacing: -0.035 * Theme.text-hero;
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 27px;
+                VerticalLayout {
+                    alignment: center;
+                    Progress {
+                        width: 270px;
+                        thickness: 6px;
+                        track: Theme.a-track;
+                        busy: true;
+                    }
+                }
+                Line {
+                    text: "Opening";
+                    font-size: 30px;
+                    opacity: Theme.a-muted;
+                }
+            }
+        }
+
+        // ---- Errors: bottom left, 108px in.
+        if root.kind == "error": VerticalLayout {
+            x: 108px;
+            y: parent.height - 108px - self.height;
+            width: 1350px;
+            height: self.preferred-height;
+            spacing: 27px;
+            Line {
+                text: SystemData.app-name;
+                font-size: 30px;
+                opacity: Theme.a-muted;
+            }
+            VerticalLayout {
+                for line in SystemData.title-lines: WrapLine {
+                    leading: 1.05;
+                    text: line;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-title;
+                    font-weight: 600;
+                    letter-spacing: -0.025 * Theme.text-title;
+                }
+            }
+            if SystemData.body-lines.length > 0: HorizontalLayout {
+                alignment: start;
+                VerticalLayout {
+                    width: 1140px;
+                    for line in SystemData.body-lines: WrapLine {
+                        leading: 1.4;
+                        text: line;
+                        font-size: Theme.text-lg;
+                        opacity: Theme.a-muted;
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-top: 21px;
+                alignment: start;
+                spacing: 21px;
+                Rectangle {
+                    width: retry.min-width;
+                    height: 90px;
+                    retry := Pill {
+                        x: SystemData.focus == 0 ? Bump.x : 0;
+                        y: SystemData.focus == 0 ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        width: parent.width;
+                        label: "Try again";
+                        pill-height: 90px;
+                        pad: 45px;
+                        font-size: 30px;
+                        focused: SystemData.focus == 0;
+                    }
+                }
+                Rectangle {
+                    width: home.min-width;
+                    height: 90px;
+                    home := Pill {
+                        x: SystemData.focus == 1 ? Bump.x : 0;
+                        y: SystemData.focus == 1 ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        width: parent.width;
+                        label: "Go home";
+                        pill-height: 90px;
+                        pad: 45px;
+                        font-size: 30px;
+                        focused: SystemData.focus == 1;
+                    }
+                }
+            }
+        }
+    }
+}

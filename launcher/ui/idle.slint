@@ -1,0 +1,95 @@
+// The idle clock (artboard "Screen · Idle clock" ×1.5): a
+// dark clock and date over everything once couchd says the launcher is idle. Rust
+// (src/idle.rs) says when, what time it is and where the clock sits; this draws it.
+
+import { Theme, Ease } from "tokens.slint";
+import { Line } from "components.slint";
+
+export global IdleData {
+    in property <bool> shown;
+    // A new clock each time it comes up (it fades in).
+    in property <int> generation;
+    in property <string> time;
+    in property <string> date;
+    // "Sound: TV speakers · the TV turns off after an hour"
+    in property <string> footer;
+    // The clock's top-left corner: it drifts between a few spots against burn-in.
+    in property <length> x;
+    in property <length> y;
+    // Glide to the next spot (false while it's put in place as it comes up).
+    in property <bool> drifting;
+}
+
+component Clock inherits Rectangle {
+    property <color> ink: Theme.ink-of("idle");
+    // Fades in as it's made; goes at once.
+    property <float> made: 0;
+    init => {
+        made = 1;
+    }
+    animate made { duration: Theme.dur-flood; easing: Ease.in-out; }
+    opacity: made;
+    background: Theme.bg-of("idle");
+
+    Rectangle {
+        x: IdleData.x;
+        y: IdleData.y;
+        width: box.preferred-width;
+        height: box.preferred-height;
+        animate x, y { duration: IdleData.drifting && !Theme.reduced ? 2400ms : 0ms; easing: Ease.in-out; }
+
+        box := VerticalLayout {
+            spacing: 15px;
+            Line {
+                leading: 0.9;
+                text: IdleData.time;
+                font-family: Theme.font-clock;
+                font-size: Theme.text-clock-idle;
+                font-weight: 300;
+                letter-spacing: -0.04 * Theme.text-clock-idle;
+                color: root.ink;
+            }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                Line {
+                    text: IdleData.date;
+                    font-size: Theme.text-date-idle;
+                    color: root.ink;
+                    opacity: 0.7;
+                }
+            }
+        }
+    }
+
+    // "Press any button", and where the sound goes.
+    Rectangle {
+        x: Theme.screen-pad-x;
+        width: parent.width - 2 * Theme.screen-pad-x;
+        height: foot.preferred-height;
+        y: parent.height - 78px - self.height;
+        opacity: 0.55;
+
+        foot := HorizontalLayout {
+            Line {
+                text: "Press any button";
+                font-size: Theme.text-idle-hint;
+                color: root.ink;
+            }
+
+            Line {
+                horizontal-alignment: right;
+                text: IdleData.footer;
+                font-size: Theme.text-idle-hint;
+                color: root.ink;
+            }
+        }
+    }
+}
+
+// Over everything, toasts too (idle.css z-index 3).
+export component IdleLayer inherits Rectangle {
+    for gen in [IdleData.generation]: Rectangle {
+        if IdleData.shown: Clock { }
+    }
+}

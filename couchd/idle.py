@@ -5,7 +5,7 @@ The couch counts as idle when nobody has touched the remote for `display.dim_aft
 Plex is up nothing goes idle: an hour of film has no key presses.
 
 Dim and the clock are one thing: "Dim to clock after" on the Settings screen. When `idle`
-turns true the launcher covers itself with the dark idle clock (ui/js/idle.js); there is no
+turns true the launcher covers itself with the dark idle clock (launcher/src/idle.rs); there is no
 separate dimming step and no second timer.
 
 Activity is any remote key (`key` messages on the bus), a change of app, the TV being turned

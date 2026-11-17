@@ -1,20 +1,49 @@
 #!/bin/sh
-# cage's client in couch-session.service: the splash first, then Chromium (#23).
+# couch-session.service's command, run twice: first as the service itself
+# (`couch-session-start --start-cage`), which starts couch-splash and then becomes cage, and
+# then by cage as its client (no arguments), which runs the launcher (launcher/, installed as
+# /opt/couch/bin/couch-launcher). YouTube's Chromium joins the same cage later, only while it's
+# open (couch-chromium.service, started by couchd).
 #
-# cage draws black from its start until a client draws, Chromium takes seconds to start, and
-# its window's first frames are white until the launcher paints. couch-splash keeps the boot
-# splash on screen through all of that: it's up a fraction of a second after cage, draws the
-# same pixels as the boot splash, and stays above Chromium's window until couchd ends it,
-# after the launcher's first frame (couchd/splash.py, using the pid written here). Without it
-# (or without Python), Chromium starts as before.
-PIDFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/couch-splash.pid"
+# Couch's cage (/opt/couch/bin/cage, from cage/) draws the boot splash's picture from its
+# very first frame (-b), until the first window maps; the system's cage draws black until a
+# client draws. couch-splash is that first window: started before cage, it waits for cage's
+# Wayland socket with its picture ready, so it's on screen a frame or two after cage takes
+# the screen. It goes as soon as the launcher's window is over it; the launcher draws its
+# first frame on the same pixels (its Startup screen), so the boot goes straight from the
+# splash to the launcher. couchd also ends it after the launcher's first frame
+# (couchd/splash.py, using the pid written here). Without couch-splash (or without Python),
+# everything starts the same, just with cage's black (the system's cage) until the launcher.
+#
+# Chromium starts only for YouTube, so couch-chromium-warm reads its files into the page
+# cache in the background (from a subshell, like the splash: not the launcher's child).
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+PIDFILE="$XDG_RUNTIME_DIR/couch-splash.pid"
 
-if [ -x /opt/couch/bin/couch-splash ]; then
-    # Started from a subshell that exits at once, so the splash isn't a child of this shell:
-    # once it execs, Chromium would be its parent, and Chromium never reaps it (a zombie).
-    (
-        /opt/couch/bin/couch-splash </dev/null &
-        echo $! >"$PIDFILE"
-    )
+# Started from a subshell that exits at once, so the splash isn't a child of this shell: once
+# it execs (cage, the launcher), that would be its parent, and never reap it (a zombie).
+start_splash() {
+    if [ -x /opt/couch/bin/couch-splash ]; then
+        (
+            /opt/couch/bin/couch-splash "$@" </dev/null &
+            echo $! >"$PIDFILE"
+        )
+    fi
+}
+
+if [ "$1" = --start-cage ]; then
+    start_splash --wait
+    if [ -x /opt/couch/bin/cage ]; then
+        for tga in /lib/firmware/couch-splash.tga /opt/couch/ui/brand/splash.tga; do
+            if [ -r "$tga" ]; then
+                exec /opt/couch/bin/cage -b "$tga" -s -- "$0"
+            fi
+        done
+    fi
+    exec /usr/bin/cage -s -- "$0"
 fi
-exec /opt/couch/bin/couch-browser
+
+if [ -x /opt/couch/bin/couch-chromium-warm ]; then
+    (nice -n 19 ionice -c 3 /opt/couch/bin/couch-chromium-warm </dev/null >/dev/null &)
+fi
+exec /opt/couch/bin/couch-launcher

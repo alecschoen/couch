@@ -3,10 +3,10 @@
 couchd owns them, because only couchd sees the remote and knows what's in front. Each app
 just draws what it's told, through its *host*:
 
-- `launcher`: the launcher's own page, from the live state section `overlay` and the
-  `toast` and `volume_panel` messages (ui/js/overlay.js).
+- `launcher`: the launcher itself, from the live state section `overlay` and the `toast`
+  and `volume_panel` messages (launcher/src/overlay.rs).
 - `chromium`: a Chromium app in front (YouTube). couchd calls into the page over DevTools;
-  the page has the launcher's own overlay code, in a shadow root (couchd/overlay_page.py).
+  the page gets the same overlays as web code, in a shadow root (couchd/overlay_page.py).
 - `kodi`: Plex. Toasts are Kodi's own notifications (GUI.ShowNotification). The quick menu
   and the volume panel are drawn by service.couch through skin.couch, from overlay state
   couchd sends with JSON-RPC NotifyAll (couchd/kodi.py). If service.couch isn't up to

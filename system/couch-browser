@@ -1,5 +1,6 @@
 #!/bin/sh
-# Chromium for the Couch session; cage (couch-session.service) runs this as the couch user.
+# Chromium for YouTube, in the Couch session's cage: couch-chromium (couch-chromium.service)
+# runs this as the couch user, on about:blank; couchd loads YouTube in that tab itself.
 #
 # On the Pi 4 (Raspberry Pi OS's chromium, checked on 156 under Trixie):
 # - Video: H.264 is decoded in hardware by V4L2VideoDecoder (bcm2835-codec) with no flags.
@@ -11,8 +12,10 @@
 #   on the couch, so it's turned off (this flag wins over the forced one).
 #
 # - --force-dark-mode: Chromium's own theme goes dark, so what it shows before a page's first
-#   frame is dark grey, not white (it flashed white between the boot splash and the
-#   launcher, #4). Pages also see prefers-color-scheme: dark.
+#   frame is dark grey, not white. Pages also see prefers-color-scheme: dark.
+# - It starts each time YouTube opens, so it skips the start-up work a TV doesn't need:
+#   checking for component updates (Widevine and the like stay as installed), sync,
+#   extensions.
 #
 # couchd drives the tabs over DevTools on 127.0.0.1 only (couchd/chromium.py). Chromium
 # refuses DevTools WebSockets from web pages (they send an Origin), so pages can't use it.
@@ -45,5 +48,9 @@ exec /usr/bin/chromium \
     --disable-renderer-accessibility \
     --remote-debugging-port="${COUCH_CDP_PORT:-9222}" \
     --remote-debugging-address=127.0.0.1 \
+    --disable-component-update \
+    --disable-sync \
+    --disable-extensions \
+    --disable-default-apps \
     "$@" \
-    "http://127.0.0.1:${COUCH_PORT:-8765}/"
+    about:blank

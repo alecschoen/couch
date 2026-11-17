@@ -1,10 +1,13 @@
 """Which services run, with which backends. The only place that knows dev from device."""
 
+import asyncio
 import logging
 import os
+from collections.abc import Awaitable, Callable
 
 from couchd.apps import AppService
 from couchd.audio import AudioService
+from couchd.backends import BackendError
 from couchd.bluetooth import BluetoothService
 from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
@@ -77,16 +80,23 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
 
 
 def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
-    """What's on screen (#13): Chromium over DevTools, plus Kodi, real or pretend. Before an
+    """What's on screen (#13): the launcher, Chromium for YouTube over DevTools, plus Kodi,
+    real or pretend. Before an
     app opens, the internet and the Plex server are checked (#19). The overlays (#18) draw
     over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode). The splash
     service ends the session's boot splash once the launcher has drawn (#23)."""
-    display = FakeDisplay() if dev else SystemdDisplay()
+    display = _dev_display() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
     rpc = None if dev else KodiRpc()  # one client for both: pausing and the overlays
     chromium = Chromium()
     kodi = FakeKodi() if rpc is None else KodiClient(rpc)
-    apps = AppService(ctx, display, chromium, connectivity=net, kodi_rpc=rpc)
+    apps = AppService(
+        ctx,
+        display,
+        chromium,
+        connectivity=net,
+        kodi_rpc=rpc,
+    )
     overlay = OverlayService(ctx, chromium=chromium, pages=apps.page, kodi=kodi, go_home=apps.home)
     services = [
         apps,
@@ -95,6 +105,26 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
         EveningService(ctx),
     ]
     return [*services, SplashService(ctx)], overlay
+
+
+def _dev_display() -> FakeDisplay:
+    """couchd starts Chromium only for YouTube (on the Pi, through
+    couch-chromium.service). Dev mode only pretends, unless COUCH_DEV_CHROMIUM_START and
+    COUCH_DEV_CHROMIUM_STOP are shell commands that do it, e.g. into a nested cage."""
+    start = os.environ.get("COUCH_DEV_CHROMIUM_START")
+    stop = os.environ.get("COUCH_DEV_CHROMIUM_STOP")
+    if not (start and stop):
+        return FakeDisplay()
+
+    def run(command: str) -> Callable[[], Awaitable[None]]:
+        async def go() -> None:
+            proc = await asyncio.create_subprocess_shell(command)
+            if await proc.wait() != 0:
+                raise BackendError(f"{command!r} failed")
+
+        return go
+
+    return FakeDisplay(chromium=(run(start), run(stop)))
 
 
 def _idle_after() -> float | None:

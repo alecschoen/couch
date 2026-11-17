@@ -1,7 +1,8 @@
-"""HTTP + WebSocket API on 127.0.0.1. Serves the UI, a few REST endpoints and /ws.
+"""HTTP + WebSocket API on 127.0.0.1: a few REST endpoints and /ws, for the launcher, the
+overlays and curl.
 
-The same Chromium that shows the launcher also loads youtube.com/tv, so the API must not
-trust every page in the browser. Requests are refused unless the Host is loopback (which
+The Chromium couchd starts for YouTube loads youtube.com/tv, so the API must not trust every
+page in the browser. Requests are refused unless the Host is loopback (which
 stops DNS rebinding) and, when the browser sends an Origin, that is loopback too.
 """
 
@@ -9,7 +10,6 @@ import asyncio
 import json
 import logging
 import weakref
-from pathlib import Path
 from typing import Any
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -173,22 +173,7 @@ async def _close_sockets(app: web.Application) -> None:
         await ws.close(code=WSCloseCode.GOING_AWAY, message=b"couchd shutting down")
 
 
-def _add_ui(app: web.Application, ui_dir: Path) -> None:
-    index = ui_dir / "index.html"
-    if not index.is_file():
-        log.warning("no UI to serve", extra={"ui": str(ui_dir)})
-        return
-
-    async def get_index(request: web.Request) -> web.FileResponse:
-        return web.FileResponse(index)
-
-    app.router.add_get("/", get_index)
-    app.router.add_static("/", ui_dir, follow_symlinks=False)
-
-
-def create_app(
-    *, bus: EventBus, state: LiveState, commands: Commands, ui_dir: Path
-) -> web.Application:
+def create_app(*, bus: EventBus, state: LiveState, commands: Commands) -> web.Application:
     app = web.Application(middlewares=[loopback_only])
     app[BUS] = bus
     app[STATE] = state
@@ -202,5 +187,4 @@ def create_app(
     app.router.add_get("/api/commands", get_commands)
     app.router.add_post("/api/command/{name}", post_command)
     app.router.add_get("/ws", websocket)
-    _add_ui(app, ui_dir)
     return app

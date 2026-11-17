@@ -1,0 +1,164 @@
+// The launcher's window: the colour flood, the screen on top, and the layer above it (toasts,
+// overlays, the idle clock). Rust (src/app.rs) runs the router and the keys; this draws what
+// it says.
+
+import { Theme, Ease, Bump } from "tokens.slint";
+import { Toast } from "components.slint";
+import { HomeScreen, HomeData, OutputPill } from "screens/home.slint";
+// BEGIN settings imports
+import { SettingsScreen, SettingsData, SettingsRow, SheetRow } from "screens/settings.slint";
+export { SettingsData, SettingsRow, SheetRow }
+// END settings imports
+// BEGIN bluetooth imports
+import { BluetoothScreen, BluetoothData, BtRow } from "screens/bluetooth.slint";
+export { BluetoothData, BtRow }
+// END bluetooth imports
+// BEGIN system imports
+import { SystemScreen, SystemData } from "screens/system.slint";
+export { SystemData }
+// END system imports
+// BEGIN layer imports
+import { OverlayLayer, OverlayData, MenuCard, VolumePanel } from "overlay.slint";
+import { IdleLayer, IdleData } from "idle.slint";
+export { OverlayData, MenuCard, IdleData }
+// END layer imports
+
+export { Theme, Bump, HomeData, OutputPill }
+
+export global Router {
+    // The screen on top (a takeover if one is up), and whether it came in going forward.
+    in property <string> top: "startup";
+    in property <bool> entering: true;
+    // Changes whenever a new screen goes up, so a screen shown again is built again.
+    in property <int> generation;
+}
+
+export struct ToastItem {
+    text: string,
+    em: string,
+    icon: string,
+    error: bool,
+    // Fading out (components.js Toasts): Rust removes it after dur-quick.
+    gone: bool,
+}
+
+export global Layer {
+    in property <[ToastItem]> toasts;
+}
+
+// A toast as it comes and goes (components.js Toasts): in from 18px above, fading in; out by
+// fading where it is. `made` is set, not bound, so it animates from 0 as the toast is made.
+component ToastSlot inherits Rectangle {
+    in property <ToastItem> item;
+    property <float> made: 0;
+    property <float> fade: item.gone ? 0 : 1;
+    init => {
+        made = 1;
+    }
+    animate made { duration: Theme.dur-quick; easing: Ease.out; }
+    animate fade { duration: Theme.dur-quick; easing: Ease.out; }
+    width: toast.width;
+    height: toast.height;
+    opacity: made * fade;
+    toast := Toast {
+        x: 0;
+        y: -18px * (1 - root.made);
+        text: item.text;
+        em: item.em;
+        icon: item.icon;
+        error: item.error;
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Couch";
+    // Full screen in cage: no frame, or winit keeps room for its own title bar.
+    no-frame: true;
+    width: 1920px;
+    height: 1080px;
+    background: #121214;
+    default-font-family: "Inter";
+
+    // A key typed on a keyboard (dev mode, or one plugged into the Pi): the remote key's
+    // name, for couchd's remote.press.
+    callback keyboard(string);
+
+    // ---- The flood: the whole screen in the palette of the screen on top.
+    Rectangle {
+        background: Theme.bg;
+        animate background { duration: Theme.dur-flood; easing: Ease.out; }
+    }
+
+    // ---- The screen on top. A new generation builds it again, so it slides in.
+    for gen in [Router.generation]: Rectangle {
+        if Router.top == "home": HomeScreen {
+            entering: Router.entering;
+        }
+        // BEGIN settings screen
+        if Router.top == "settings": SettingsScreen {
+            entering: Router.entering;
+        }
+        // END settings screen
+        // BEGIN bluetooth screen
+        if Router.top == "bluetooth": BluetoothScreen {
+            entering: Router.entering;
+        }
+        // END bluetooth screen
+        // BEGIN system screen
+        if Router.top == "startup" || Router.top == "opening" || Router.top == "error": SystemScreen {
+            kind: Router.top;
+            entering: Router.entering;
+        }
+        // END system screen
+    }
+
+    // ---- Toasts, top right, newest first, under couchd's volume panel when it's up (on the
+    // web the panel joins the top of the toast stack and pushes them down).
+    VerticalLayout {
+        x: parent.width - 84px - self.width;
+        y: 66px;
+        width: 900px;
+        alignment: start;
+        spacing: Theme.s2;
+        for gen in OverlayData.volume-shown ? [OverlayData.volume-generation] : []: HorizontalLayout {
+            alignment: end;
+            VolumePanel { }
+        }
+        for t in Layer.toasts: HorizontalLayout {
+            alignment: end;
+            ToastSlot {
+                item: t;
+            }
+        }
+    }
+
+    // ---- Over the toasts, as on the web: the quick menu's sheet and the idle clock.
+    // BEGIN layer
+    OverlayLayer { volume-panel: false; }
+    IdleLayer { }
+    // END layer
+
+    FocusScope {
+        key-pressed(event) => {
+            if event.modifiers.control || event.modifiers.alt || event.modifiers.meta {
+                return reject;
+            }
+            if event.text == Key.UpArrow { root.keyboard("up"); return accept; }
+            if event.text == Key.DownArrow { root.keyboard("down"); return accept; }
+            if event.text == Key.LeftArrow { root.keyboard("left"); return accept; }
+            if event.text == Key.RightArrow { root.keyboard("right"); return accept; }
+            if event.text == Key.Return { root.keyboard("select"); return accept; }
+            if event.text == Key.Backspace || event.text == Key.Escape { root.keyboard("back"); return accept; }
+            if event.text == Key.Home || event.text == "h" { root.keyboard("home"); return accept; }
+            if event.text == " " { root.keyboard("play_pause"); return accept; }
+            if event.text == "[" { root.keyboard("rewind"); return accept; }
+            if event.text == "]" { root.keyboard("fast_forward"); return accept; }
+            if event.text == Key.F1 { root.keyboard("red"); return accept; }
+            if event.text == Key.F2 { root.keyboard("green"); return accept; }
+            if event.text == Key.F3 { root.keyboard("yellow"); return accept; }
+            if event.text == Key.F4 { root.keyboard("blue"); return accept; }
+            if event.text >= "0" && event.text <= "9" && event.text != "" { root.keyboard(event.text); return accept; }
+            reject
+        }
+    }
+}

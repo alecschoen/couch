@@ -1,0 +1,19 @@
+#!/bin/sh
+# couch-chromium.service: Chromium for YouTube over the launcher, in the session's cage.
+#
+# couchd starts this unit only while a Chromium app is open (couchd/apps.py). It joins the
+# session (couch-session.service) as one more Wayland client of cage, which stacks its window
+# on top of the launcher's; stopping it shows the launcher again at once.
+#
+# A system unit rather than a child of couchd, so restarting couchd doesn't close YouTube. It
+# runs as the couch user like the session, so it reaches the session's Wayland socket,
+# PipeWire and D-Bus through the user's runtime directory.
+RUNTIME="/run/user/$(id -u)"
+export XDG_RUNTIME_DIR="$RUNTIME"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME/bus"
+if [ ! -S "$RUNTIME/$WAYLAND_DISPLAY" ]; then
+    echo "couch-chromium: no Wayland display at $RUNTIME/$WAYLAND_DISPLAY (is the session up?)" >&2
+    exit 1
+fi
+exec /opt/couch/bin/couch-browser
