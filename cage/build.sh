@@ -2,6 +2,9 @@
 # Build Couch's cage: the Pi's own cage (Raspberry Pi OS trixie's 0.3.1, with its patches) plus
 # couch-background.patch, which draws the boot logo from cage's first frame until the first
 # window maps (cage -b FILE), so the boot goes from the splash to cage without a black frame.
+# And couch-focus.patch: when the focused window unmaps, the keyboard goes to the one under it.
+# And couch-keyboard.patch: the seat keeps a keyboard (and its keymap) while the remote's
+# device is away, as it is after Plex.
 #   cage/build.sh          -> cage/dist/cage-aarch64 (for the Pi, cross-built)
 #   cage/build.sh amd64    -> cage/dist/cage-x86_64  (for this PC: scripts/perf/cage-check.sh)
 # install.sh installs it as /opt/couch/bin/cage; couch-session-start runs it if it's there,
@@ -33,6 +36,8 @@ echo "$DSC_SHA256  /cage-source/$DSC" | sha256sum -c --quiet
 dpkg-source --no-check -x "/cage-source/$DSC" cage >/dev/null
 cd cage
 patch -p1 --quiet </couch-cage/couch-background.patch
+patch -p1 --quiet </couch-cage/couch-focus.patch
+patch -p1 --quiet </couch-cage/couch-keyboard.patch
 cross=()
 if [ "$ARCH" = arm64 ]; then
     printf "%s\n" "[binaries]" "c = '"'"'aarch64-linux-gnu-gcc'"'"'" \

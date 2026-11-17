@@ -1,0 +1,38 @@
+Give the keyboard to the next window when the focused one unmaps
+
+cage moves the keyboard to the window underneath only when the focused window is destroyed.
+Couch's launcher steps behind YouTube by unmapping its window (launcher/src/stacking.rs), so
+without this nobody had the keyboard and the remote did nothing in YouTube.
+
+For Couch (https://github.com/alecschoen/couch), on top of Raspberry Pi OS's cage 0.3.1,
+after couch-background.patch.
+
+--- a/xdg_shell.c
++++ b/xdg_shell.c
+@@ -15,6 +15,7 @@
+ #include <wlr/types/wlr_xdg_shell.h>
+ #include <wlr/util/log.h>
+ 
++#include "seat.h"
+ #include "server.h"
+ #include "view.h"
+ #include "xdg_shell.h"
+@@ -222,8 +223,18 @@
+ {
+ 	struct cg_xdg_shell_view *xdg_shell_view = wl_container_of(listener, xdg_shell_view, unmap);
+ 	struct cg_view *view = &xdg_shell_view->view;
++	struct cg_server *server = view->server;
++	bool focused = seat_get_focus(server->seat) == view;
+ 
+ 	view_unmap(view);
++
++	/* Couch: cage gives the keyboard to the next view only when the focused one is
++	   destroyed. Do the same when it unmaps, so a window that hides itself (Couch's
++	   launcher stepping behind YouTube) hands the keyboard to the window under it. */
++	if (focused && !wl_list_empty(&server->views)) {
++		struct cg_view *next = wl_container_of(server->views.next, next, link);
++		seat_set_focus(server->seat, next);
++	}
+ }
+ 
+ static void

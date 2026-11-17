@@ -39,6 +39,7 @@ class Tab:
 class FakeChromium:
     tabs: dict[str, Tab] = field(default_factory=dict)
     active: str | None = None
+    focused: str | None = None  # the tab whose page has the keyboard (Page.bringToFront)
     up: bool = True  # False: refuse connections, as while the session restarts
     calls: list[str] = field(default_factory=list)
     load_new_tabs: bool = True  # False: pages opened or navigated from now on never load
@@ -183,6 +184,9 @@ class FakeChromium:
                 return {"targetId": target}
             case "Target.activateTarget" if tab:
                 self.active = tab.id
+                return {}
+            case "Page.bringToFront" if on:
+                self.active = self.focused = on.id
                 return {}
             case "Target.closeTarget" if tab:
                 del self.tabs[tab.id]

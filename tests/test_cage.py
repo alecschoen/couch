@@ -1,4 +1,5 @@
-"""Couch's cage (cage/): the Pi's cage, patched to draw the boot logo from its first frame."""
+"""Couch's cage (cage/): the Pi's cage, patched to draw the boot logo from its first frame,
+to hand the keyboard on when a window unmaps, and to keep a keyboard while devices are away."""
 
 import re
 import subprocess
@@ -31,6 +32,19 @@ def test_the_patch_adds_a_background_that_goes_when_the_first_window_maps():
     assert '"b:dDhm:sv"' in patch
     assert "+\tbackground_remove(view->server);" in patch  # in view_map
     assert "wlr_scene_output_build_state(output->scene_output, &state, NULL)" in patch
+
+
+def test_the_keyboard_patches_are_applied_after_the_background():
+    build = (CAGE / "build.sh").read_text()
+    applied = re.findall(r"^patch -p1 --quiet </couch-cage/(\S+)$", build, re.M)
+    assert applied == ["couch-background.patch", "couch-focus.patch", "couch-keyboard.patch"]
+    focus = (CAGE / "couch-focus.patch").read_text()
+    assert set(re.findall(r"^\+\+\+ b/(\S+)$", focus, re.M)) == {"xdg_shell.c"}
+    assert "+\t\tseat_set_focus(server->seat, next);" in focus  # in the unmap handler
+    keyboard = (CAGE / "couch-keyboard.patch").read_text()
+    assert set(re.findall(r"^\+\+\+ b/(\S+)$", keyboard, re.M)) == {"seat.c"}
+    assert "-\twlr_seat_set_keyboard(seat->seat, keyboard);" in keyboard
+    assert "&keyboard->group->keyboard" in keyboard  # the group's, which outlives the device
 
 
 def test_install_installs_it_for_the_session():

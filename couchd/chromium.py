@@ -202,7 +202,13 @@ class Chromium:
             raise
 
     async def activate(self, target_id: str) -> None:
+        """Show the tab and give its page the keyboard. activateTarget alone shows it, but
+        the page only gets focus if Chromium's window has the keyboard just then, and on the
+        Pi the launcher is still over it (launcher/src/stacking.rs): the remote's keys then
+        went nowhere. Page.bringToFront focuses the page, and it keeps the focus once the
+        window gets the keyboard."""
         await self.call("Target.activateTarget", {"targetId": target_id})
+        await self._in_tab(target_id, "Page.bringToFront")
 
     async def close_page(self, target_id: str) -> None:
         await self.call("Target.closeTarget", {"targetId": target_id})
@@ -211,21 +217,27 @@ class Chromium:
         """Run `expression` in the tab and return its (JSON) value. A prepared tab already
         has a session, so that's one round trip (the overlays call this per key press)."""
         params = {"expression": expression, "returnByValue": True, "awaitPromise": True}
-        if (session := self._sessions.get(target_id)) is not None:
-            result = await self.call("Runtime.evaluate", params, session=session)
-        else:
-            attached = await self.call(
-                "Target.attachToTarget", {"targetId": target_id, "flatten": True}
-            )
-            session = attached["sessionId"]
-            try:
-                result = await self.call("Runtime.evaluate", params, session=session)
-            finally:
-                with contextlib.suppress(CdpError):
-                    await self.call("Target.detachFromTarget", {"sessionId": session})
+        result = await self._in_tab(target_id, "Runtime.evaluate", params)
         if "exceptionDetails" in result:
             raise CdpError(f"script failed: {result['exceptionDetails'].get('text', '?')}")
         return result.get("result", {}).get("value")
+
+    async def _in_tab(
+        self, target_id: str, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Call `method` in the tab: through its session if it's a prepared tab, else in one
+        attached just for this."""
+        if (session := self._sessions.get(target_id)) is not None:
+            return await self.call(method, params, session=session)
+        attached = await self.call(
+            "Target.attachToTarget", {"targetId": target_id, "flatten": True}
+        )
+        session = attached["sessionId"]
+        try:
+            return await self.call(method, params, session=session)
+        finally:
+            with contextlib.suppress(CdpError):
+                await self.call("Target.detachFromTarget", {"sessionId": session})
 
     # --- protocol ------------------------------------------------------------------------
 

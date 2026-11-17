@@ -107,6 +107,7 @@ async def test_youtube_starts_chromium_and_home_stops_it(ctx, apps, browser, dis
     assert display.chromium_starts == 1 and display.chromium_up
     youtube = browser.tab_for(YOUTUBE)
     assert youtube is not None and browser.active == youtube.id
+    assert browser.focused == youtube.id  # its page has the keyboard, so the remote works
     assert state(ctx)["foreground"] == "youtube"
     assert state(ctx)["running"] == ["launcher", "youtube"]
 
