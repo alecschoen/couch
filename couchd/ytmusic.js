@@ -3,6 +3,8 @@
 // bigger, a highlight you can see from across the room, the arrow keys moving it to what's
 // on screen in that direction, OK clicking it, Back closing or going back, and the media
 // keys driving the player. A prototype: it leans on YouTube Music's element names.
+// OK on the search box focuses it, and couchd's on-screen keyboard comes up (#77): couchd
+// types into it, and the keys it types (Enter, Backspace) go to the box, not to this.
 (() => {
   if (window.top !== window) return;
 
@@ -31,6 +33,7 @@
     "ytmusic-guide-entry-renderer", // Home, Explore, Library
     "ytmusic-pivot-bar-item-renderer",
     "ytmusic-player-queue-item", // the queue on the player page
+    "ytmusic-search-box", // OK: the on-screen keyboard
   ];
   const STOPS = [
     ...TILES,
@@ -45,7 +48,7 @@
   ].join(",");
   const SKIP = [
     ".previous-items-button", ".next-items-button", // carousel arrows: moving does that
-    "ytmusic-search-box", "#guide-button", "ytmusic-settings-button", "a.ytmusic-logo",
+    "#guide-button", "ytmusic-settings-button", "a.ytmusic-logo",
     "#right-content", // Sign in / cast / account at the top right
   ].join(",");
 
@@ -183,6 +186,14 @@
       const play = el.querySelector(".song-info, ytmusic-play-button-renderer");
       if (play) return click(play);
     }
+    if (el.matches("ytmusic-search-box")) {
+      const input = el.querySelector("input");
+      if (input) {
+        click(input);
+        input.focus(); // couchd sees a text field get focus, and opens its keyboard
+        return;
+      }
+    }
     if (el.matches("ytmusic-guide-entry-renderer, ytmusic-pivot-bar-item-renderer")) {
       const link = el.querySelector("tp-yt-paper-item, a");
       if (link) return click(link);
@@ -246,14 +257,19 @@
     MediaRewind: () => player(".previous-button"),
   };
 
+  // In a text field, typing is the field's: couchd's keyboard sends Enter and Backspace there.
+  const TYPING = new Set(["Enter", "Backspace", "ArrowLeft", "ArrowRight"]);
+  const typing = (e) => {
+    const t = e.composedPath()[0] || e.target;
+    const field = t && (t.localName === "input" || t.localName === "textarea" || t.isContentEditable);
+    return field && TYPING.has(e.key);
+  };
+
   window.addEventListener(
     "keydown",
     (e) => {
       const act = KEYS[e.key];
-      if (!act) return;
-      if (e.target && e.target.localName === "input" && e.key.startsWith("Arrow")) {
-        if (e.key === "ArrowLeft" || e.key === "ArrowRight") return; // move in the text
-      }
+      if (!act || typing(e)) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       act();
@@ -264,7 +280,7 @@
   window.addEventListener(
     "keyup",
     (e) => {
-      if (KEYS[e.key]) {
+      if (KEYS[e.key] && !typing(e)) {
         e.preventDefault();
         e.stopImmediatePropagation();
       }

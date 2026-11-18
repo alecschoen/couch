@@ -31,6 +31,16 @@ MENU_TIMEOUT without a key, and whenever the app in front changes.
 The volume panel comes up for each `volume_changed` (#11), unless the menu is open: its
 Volume card says the same.
 
+The on-screen keyboard (#77): a text field getting focus in a Chromium app's page opens it,
+on a sheet in the app's colour (couchd/keyboard.py has its keys). The page says which field
+has focus (couchd/fields.js, through the `__couchd` binding); while the keyboard is open it
+takes the remote's keys like the menu does, and couchd types into the field over DevTools
+(Input.insertText, and Input.dispatchKeyEvent for Backspace and Enter), so the page sees real
+typing. After each change couchd reads the field back, so the sheet shows its real value.
+It closes on Back (the field loses focus), on its action key (Enter, then the same), when the
+field loses focus, and when the app in front changes. Not in YouTube's TV interface, which has
+a keyboard of its own (NO_KEYBOARD).
+
 Toasts: anything on the bus (`ctx.bus.toast`, the `overlay.toast` command, POST /api/toast)
 goes to the app in front too. They go after TOAST_MS. So does the volume panel, after the
 last change.
@@ -38,7 +48,9 @@ last change.
 
 import asyncio
 import contextlib
+import json
 import logging
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -48,6 +60,7 @@ from couchd import overlay_page
 from couchd.bus import TOAST_ICONS, TOAST_LEVELS
 from couchd.chromium import CdpError, Chromium
 from couchd.commands import CommandError, arg
+from couchd.keyboard import ARROWS, Keyboard, Op, read_field
 from couchd.kodi import Kodi, KodiError
 from couchd.services import Context, Service
 
@@ -64,6 +77,7 @@ KODI_IMAGES = {"info": "info", "warning": "warning", "error": "error"}
 ITEMS = ("home", "sound", "volume", "bluetooth")
 MINUS = "\u2212"  # the Volume card's "<minus> 60 +", as in the design
 PALETTES = {"youtube": "yt", "ytmusic": "yt", "plex": "plex"}  # app id -> ui/css/tokens.css palette
+NO_KEYBOARD = frozenset({"youtube"})  # YouTube's TV interface has its own keyboard
 EVENING_STARTS, EVENING_ENDS = 18, 7  # without couchd/evening.py's `dark`, as it does
 
 
@@ -201,6 +215,11 @@ class OverlayService(Service):
         self._opening = False  # asking Kodi whether it can show the menu
         self._pending: dict[str, tuple[str, Any]] = {}  # kind -> (target, payload) for Chromium
         self._pushing: asyncio.Task | None = None
+        self.keyboard = Keyboard()
+        self._kb_target: str | None = None  # the tab the keyboard is drawn in, while it's open
+        self._dismissed: str | None = None  # the field the keyboard last closed for
+        self._ops: deque[tuple[str, str, Op]] = deque()  # (tab, field id, op), in order
+        self._typing: asyncio.Task | None = None
 
     # --- lifecycle -----------------------------------------------------------------------
 
@@ -239,6 +258,8 @@ class OverlayService(Service):
         """True if the overlay takes the key: it then goes to no app."""
         if not self._running:
             return False
+        if self.keyboard.open:
+            return self._keyboard_key(key, repeat=repeat)
         if not self.menu.open:
             if key != "blue" or repeat:
                 return False
@@ -302,10 +323,9 @@ class OverlayService(Service):
     def menu_state(self) -> dict[str, Any] | None:
         if not self.menu.open:
             return None
-        apps = self.ctx.state.get("apps")
         audio = self.ctx.state.get("audio")
         app = self.menu.app or "launcher"
-        title = next((a["name"] for a in apps.get("list", ()) if a["id"] == app), "Couch")
+        title = self._app_name(app)
         outputs = {o["id"]: o["name"] for o in audio.get("outputs", ())}
         sound = outputs.get(audio.get("current"), "No sound")
         volume = "Muted" if audio.get("muted") else f"{MINUS} {audio.get('volume', 0)} +"
@@ -321,14 +341,21 @@ class OverlayService(Service):
             "host": self.menu.host,
             "title": "Couch" if app == "launcher" else title,
             "palette": PALETTES.get(app),
-            "evening": is_evening(
-                self.ctx.settings.get("display.evening"),
-                self.ctx.state.get("evening").get("dark"),
-                self.now(),
-            ),
+            "evening": self._evening(),
             "focus": self.menu.focus,
             "items": [{"id": i, "label": values[i][0], "value": values[i][1]} for i in ITEMS],
         }
+
+    def _app_name(self, app: str) -> str:
+        apps = self.ctx.state.get("apps")
+        return next((a["name"] for a in apps.get("list", ()) if a["id"] == app), "Couch")
+
+    def _evening(self) -> bool:
+        return is_evening(
+            self.ctx.settings.get("display.evening"),
+            self.ctx.state.get("evening").get("dark"),
+            self.now(),
+        )
 
     def _publish_menu(self) -> dict[str, Any] | None:
         state = self.menu_state()
@@ -402,6 +429,8 @@ class OverlayService(Service):
             moved = isinstance(apps, dict) and "foreground" in apps
             if moved and self.menu.open and (apps["foreground"] or "launcher") != self.menu.app:
                 self.close_menu()
+            if moved and self.keyboard.open and apps["foreground"] != self.keyboard.app:
+                self.close_keyboard()
             if isinstance(data.get("audio"), dict) and self.menu.open:
                 self._menu_changed()  # its Sound and Volume cards
         elif kind == VOLUME_EVENT and not self.menu.open:  # an open menu's card says it
@@ -496,9 +525,139 @@ class OverlayService(Service):
                 log.info("couldn't draw the overlay", extra={"target": target, "error": str(e)})
 
     def _page_message(self, target: str, message: str) -> None:
-        """A fresh document in a tab (a reload): draw an open menu again."""
-        if message == overlay_page.HELLO and target == self._menu_target and self.menu.open:
-            self._push(target, "menu", self.menu_state())
+        """A fresh document in a tab (a reload): draw an open menu again; the field the
+        keyboard was for is gone with the old one. Or a text field got or lost focus."""
+        if message == overlay_page.HELLO:
+            if target == self._menu_target and self.menu.open:
+                self._push(target, "menu", self.menu_state())
+            if target == self._kb_target and self.keyboard.open:
+                self.keyboard.hide()
+                self._keyboard_changed()
+        elif message.startswith(overlay_page.FIELD):
+            try:
+                info = json.loads(message[len(overlay_page.FIELD) :])
+            except ValueError:
+                return
+            if isinstance(info, dict):
+                self._field_report(target, info)
+
+    # --- the on-screen keyboard (#77) -----------------------------------------------------------
+
+    def _field_report(self, target: str, info: dict[str, Any]) -> None:
+        """What couchd/fields.js says about the focused text field in a tab."""
+        apps = self.ctx.state.get("apps")
+        app = apps.get("foreground") or "launcher"
+        if app in NO_KEYBOARD or self._host_for(app, apps) != "chromium":
+            return
+        if self.pages(app) != target:  # a tab behind the one in front
+            return
+        kb, field_id = self.keyboard, info.get("id")
+        here = kb.open and kb.field is not None and kb.field.id == field_id
+        if info.get("focused") is not True:
+            if here:  # the field lost focus: nothing left to type into
+                kb.hide()
+                self._keyboard_changed()
+            return
+        if here:
+            if kb.mirror(info):
+                self._keyboard_changed()
+            return
+        if field_id == self._dismissed:  # still focused, just closed: until it's focused again
+            return
+        field = read_field(info)
+        if field is None:
+            return
+        self.close_menu()
+        kb.show(field, app)
+        kb.mirror(info)
+        self._kb_target = target
+        log.info("keyboard opened", extra={"app": app, "kind": field.kind})
+        self._keyboard_changed()
+
+    def close_keyboard(self) -> None:
+        """Close it, and take the focus from its field."""
+        if self.keyboard.open:
+            target, field = self._kb_target, self.keyboard.field
+            self.keyboard.hide()
+            self._keyboard_changed()
+            if target is not None and field is not None:
+                self._type(target, field.id, [Op("blur")])
+
+    def _keyboard_key(self, key: str, *, repeat: bool) -> bool:
+        if repeat and key not in ARROWS:
+            return True
+        target, field = self._kb_target, self.keyboard.field
+        taken, ops = self.keyboard.key(key)
+        self._keyboard_changed()
+        if ops and target is not None and field is not None:
+            self._type(target, field.id, ops)
+        return taken
+
+    def keyboard_state(self) -> dict[str, Any] | None:
+        """What the page draws: the keyboard, in the app's colour."""
+        kb = self.keyboard
+        if not kb.open or kb.app is None:
+            return None
+        return {
+            **kb.view(),
+            "app": kb.app,
+            "kicker": self._app_name(kb.app),
+            "palette": PALETTES.get(kb.app),
+            "evening": self._evening(),
+        }
+
+    def _keyboard_changed(self) -> None:
+        """Draw it in its tab, or take it down; `overlay.keyboard` says it's open (but never
+        what's typed)."""
+        kb = self.keyboard
+        state = self.keyboard_state()
+        if state is not None and self._kb_target is not None:
+            self._push(self._kb_target, "keyboard", state)
+            summary = {"open": True, "app": kb.app, "kind": state["kind"], "title": state["title"]}
+            self.ctx.state.update("overlay", {"keyboard": summary})
+        elif self._kb_target is not None:
+            log.info("keyboard closed", extra={"app": kb.app})
+            self._push(self._kb_target, "keyboard", None)
+            self._kb_target = None
+            self._dismissed = kb.field.id if kb.field is not None else None
+            self.ctx.state.update("overlay", {"keyboard": None})
+
+    def _type(self, target: str, field_id: str, ops: list[Op]) -> None:
+        """Do `ops` to the field, in order, after anything still to do."""
+        if self.chromium is None:
+            return
+        self._ops.extend((target, field_id, op) for op in ops)
+        if self._typing is None or self._typing.done():
+            self._typing = self._spawn(self._typist())
+
+    async def _typist(self) -> None:
+        assert self.chromium is not None
+        chromium = self.chromium
+        while self._ops:
+            target, field_id, op = self._ops.popleft()
+            field = self.keyboard.field
+            if op.kind in ("insert", "backspace") and (field is None or field.id != field_id):
+                continue  # another field has the keyboard now
+            try:
+                match op.kind:
+                    case "insert":
+                        await chromium.insert_text(target, op.text)
+                    case "backspace":
+                        await chromium.press_key(target, "Backspace")
+                    case "enter":
+                        await chromium.press_key(target, "Enter")
+                    case "replace":
+                        if await chromium.evaluate(target, overlay_page.field("select", field_id)):
+                            await chromium.insert_text(target, op.text)
+                    case "blur":
+                        await chromium.evaluate(target, overlay_page.field("blur", field_id))
+                if op.kind in ("insert", "backspace") and not self._ops:
+                    # Read it back: the sheet shows what the field really has.
+                    info = await chromium.evaluate(target, overlay_page.field("state", field_id))
+                    if isinstance(info, dict):
+                        self._field_report(target, info)
+            except CdpError as e:  # never what was typed: it may be a password
+                log.info("couldn't type", extra={"op": op.kind, "error": str(e)})
 
     # --- commands ---------------------------------------------------------------------------
 

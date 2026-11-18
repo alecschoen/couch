@@ -20,7 +20,7 @@ Every change of output, whatever caused it, gets one "Sound now on X" toast. A c
 user made is announced at once. One that just happened is announced once it has held for
 ANNOUNCE_DELAY: the TV's HDMI sink vanishes for under a second whenever the TV switches to
 our input, and that blip shouldn't produce two toasts. The Red button cycles through the
-outputs that are available.
+outputs that are available, except while the on-screen keyboard has it (Delete, #77).
 
 Every volume or mute change couchd makes goes out as a `volume_changed` message, saying
 what caused it (`source`: "tv_remote", "command" or "limit"), for the volume panel (#18).
@@ -269,6 +269,7 @@ class AudioService(Service):
                         and data.get("key") == CYCLE_KEY
                         and not data.get("repeat")
                         and not data.get("raw")  # a screen has the keys (remote.raw_keys)
+                        and not data.get("overlay")  # the on-screen keyboard's Delete
                     ):
                         await self._cycle_from_remote()
 

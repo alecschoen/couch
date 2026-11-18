@@ -32,7 +32,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
-| `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
+| `overlay` | `menu`: the quick menu, or null while it's closed; `keyboard`: the on-screen keyboard (`open`, `app`, `kind`, `title`; never what's typed), or null. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
@@ -151,8 +151,9 @@ Key names are listed in `couchd/keys.py`: `up` `down` `left` `right` `select` `b
 
 `app` is the app the key was for: the one in front (`apps.foreground`). Keys for any other
 app than the launcher were typed into that app on couchd's virtual keyboard; the launcher
-ignores them, except `home`. `overlay: true` marks a key the quick menu took: it went to no
-app, and screens should ignore it. `repeat` is true for the repeats of a held arrow key: couchd
+ignores them, except `home`. `overlay: true` marks a key the quick menu or the on-screen
+keyboard took: it went to no app, and screens should ignore it (Red on the keyboard is
+Delete, so it doesn't move the sound). `repeat` is true for the repeats of a held arrow key: couchd
 repeats them itself, after 400 ms and then faster and faster. Back and OK are sent when
 they're released. Held for 800 ms, Back is `home` instead, and OK is a long press: `select`
 with `hold: true` (only once, and nothing on release).
@@ -320,6 +321,32 @@ the app in front changes. `overlay.menu`:
   focusable, so it never takes a key from Plex. If service.couch isn't there to draw it (it
   sets `Window(home).Property(couch.overlay)`), Blue goes back to the launcher and opens the
   menu there: Plex stops, but the menu still works.
+
+**On-screen keyboard** (#77). When a text field gets focus in a Chromium app's page (a
+search box, a sign-in form; not YouTube's TV interface, which has its own), a keyboard
+slides up as a sheet in the app's colour: the field's label, a box with its value (a
+password is dots until Show), suggestions when the field has a list (a datalist, or a
+combobox's listbox: YouTube Music's), and four rows of keys with a letters page, a 123 page
+and a #+= page. The bottom row depends on the field: Search's has `-` and `.`, an email's
+`@`, `.`, `@gmail.com` and `.com`. While it's open the remote is the keyboard's: arrows move
+(Left and Right wrap around a row; Up from the top row reaches the suggestions or
+Show/Hide), OK presses a key, Red deletes, Blue is Shift for one capital, `0`–`9` type
+themselves, Back closes it (the field loses focus), Home closes it and goes home, and the
+media keys still go to the app. The action key (Search, Next, Done, or the field's
+`enterkeyhint`) presses Enter in the field and closes the keyboard; a suggestion replaces
+the text and searches.
+
+The page says which field has focus: `couchd/fields.js`, injected with the overlay, calls
+`window.__couchd("field {...}")` with the field's kind, label and value. couchd types over
+DevTools, as an input method and a keyboard would (`Input.insertText`, and
+`Input.dispatchKeyEvent` for Backspace and Enter), so the page gets real input events, then
+reads the field back so the sheet shows what the field really holds. It closes too when the
+field loses focus, the page reloads or the app in front changes. `overlay.keyboard` says
+it's open, never what's typed:
+
+```json
+{"open": true, "app": "ytmusic", "kind": "search", "title": "Search"}
+```
 
 **Toasts** go to the app in front as well as to the `toast` message: into YouTube's page,
 or to Kodi as its own notification (`GUI.ShowNotification`, 2.4 s). Any feature can show
