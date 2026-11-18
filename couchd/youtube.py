@@ -5,9 +5,7 @@ is sent to desktop YouTube. So the YouTube tab gets a Samsung Tizen TV user agen
 that tab alone over DevTools, and `youtube.js` runs in it before YouTube's own scripts:
 
 - it turns down VP9 and AV1, so YouTube streams H.264, which the Pi 4 decodes in hardware;
-- Back from YouTube's top level (it calls `window.close()`) brings couchd back home;
-- phones list the TV as "Couch", not "Samsung TV": it renames itself to YouTube's lounge,
-  the channel phones control it through.
+- Back from YouTube's top level (it calls `window.close()`) brings couchd back home.
 
 The tab also gets couchd's overlays (quick menu, toasts, volume: couchd/overlay_page.py).
 
