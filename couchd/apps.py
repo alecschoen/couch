@@ -39,7 +39,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from couchd import youtube
+from couchd import youtube, ytmusic
 from couchd.backends import BackendError
 from couchd.chromium import CdpError, Chromium, PageSetup
 from couchd.commands import CommandError, arg
@@ -97,6 +97,7 @@ class App:
 DEFAULT_APPS = (
     App("launcher", "Home", "launcher"),
     App("youtube", "YouTube", "chromium", youtube.URL, youtube.MATCH, youtube.SETUP),
+    App("ytmusic", "YouTube Music", "chromium", ytmusic.URL, ytmusic.MATCH, ytmusic.SETUP),
     App("plex", "Plex", "kodi"),  # Kodi profile and the PM4K addon: #22
 )
 

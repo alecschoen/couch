@@ -27,6 +27,7 @@ FAST = Timing(delay=0.08, first=0.04, speedup=0.5, fastest=0.01, hold_after=0.15
 APPS = [
     {"id": "launcher", "name": "Home", "kind": "launcher"},
     {"id": "youtube", "name": "YouTube", "kind": "chromium"},
+    {"id": "ytmusic", "name": "YouTube Music", "kind": "chromium"},
     {"id": "plex", "name": "Plex", "kind": "kodi"},
     {"id": "web", "name": "Web", "kind": "chromium"},
 ]
@@ -93,6 +94,7 @@ async def test_no_apps_service_means_the_launcher(ctx, remote):
         ("youtube", "down", uinput.KEY_DOWN),
         ("youtube", "select", uinput.KEY_ENTER),
         ("youtube", "back", uinput.KEY_ESC),
+        ("ytmusic", "back", uinput.KEY_ESC),
         ("web", "back", uinput.KEY_BACK),
         ("youtube", "play_pause", uinput.KEY_PLAYPAUSE),
         ("youtube", "7", uinput.KEY_7),
