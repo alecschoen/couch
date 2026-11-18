@@ -11,7 +11,9 @@ Where a key goes depends on the app in front (`apps.foreground`):
   quick menu, couchd/overlay.py), and `green` and `yellow` (kept for couchd's own uses).
 - While the quick menu is open, the overlay takes the keys it uses before anything else
   (`KeyTaker.take_key`): they go to no app, and their `key` message says `overlay: true`
-  so the launcher leaves them alone too.
+  so the launcher leaves them alone too. So does the on-screen keyboard (#77), which takes
+  every key but Home and the media keys: Red there is Delete (couchd/audio.py leaves a Red
+  marked `overlay` alone), Blue is Shift, and the digits type themselves.
 - A launcher screen can claim the raw keys for a while (`remote.raw_keys`, for Settings'
   remote test): couchd's colour-key actions then stand down. Their `key` messages say
   `raw: true`, the overlay takes nothing, and couchd/audio.py lets Red be. Home still goes

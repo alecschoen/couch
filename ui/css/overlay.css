@@ -124,3 +124,253 @@
   transform-origin: left center;
   transition: transform 160ms var(--ease-out);
 }
+
+/* ---- On-screen keyboard (#77): a .sheet over a .scrim, in the app's palette, drawn in
+   Chromium apps' pages only. The design: "Couch on-screen keyboard". Header (where you type,
+   and the remote's keys), the field as couchd read it back, suggestions, four rows of keys.
+   couchd says which key is focused; it's filled with ink, as focus is everywhere. */
+.kb__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5);
+}
+
+.kb__titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.kb__kicker {
+  font-size: var(--text-sm);
+  opacity: var(--a-muted);
+}
+
+.kb__title {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb__hints {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  font-size: var(--text-sm);
+  white-space: pre;
+  opacity: var(--a-muted);
+}
+
+.kb__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.kb__hint b {
+  font-weight: 600;
+}
+
+.kb__dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px currentColor;
+}
+
+.kb__dot.is-red,
+.kb-key__dot.is-red {
+  background-color: var(--key-red);
+}
+
+.kb__dot.is-blue,
+.kb-key__dot.is-blue {
+  background-color: var(--key-blue);
+}
+
+.kb__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.kb__box {
+  box-sizing: border-box;
+  height: var(--row-h);
+  padding: 0 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  border: var(--border) solid var(--palette-ink);
+  border-radius: var(--radius-row);
+}
+
+.kb[data-kind="password"] .kb__box {
+  padding-right: var(--s-3);
+}
+
+.kb__icon {
+  flex: none;
+  display: flex;
+}
+
+.kb__icon:empty {
+  display: none;
+}
+
+.kb__text {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: pre;
+  font-family: var(--font-display);
+  font-size: 54px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.kb__text.is-masked {
+  letter-spacing: 0.04em;
+}
+
+.kb__caret {
+  flex: none;
+  width: 4px;
+  height: 58px;
+  margin-left: 3px;
+  background-color: currentColor;
+  animation: kb-blink 1.1s steps(1) infinite;
+}
+
+@keyframes kb-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.kb__placeholder {
+  margin-left: var(--s-3);
+  font-family: var(--font-text);
+  font-size: var(--text-row);
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: var(--a-faint);
+}
+
+.kb__placeholder:empty {
+  display: none;
+}
+
+.kb__chips {
+  display: flex;
+  gap: var(--s-3);
+  height: var(--pill-h);
+  overflow: hidden;
+}
+
+.kb__chips[hidden],
+.kb__reveal[hidden] {
+  display: none;
+}
+
+/* A suggestion, or a password's Show/Hide: a pill. Four suggestions always fit. */
+.kb-chip {
+  box-sizing: border-box;
+  flex: none;
+  max-width: 424px;
+  height: var(--pill-h);
+  padding: 0 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  white-space: nowrap;
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-text);
+  font-size: var(--text-base);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background-color var(--dur-quick), color var(--dur-quick), border-color var(--dur-quick);
+}
+
+.kb-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-chip svg {
+  flex: none;
+}
+
+.kb__keys {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.kb__row {
+  display: flex;
+  gap: 15px;
+}
+
+.kb-gap {
+  min-width: 0;
+}
+
+.kb-key {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
+  border-radius: var(--radius-tab);
+  font-family: var(--font-display);
+  font-size: 42px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color var(--dur-quick), color var(--dur-quick), border-color var(--dur-quick);
+}
+
+/* Words rather than characters: 123, Search, @gmail.com. */
+.kb-key.is-fn {
+  font-family: var(--font-text);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+/* The action key. */
+.kb-key.is-go {
+  background-color: color-mix(in srgb, currentColor var(--a-tint), transparent);
+}
+
+.kb-key.is-focused,
+.kb-chip.is-focused {
+  background-color: var(--palette-ink);
+  border-color: var(--palette-ink);
+  color: var(--palette-bg);
+}
+
+/* Delete and Shift: the remote's Red and Blue do the same. */
+.kb-key__dot {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px currentColor;
+}

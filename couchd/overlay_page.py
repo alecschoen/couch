@@ -9,11 +9,16 @@ nothing in the page is touched, until couchd calls it:
     __couchOverlay.menu({...} | null)   the quick menu, or none
     __couchOverlay.toast({text, level, icon})
     __couchOverlay.volume({name, volume, muted})
+    __couchOverlay.keyboard({...} | null)  the on-screen keyboard (#77), or none
+    __couchOverlay.fields.state(id)     a text field's value and suggestions (couchd/fields.js)
 
 Everything is drawn in a closed shadow root on a `<couch-overlay>` element under <html>:
 YouTube's styles can't reach in and ours can't leak out. The element is `inert`, ignores the
 pointer and has no focusable parts, so YouTube keeps focus and its keys. While the quick
 menu is open couchd keeps the remote's keys from YouTube itself (couchd/remote.py).
+
+The script also watches the page's text fields (couchd/fields.js): one getting focus is
+reported to couchd as `field {...}`, which opens the on-screen keyboard (couchd/overlay.py).
 
 The fonts come with the script (base64, through the FontFace API under names of our own),
 since the page can't load anything from couchd. A fresh document says so through the
@@ -23,14 +28,17 @@ DevTools binding, `__couchd("overlay")`, so couchd draws an open menu again afte
 import base64
 import json
 import re
+from pathlib import Path
 
 from couchd.config import BUNDLED_UI_DIR
 
 HELLO = "overlay"  # what a fresh document sends couchd through window.__couchd
+FIELD = "field "  # then JSON: a text field got or lost focus, or changed (couchd/fields.js)
 GLOBAL = "__couchOverlay"
 
 UI = BUNDLED_UI_DIR
 VIEW = UI / "js" / "overlay-view.js"
+FIELDS = Path(__file__).with_name("fields.js")
 STYLES = (UI / "css" / "tokens.css", UI / "css" / "components.css", UI / "css" / "overlay.css")
 FONTS = {
     "Couch Display": (UI / "fonts" / "space-grotesk-latin.woff2", "300 700"),
@@ -80,6 +88,7 @@ TEMPLATE = """// couchd's overlays (#18): ui/js/overlay-view.js, built by couchd
 (() => {
   if (window.top !== window || window.%(global)s) return;
   %(view)s
+  %(fields)s
   const CSS = %(css)s;
   const FONTS = %(fonts)s;
   let view = null;
@@ -136,6 +145,13 @@ TEMPLATE = """// couchd's overlays (#18): ui/js/overlay-view.js, built by couchd
     volume(volume) {
       ensure().volume(volume);
     },
+    keyboard(state) {
+      if (!state && !view) return;
+      const v = ensure();
+      if (state) v.host.dataset.evening = state.evening === false ? "off" : "on";
+      v.keyboard(state);
+    },
+    fields: Fields,
   };
   Object.defineProperty(window, "%(global)s", { value: api, configurable: true });
 
@@ -157,6 +173,7 @@ def build() -> str:
     return TEMPLATE % {
         "global": GLOBAL,
         "view": view_source().replace("\n", "\n  ").rstrip(),
+        "fields": FIELDS.read_text(encoding="utf-8").replace("\n", "\n  ").rstrip(),
         "css": json.dumps(css),
         "fonts": json.dumps(fonts),
         "hello": HELLO,
@@ -171,4 +188,13 @@ def call(method: str, payload: object) -> str:
     return (
         f"(() => {{ const o = window.{GLOBAL}; if (!o) return false; "
         f"o.{method}({json.dumps(payload)}); return true; }})()"
+    )
+
+
+def field(method: str, field_id: str) -> str:
+    """An expression that calls couchd/fields.js about one field: `state`, `blur` or
+    `select`. null if the page has no overlay."""
+    return (
+        f"(() => {{ const o = window.{GLOBAL}; "
+        f"return o && o.fields ? o.fields.{method}({json.dumps(field_id)}) : null; }})()"
     )

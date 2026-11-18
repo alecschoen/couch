@@ -14,6 +14,8 @@ from couchd.overlay_page import GLOBAL, HELLO
 from couchd.overlay_page import SCRIPT as OVERLAY_SCRIPT
 
 # overlay_page.call(): "(() => { const o = window.__couchOverlay; ... o.menu({...}); ... })()"
+# overlay_page.field(): "(() => { ... return o && o.fields ? o.fields.state("f.1") : null; })()"
+FIELD_CALL = re.compile(r'o\.fields\.(\w+)\(("[^"]*")\)')
 OVERLAY_CALL = re.compile(
     rf"^\(\(\) => \{{ const o = window\.{GLOBAL};.*? o\.(\w+)\((.*)\); return true; \}}\)\(\)$",
     re.S,
@@ -34,6 +36,11 @@ class Tab:
     session: str = ""  # the setup session, while attached
     overlay: bool = False  # the page has window.__couchOverlay
     drawn: list[tuple[str, object]] = field(default_factory=list)  # overlay calls it got
+    # The focused text field, for the on-screen keyboard (#77): what's typed in it, the
+    # keys pressed in it, and the couchd/fields.js calls the page got.
+    value: str = ""
+    keys: list[tuple[str, str]] = field(default_factory=list)  # (type, key)
+    fields: list[tuple[str, str]] = field(default_factory=list)  # (method, field id)
 
 
 @dataclass
@@ -177,6 +184,14 @@ class FakeChromium:
                 on.url = params["url"]
                 on.loaded = self.load_new_tabs
                 return {"frameId": on.id, "loaderId": "L1"}
+            case "Input.insertText" if on:
+                on.value += params["text"]
+                return {}
+            case "Input.dispatchKeyEvent" if on:
+                on.keys.append((params["type"], params["key"]))
+                if params["type"] != "keyUp" and params["key"] == "Backspace":
+                    on.value = on.value[:-1]
+                return {}
             case "Target.getTargets":
                 infos = [
                     {"targetId": t.id, "type": "page", "url": t.url} for t in self.tabs.values()
@@ -220,6 +235,17 @@ class FakeChromium:
                 if params["expression"] == OVERLAY_SCRIPT:
                     tab.overlay = True
                     return {"result": {"type": "undefined"}}
+                if m := FIELD_CALL.search(params["expression"]):
+                    field_id = json.loads(m[2])
+                    tab.fields.append((m[1], field_id))
+                    if not tab.overlay:
+                        return {"result": {"type": "object", "value": None}}
+                    if m[1] == "state":
+                        state = {"id": field_id, "focused": True, "value": tab.value}
+                        return {"result": {"type": "object", "value": state}}
+                    if m[1] == "select":
+                        tab.value = ""  # what's typed next replaces it
+                    return {"result": {"type": "boolean", "value": True}}
                 if m := OVERLAY_CALL.match(params["expression"]):
                     if tab.overlay:
                         tab.drawn.append((m[1], json.loads(m[2])))

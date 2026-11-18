@@ -3,7 +3,7 @@
 The kiosk Chromium for YouTube (`system/couch-browser`) listens for DevTools on
 127.0.0.1:9222. couchd holds one browser-level WebSocket to it and uses it to open, focus
 and close tabs ("targets"), and to run scripts in them: pausing a video when its app goes
-to the background now, overlays later (#18).
+to the background now, the overlays (#18), and typing for the on-screen keyboard (#77).
 
 Some tabs need more before their page loads: YouTube needs a TV user agent and a script of
 its own (couchd/youtube.py). Those tabs open on about:blank, couchd attaches a DevTools
@@ -62,6 +62,13 @@ PageGone = Callable[[str, bool], None]
 PageMessage = Callable[[str, str], None]
 
 BINDING = "__couchd"
+
+# Keys couchd presses in a page (the on-screen keyboard, couchd/overlay.py), as a keyboard
+# would: Input.dispatchKeyEvent's fields for each.
+KEYS: dict[str, dict[str, Any]] = {
+    "Backspace": {"key": "Backspace", "code": "Backspace", "windowsVirtualKeyCode": 8},
+    "Enter": {"key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r"},
+}
 
 
 @dataclass(frozen=True)
@@ -229,6 +236,19 @@ class Chromium:
         if "exceptionDetails" in result:
             raise CdpError(f"script failed: {result['exceptionDetails'].get('text', '?')}")
         return result.get("result", {}).get("value")
+
+    async def insert_text(self, target_id: str, text: str) -> None:
+        """Type `text` into whatever has focus in the tab, as an input method would: the page
+        gets the same input events as from a keyboard, not a value set by a script."""
+        await self._in_tab(target_id, "Input.insertText", {"text": text})
+
+    async def press_key(self, target_id: str, name: str) -> None:
+        """Press and release a key (one of KEYS) in the tab, as a keyboard would."""
+        key = KEYS[name]
+        down = "keyDown" if "text" in key else "rawKeyDown"  # with text: a keypress too
+        await self._in_tab(target_id, "Input.dispatchKeyEvent", {"type": down, **key})
+        up = {k: v for k, v in key.items() if k != "text"}
+        await self._in_tab(target_id, "Input.dispatchKeyEvent", {"type": "keyUp", **up})
 
     async def _in_tab(
         self, target_id: str, method: str, params: dict[str, Any] | None = None

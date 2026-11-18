@@ -25,6 +25,30 @@ const ICONS = {
   muted: ["M4 9v6h4l5 4V5L8 9z", "M17 10l4 4M21 10l-4 4"],
 };
 
+// The on-screen keyboard's icons (#77): [viewBox, stroke width, filled, ...paths].
+const KB_ICONS = {
+  search: ["0 0 24 24", 2.2, false, "M17 10.5a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0", "m15.5 15.5 5 5"],
+  email: [
+    "0 0 24 24", 2, false,
+    "M5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9A2.5 2.5 0 0 1 5.5 5z",
+    "m3.5 6.5 8.5 6.5 8.5-6.5",
+  ],
+  password: [
+    "0 0 24 24", 2, false,
+    "M7 10.5h10a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 18v-5A2.5 2.5 0 0 1 7 10.5z",
+    "M8 10.5V8a4 4 0 0 1 8 0v2.5",
+  ],
+  eye: ["0 0 24 24", 2, false, "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z", "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0"],
+  shift: ["0 0 24 24", 2, false, "M12 3.5 3.5 12H8v7.5h8V12h4.5z"],
+  caps: ["0 0 24 24", 2, true, "M12 3.5 3.5 12H8v7.5h8V12h4.5z"],
+  backspace: ["0 0 24 24", 2, false, "M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6.5-7z", "m12 9.5 5 5m0-5-5 5"],
+  space: ["0 0 32 20", 2, false, "M3 8v6h26V8"],
+  go: ["0 0 24 24", 2.4, false, "M4 12h15m-6-6 6 6-6 6"],
+  find: ["0 0 24 24", 2.4, false, "M17 10.5a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0", "m15.5 15.5 5 5"],
+};
+const KB_ICON_SIZE = { space: [64, 40], backspace: [44, 44], go: [36, 36], find: [36, 36] };
+const KB_HINTS = [["red", "Delete"], ["blue", "Shift"], [null, "0–9", " Numbers"], [null, "Back", " to close"]];
+
 // The icon a toast gets when couchd doesn't name one.
 export function toastIcon({ text = "", level = "info", icon } = {}) {
   if (icon && ICONS[icon]) return icon;
@@ -47,6 +71,7 @@ export class OverlayView {
     this._toast = null;
     this._volume = null;
     this._timers = new Map();
+    this.kb = null; // the on-screen keyboard's parts, while it's up
   }
 
   // ---- Quick menu: a bottom sheet in the app's colour. couchd moves the focus.
@@ -101,6 +126,173 @@ export class OverlayView {
     sheet.dataset.closing = "1";
     sheet.classList.remove("is-open");
     setTimeout(() => sheet.remove(), this._ms("--dur-sheet", 320));
+  }
+
+  // ---- On-screen keyboard (#77): a sheet over a scrim, in the app's colour. Only in
+  // Chromium apps' pages: couchd says what the field holds, the keys, and which has focus.
+  keyboard(state) {
+    if (!state || !state.open) {
+      this._closeKeyboard();
+      return;
+    }
+    if (!this.kb || this.kb.closing) this._openKeyboard();
+    const kb = this.kb;
+    kb.sheet.dataset.palette = state.palette || this.palette() || "system";
+    kb.sheet.dataset.kind = state.kind;
+    kb.kicker.textContent = state.kicker || "";
+    kb.title.textContent = state.title || "";
+    if (kb.kind !== state.kind) {
+      kb.kind = state.kind;
+      kb.icon.replaceChildren(...(KB_ICONS[state.kind] ? [this._kbIcon(state.kind, 44)] : []));
+    }
+
+    // The field: its text with the caret, or its placeholder.
+    const text = state.text || "";
+    const caret = Number.isInteger(state.caret) ? state.caret : text.length;
+    kb.before.textContent = text.slice(0, caret);
+    kb.after.textContent = text.slice(caret);
+    kb.placeholder.textContent = text ? "" : state.placeholder || "";
+    kb.text.classList.toggle("is-masked", !!state.masked);
+    kb.reveal.hidden = !state.reveal;
+    kb.revealLabel.textContent = state.reveal || "";
+    kb.reveal.classList.toggle("is-focused", state.focus === "reveal");
+    kb.text.scrollLeft = Math.max(0, kb.caret.offsetLeft + 60 - kb.text.clientWidth);
+
+    // Suggestions: a row of chips, there for fields that have them (even while empty).
+    kb.chips.hidden = !Array.isArray(state.chips);
+    const chips = state.chips || [];
+    if (kb.chipList !== chips.join("\n")) {
+      kb.chipList = chips.join("\n");
+      kb.chips.replaceChildren(
+        ...chips.map((label) => {
+          const chip = this._el("div", "kb-chip");
+          chip.append(this._kbIcon("search", 30), this._el("span", "", label));
+          return chip;
+        }),
+      );
+    }
+    [...kb.chips.children].forEach((chip, i) => chip.classList.toggle("is-focused", state.focus === `chip:${i}`));
+
+    // The keys: drawn again only when they change (another page, Shift).
+    const rows = JSON.stringify(state.rows || []);
+    if (kb.rows !== rows) {
+      kb.rows = rows;
+      kb.keyEls = new Map();
+      kb.keys.replaceChildren(...(state.rows || []).map((row) => this._kbRow(row, kb.keyEls)));
+    }
+    for (const [id, el] of kb.keyEls) el.classList.toggle("is-focused", id === state.focus);
+  }
+
+  _openKeyboard() {
+    this._closeKeyboard({ now: true });
+    const scrim = this._el("div", "scrim kb-scrim");
+    const sheet = this._el("div", "sheet kb");
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-label", "On-screen keyboard");
+
+    const head = this._el("div", "kb__head");
+    const titles = this._el("div", "kb__titles");
+    const kicker = this._el("span", "kb__kicker");
+    const title = this._el("span", "kb__title");
+    titles.append(kicker, title);
+    const hints = this._el("div", "kb__hints");
+    for (const [dot, strong, rest] of KB_HINTS) {
+      const hint = this._el("span", dot ? "kb__hint" : "");
+      if (dot) hint.append(this._el("span", `kb__dot is-${dot}`), strong);
+      else hint.append(this._el("b", "", strong), rest);
+      hints.append(hint);
+    }
+    head.append(titles, hints);
+
+    const field = this._el("div", "kb__field");
+    const box = this._el("div", "kb__box");
+    const icon = this._el("span", "kb__icon");
+    const text = this._el("span", "kb__text");
+    const before = this._el("span", "kb__before");
+    const caret = this._el("span", "kb__caret");
+    const after = this._el("span", "kb__after");
+    const placeholder = this._el("span", "kb__placeholder");
+    text.append(before, caret, after, placeholder);
+    const reveal = this._el("div", "kb-chip kb__reveal");
+    const revealLabel = this._el("span");
+    reveal.append(this._kbIcon("eye", 34), revealLabel);
+    box.append(icon, text, reveal);
+    const chips = this._el("div", "kb__chips");
+    field.append(box, chips);
+
+    const keys = this._el("div", "kb__keys");
+    sheet.append(head, field, keys);
+    const at = this.corner.parentNode === this.root ? this.corner : null; // toasts stay on top
+    this.root.insertBefore(scrim, at);
+    this.root.insertBefore(sheet, at);
+    this.kb = { scrim, sheet, kicker, title, icon, text, before, caret, after, placeholder, reveal,
+      revealLabel, chips, keys, kind: null, chipList: null, rows: null, keyEls: new Map(), closing: false };
+    sheet.getBoundingClientRect(); // start closed, then slide in
+    scrim.classList.add("is-open");
+    sheet.classList.add("is-open");
+  }
+
+  _closeKeyboard({ now = false } = {}) {
+    const kb = this.kb;
+    if (!kb) return;
+    this.kb = null;
+    if (now) {
+      kb.scrim.remove();
+      kb.sheet.remove();
+      return;
+    }
+    kb.closing = true;
+    kb.scrim.classList.remove("is-open");
+    kb.sheet.classList.remove("is-open");
+    setTimeout(() => {
+      kb.scrim.remove();
+      kb.sheet.remove();
+    }, this._ms("--dur-sheet", 320));
+  }
+
+  _kbRow(row, keyEls) {
+    const el = this._el("div", "kb__row");
+    for (const key of row) {
+      if (key.gap) {
+        const gap = this._el("span", "kb-gap");
+        gap.style.flex = `${key.w} 1 0`;
+        el.append(gap);
+        continue;
+      }
+      const cls = ["kb-key", key.fn ? "is-fn" : "", key.go ? "is-go" : ""].filter(Boolean).join(" ");
+      const k = this._el("div", cls);
+      k.style.flex = `${key.w} 1 0`;
+      const icon = key.icon && this._kbIcon(key.icon, ...(KB_ICON_SIZE[key.icon] || [40, 40]));
+      if (icon && key.icon !== "go") k.append(icon);
+      if (key.label) k.append(this._el("span", "", key.label));
+      if (icon && key.icon === "go") k.append(icon); // Next →
+      if (key.dot) k.append(this._el("span", `kb-key__dot is-${key.dot}`));
+      keyEls.set(key.id, k);
+      el.append(k);
+    }
+    return el;
+  }
+
+  _kbIcon(name, width, height = width) {
+    const [viewBox, stroke, filled, ...paths] = KB_ICONS[name];
+    const svg = this.doc.createElementNS(SVG, "svg");
+    for (const [k, v] of Object.entries({
+      viewBox,
+      width,
+      height,
+      fill: filled ? "currentColor" : "none",
+      stroke: "currentColor",
+      "stroke-width": stroke,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    })) svg.setAttribute(k, v);
+    for (const d of paths) {
+      const path = this.doc.createElementNS(SVG, "path");
+      path.setAttribute("d", d);
+      svg.append(path);
+    }
+    return svg;
   }
 
   // ---- Toast: one at a time here, top right. A new one replaces it, and the volume panel.
