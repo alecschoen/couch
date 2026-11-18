@@ -94,7 +94,16 @@ def test_install_sh_installs_and_removes_them():
     assert not re.search(r"nmcli radio|rfkill (un)?block wlan|WirelessEnabled", install)
 
 
-def test_polkit_lets_couchd_switch_wifi_only():
+def test_polkit_lets_couchd_switch_and_join_wifi_only():
     rule = (ROOT / "system/couch.rules").read_text()
-    nm = set(re.findall(r'"(org\.freedesktop\.NetworkManager\.[\w-]+)"', rule))
-    assert nm == {"org.freedesktop.NetworkManager.enable-disable-wifi"}
+    nm = set(re.findall(r'"(org\.freedesktop\.NetworkManager\.[\w.-]+)"', rule))
+    assert nm == {
+        "org.freedesktop.NetworkManager.enable-disable-wifi",
+        "org.freedesktop.NetworkManager.wifi.scan",  # wifi.scan (#78)
+        "org.freedesktop.NetworkManager.network-control",  # activating a profile
+        "org.freedesktop.NetworkManager.settings.modify.system",  # saving, forgetting
+    }
+    # No hotspots, no NetworkManager settings, nobody but couch.
+    assert "wifi.share" not in rule and "settings.modify.global-dns" not in rule
+    block = rule[rule.index("enable-disable-wifi") :]
+    assert 'subject.user === "couch"' in block

@@ -16,6 +16,7 @@ from couchd.backends import (
     BluetoothBackend,
     Device,
     KeyboardBackend,
+    Network,
     Output,
     TvBackend,
     TvPower,
@@ -259,49 +260,131 @@ class FakeBluetooth(BluetoothBackend):
         return device
 
 
-class FakeWifi(WifiBackend):
-    """A Wi-Fi radio that knows one network. Turned on, it finds it and connects."""
+# Networks the fake radio sees: (SSID, signal, secured). It knows the first one.
+NETWORKS = (
+    ("Living room", 72, True),
+    ("Upstairs", 54, True),
+    ("Café Libre", 41, False),
+    ("Neighbours 5G", 23, True),
+    ("Garden shed", 9, True),
+)
+# Every secured network's password; Garden shed is too far away to join.
+WIFI_PASSWORD = "couchpotato"
+OUT_OF_REACH = "Garden shed"
 
-    NETWORK = "Living room"
+
+class FakeWifi(WifiBackend):
+    """A Wi-Fi radio that knows one network. Turned on, it sees NETWORKS, finds the one it
+    knows and connects. Joining another takes a moment; the password is WIFI_PASSWORD."""
+
+    NETWORK = NETWORKS[0][0]
 
     def __init__(self, *, enabled: bool = False, speed: float = 1.0) -> None:
         super().__init__()
         self._delays = _Delays(speed)
         self._status = WifiStatus(available=True, enabled=False)
+        self._known = {self.NETWORK}
+        self._seen = False  # the radio has found what's around since it came on
         self._joining: asyncio.Task | None = None
+        self._scan: asyncio.Task | None = None
         if enabled:
-            self._status = self._connected()
+            self._seen = True
+            self._status = self._connected(self.NETWORK)
 
     def status(self) -> WifiStatus:
         return self._status
 
+    def networks(self) -> list[Network]:
+        if not (self._status.enabled and self._seen):
+            return []
+        connected = self._status.ssid if self._status.connection == "connected" else None
+        return [
+            Network(ssid, signal, secure, known=ssid in self._known, active=ssid == connected)
+            for ssid, signal, secure in NETWORKS
+        ]
+
+    def scanning(self) -> bool:
+        return self._scan is not None
+
     async def set_enabled(self, on: bool) -> None:
         if on == self._status.enabled:
             return
-        if self._joining is not None:
-            self._joining.cancel()
-            self._joining = None
+        self._cancel()
         if on:
             self._update(WifiStatus(available=True, enabled=True, connection="disconnected"))
             self._joining = asyncio.create_task(self._join())
         else:
+            self._seen = False
             self._update(WifiStatus(available=True, enabled=False))
 
+    async def scan(self) -> None:
+        if not self._status.enabled:
+            raise BackendError("Wi-Fi is off")
+        if self._scan is None:
+            self._scan = asyncio.create_task(self._look())
+            self.changed()
+
+    async def connect(self, ssid: str, password: str | None = None) -> None:
+        if not self._status.enabled:
+            raise BackendError("Wi-Fi is off")
+        found = next((n for n in self.networks() if n.ssid == ssid), None)
+        if found is None:
+            raise BackendError(f"Can't find {ssid}. Is it in range?")
+        if found.secure and (password is not None or not found.known):
+            if not password:
+                raise BackendError(f"{ssid} needs a password")
+            if not 8 <= len(password) <= 63:
+                raise BackendError("Wi-Fi passwords are 8 to 63 characters")
+        self._cancel()
+        before = self._status
+        self._update(replace(before, connection="connecting", ssid=ssid, signal=None))
+        await self._delays.sleep(1.5)
+        if ssid == OUT_OF_REACH:
+            self._update(before)
+            raise BackendError(f"{ssid} didn't answer. Is it in range?")
+        if found.secure and password is not None and password != WIFI_PASSWORD:
+            self._update(before)
+            raise BackendError("Wrong password")
+        self._known.add(ssid)
+        self._update(self._connected(ssid))
+
+    async def forget(self, ssid: str) -> None:
+        if ssid not in self._known:
+            raise BackendError(f"{ssid} isn't saved")
+        self._known.discard(ssid)
+        if self._status.ssid == ssid:
+            self._cancel()
+            self._update(WifiStatus(available=True, enabled=True, connection="disconnected"))
+        else:
+            self.changed()
+
     async def stop(self) -> None:
-        if self._joining is not None:
-            self._joining.cancel()
-            self._joining = None
+        self._cancel()
+
+    def _cancel(self) -> None:
+        for task in (self._joining, self._scan):
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+        self._joining = self._scan = None
+
+    async def _look(self) -> None:
+        await self._delays.sleep(1.5)
+        self._seen = True
+        self._scan = None
+        self.changed()
 
     async def _join(self) -> None:
         await self._delays.sleep(0.8)
+        self._seen = True
         self._update(replace(self._status, connection="connecting", ssid=self.NETWORK))
         await self._delays.sleep(1.2)
-        self._update(self._connected())
+        self._update(self._connected(self.NETWORK))
         self._joining = None
 
-    def _connected(self) -> WifiStatus:
+    def _connected(self, ssid: str) -> WifiStatus:
+        signal = next(s for name, s, _ in NETWORKS if name == ssid)
         return WifiStatus(
-            available=True, enabled=True, connection="connected", ssid=self.NETWORK, signal=72
+            available=True, enabled=True, connection="connected", ssid=ssid, signal=signal
         )
 
     def _update(self, status: WifiStatus) -> None:
