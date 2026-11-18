@@ -29,6 +29,37 @@
 
   if (window.top !== window) return;
 
+  // Phones list this TV by what it tells YouTube's lounge (the channel phones control it
+  // through): its name, "YouTube on TV", and its device info, a Samsung, which phones show
+  // as "Samsung TV". Both say Couch instead. Only the lounge's requests are changed; the
+  // rest of YouTube still sees the Samsung it serves the TV interface to.
+  const NAME = "Couch";
+  const renamed = (url) => {
+    const text = url instanceof URL ? url.href : url;
+    if (typeof text !== "string" || !text.includes("/api/lounge/")) return url;
+    try {
+      const u = new URL(text, location.href);
+      if (u.searchParams.has("name")) u.searchParams.set("name", NAME);
+      const info = u.searchParams.get("deviceInfo");
+      if (info) {
+        const device = { ...JSON.parse(info), brand: NAME, model: NAME };
+        u.searchParams.set("deviceInfo", JSON.stringify(device));
+      }
+      return u.href;
+    } catch (_) {
+      return url;
+    }
+  };
+  const open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    return open.call(this, method, renamed(url), ...rest);
+  };
+  const fetch = window.fetch;
+  window.fetch = function (input, init) {
+    const url = typeof input === "string" || input instanceof URL ? renamed(input) : input;
+    return fetch.call(this, url, init);
+  };
+
   // Leaving YouTube goes back to Couch, which keeps the tab, so coming back is instant.
   const home = () => {
     const send = window.__couchd; // a DevTools binding couchd adds; see couchd/chromium.py
