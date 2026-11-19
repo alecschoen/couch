@@ -44,9 +44,10 @@ Section times are rough.
 - [ ] **B6** Press Red a few times. Expected: the sound goes TV → Headphone jack → … in turn,
       with a "Sound now on …" message each time. Leave it on TV speakers.
 - [ ] **B7** Press Blue. Expected: the quick menu slides up from the bottom with Home, Sound,
-      Volume and Bluetooth. Left and Right move between them; on Volume, Up and Down change the
-      volume and the card shows it. While it's open, Home underneath doesn't move. Return closes
-      it. Open it again and leave it: it closes by itself after about 30 seconds.
+      Volume, Bluetooth and Sleep (Sleep says Off). Left and Right move between them; on
+      Volume, Up and Down change the volume and the card shows it. While it's open, Home
+      underneath doesn't move. Return closes it. Open it again and leave it: it closes by itself
+      after about 30 seconds.
 - [ ] **B8** Press Return on Home. Expected: nothing happens.
 
 ## C. Settings (5 min)
@@ -128,9 +129,9 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
       message on top of YouTube. Go back to the
       speaker with Red.
 - [ ] **E6** Press Blue while it plays. Expected: the quick menu over YouTube, in YouTube's
-      red, with Home, Sound, Volume and Bluetooth. Press Left, Right, Up, Down and OK on Volume
-      (mute, then OK again to unmute). Expected: only the menu reacts; YouTube underneath doesn't
-      move, seek or pause. Return closes it, and YouTube's own Return works again.
+      red, with Home, Sound, Volume, Bluetooth and Sleep. Press Left, Right, Up, Down and OK on
+      Volume (mute, then OK again to unmute). Expected: only the menu reacts; YouTube underneath
+      doesn't move, seek or pause. Return closes it, and YouTube's own Return works again.
 - [ ] **E7** Press Return a few times. Expected: YouTube steps back (player → grid → …). On
       YouTube's home, Return goes to Couch's Home.
 - [ ] **E8** Open YouTube again. Expected: it comes straight back where you left it, without the
@@ -186,7 +187,7 @@ default).
       Expected: also back on Home.
 - [ ] **G7** Open Plex again and hold Return for about a second. Expected: Couch's Home.
 
-## H. TV off and on, inputs (4 min)
+## H. TV off and on, inputs, sleep timer (4 min, and 30 of waiting)
 
 - [ ] **H1** Play a YouTube video, then turn the TV off with its remote. Turn it back on.
       Expected: the TV shows Couch and the video is paused.
@@ -194,6 +195,15 @@ default).
       Expected: Couch or Plex on screen, and the video is paused.
 - [ ] **H3** Switch the TV to another input (TV, another HDMI), then back to the Pi's. Expected:
       Couch is where you left it, and the remote still works straight away.
+- [ ] **H4** Sleep timer (#79). Press Blue, go Right to Sleep, and press OK a few times.
+      Expected: 15 min, 30 min, 60 min, 90 min, Off, each with "TV off at" and the right time,
+      and the menu stays open. Leave it on 15 min and play a YouTube video. After 14 minutes:
+      "Turning off in 1 minute, Press any button to stay on" over the video, with a moon.
+      Press OK. Expected: "Sleep timer off", the video doesn't pause, and the TV stays on.
+- [ ] **H5** Set it to 15 min again, play something in Plex, and leave it. Expected: the same
+      warning over Plex, then the TV goes to standby and Plex is paused when you turn it back
+      on. (Quicker, in a shell on the Pi: `curl -s -XPOST localhost:8765/api/command/sleep.set -d
+      '{"minutes": 2}'`.)
 
 ## I. When things go wrong (4 min)
 
@@ -394,6 +404,7 @@ decides what the remote's buttons do.
 | Plex via Kodi | #22, PR #43 |
 | Sound outputs | #10, PR #34 |
 | Quick menu, messages, volume panel | #18, PR #56 |
+| Sleep timer | #79 |
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24, PR #54 |

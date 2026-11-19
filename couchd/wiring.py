@@ -25,6 +25,7 @@ from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
+from couchd.sleep import SleepService
 from couchd.splash import SplashService
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
@@ -84,7 +85,8 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
     real or pretend. Before an
     app opens, the internet and the Plex server are checked (#19). The overlays (#18) draw
     over whichever is in front, Kodi's through its JSON-RPC (pretend in dev mode). The splash
-    service ends the session's boot splash once the launcher has drawn (#23)."""
+    service ends the session's boot splash once the launcher has drawn (#23). The sleep
+    timer (#79) sees the remote's keys through the overlay."""
     display = _dev_display() if dev else SystemdDisplay()
     net = FakeConnectivity() if dev else NetConnectivity(ctx.saved)
     rpc = None if dev else KodiRpc()  # one client for both: pausing and the overlays
@@ -97,12 +99,16 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
         connectivity=net,
         kodi_rpc=rpc,
     )
-    overlay = OverlayService(ctx, chromium=chromium, pages=apps.page, kodi=kodi, go_home=apps.home)
+    sleep = SleepService(ctx)
+    overlay = OverlayService(
+        ctx, chromium=chromium, pages=apps.page, kodi=kodi, go_home=apps.home, sleep=sleep
+    )
     services = [
         apps,
         KodiSoundsService(ctx, kodi),  # Plex's clicks follow the UI sounds setting (#49)
         IdleService(ctx, idle_after=_idle_after()),
         EveningService(ctx),
+        sleep,
     ]
     return [*services, SplashService(ctx)], overlay
 

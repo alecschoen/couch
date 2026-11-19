@@ -445,6 +445,35 @@
   color: #ffffff;
 }
 
+/* Two lines, a title over a detail: the sleep timer's "Turning off in 1 minute". */
+.toast.has-detail {
+  gap: var(--s-4);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.toast.has-detail .icon {
+  width: 44px;
+  height: 44px;
+}
+
+.toast__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.toast__title {
+  font-family: var(--font-display);
+  font-size: var(--text-card);
+  font-weight: 600;
+}
+
+.toast__detail {
+  font-size: 25px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 /* ---- Sheet: slides up from the bottom (the quick menu). Give it its own data-palette. */
 .sheet {
   position: absolute;

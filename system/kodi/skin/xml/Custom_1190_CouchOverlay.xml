@@ -9,7 +9,9 @@
 
     couch.menu = 1                     the quick menu is open
     couch.menu.title, couch.menu.focus  the app's name; the focused item's id
-    couch.menu.<id>.label / .value     id: home, sound, volume, bluetooth
+    couch.menu.<id>.label / .value     id: home, sound, volume, bluetooth, sleep
+    couch.menu.<id>.detail / .hint     Sleep's "TV off at 21:20" and "OK: Off · 15 · …",
+                                       drawn on its focused card; "" for the others
     couch.evening = 1                  deep colours (the evening palette)
     couch.volume = 1                   the volume panel is up (service.couch drops it after 2.4 s)
     couch.volume.name / .value / .step  the output, "60" or "Muted", the bar in steps of 5
@@ -70,7 +72,7 @@
 				<width>1752</width>
 				<height>192</height>
 				<orientation>horizontal</orientation>
-				<itemgap>24</itemgap>
+				<itemgap>27</itemgap>
 				<control type="group">
 					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),home)</visible>
 					<width>450</width>
@@ -119,13 +121,13 @@
 				</control>
 				<control type="group">
 					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),home)</visible>
-					<width>345</width>
+					<width>294</width>
 					<height>192</height>
-					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="image"><width>294</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
 					<control type="label">
 						<left>30</left>
 						<top>27</top>
-						<width>285</width>
+						<width>234</width>
 						<height>33</height>
 						<font>font12</font>
 						<textcolor>D91F1600</textcolor>
@@ -134,7 +136,7 @@
 					<control type="label">
 						<left>30</left>
 						<top>114</top>
-						<width>285</width>
+						<width>234</width>
 						<height>51</height>
 						<font>font36_title</font>
 						<textcolor>FF1F1600</textcolor>
@@ -189,13 +191,13 @@
 				</control>
 				<control type="group">
 					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),sound)</visible>
-					<width>345</width>
+					<width>294</width>
 					<height>192</height>
-					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="image"><width>294</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
 					<control type="label">
 						<left>30</left>
 						<top>27</top>
-						<width>285</width>
+						<width>234</width>
 						<height>33</height>
 						<font>font12</font>
 						<textcolor>D91F1600</textcolor>
@@ -204,7 +206,7 @@
 					<control type="label">
 						<left>30</left>
 						<top>114</top>
-						<width>285</width>
+						<width>234</width>
 						<height>51</height>
 						<font>font36_title</font>
 						<textcolor>FF1F1600</textcolor>
@@ -259,13 +261,13 @@
 				</control>
 				<control type="group">
 					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),volume)</visible>
-					<width>345</width>
+					<width>294</width>
 					<height>192</height>
-					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="image"><width>294</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
 					<control type="label">
 						<left>30</left>
 						<top>27</top>
-						<width>285</width>
+						<width>234</width>
 						<height>33</height>
 						<font>font12</font>
 						<textcolor>D91F1600</textcolor>
@@ -274,7 +276,7 @@
 					<control type="label">
 						<left>30</left>
 						<top>114</top>
-						<width>285</width>
+						<width>234</width>
 						<height>51</height>
 						<font>font36_title</font>
 						<textcolor>FF1F1600</textcolor>
@@ -329,13 +331,13 @@
 				</control>
 				<control type="group">
 					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),bluetooth)</visible>
-					<width>345</width>
+					<width>294</width>
 					<height>192</height>
-					<control type="image"><width>345</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="image"><width>294</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
 					<control type="label">
 						<left>30</left>
 						<top>27</top>
-						<width>285</width>
+						<width>234</width>
 						<height>33</height>
 						<font>font12</font>
 						<textcolor>D91F1600</textcolor>
@@ -344,11 +346,123 @@
 					<control type="label">
 						<left>30</left>
 						<top>114</top>
-						<width>285</width>
+						<width>234</width>
 						<height>51</height>
 						<font>font36_title</font>
 						<textcolor>FF1F1600</textcolor>
 						<label>$INFO[Window(home).Property(couch.menu.bluetooth.value)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>String.IsEqual(Window(home).Property(couch.menu.focus),sleep)</visible>
+					<width>450</width>
+					<height>192</height>
+					<control type="image"><width>450</width><height>192</height><texture border="30" colordiffuse="FF1F1600">couch-round.png</texture></control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.label)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>27</top>
+						<width>390</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.label)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>29</top>
+						<width>390</width>
+						<height>33</height>
+						<align>right</align>
+						<font>font12</font>
+						<textcolor>BFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.detail)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>29</top>
+						<width>390</width>
+						<height>33</height>
+						<align>right</align>
+						<font>font12</font>
+						<textcolor>BFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.detail)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>80</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font45_title</font>
+						<textcolor>FFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.value)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>80</top>
+						<width>390</width>
+						<height>51</height>
+						<font>font45_title</font>
+						<textcolor>FFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.value)]</label>
+					</control>
+					<control type="label">
+						<visible>!String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>136</top>
+						<width>390</width>
+						<height>30</height>
+						<font>font12</font>
+						<textcolor>BFB57D09</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.hint)]</label>
+					</control>
+					<control type="label">
+						<visible>String.IsEmpty(Window(home).Property(couch.evening))</visible>
+						<left>30</left>
+						<top>136</top>
+						<width>390</width>
+						<height>30</height>
+						<font>font12</font>
+						<textcolor>BFE5A00D</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.hint)]</label>
+					</control>
+				</control>
+				<control type="group">
+					<visible>!String.IsEqual(Window(home).Property(couch.menu.focus),sleep)</visible>
+					<width>294</width>
+					<height>192</height>
+					<control type="image"><width>294</width><height>192</height><texture border="30" colordiffuse="661F1600">couch-ring.png</texture></control>
+					<control type="label">
+						<left>30</left>
+						<top>27</top>
+						<width>234</width>
+						<height>33</height>
+						<font>font12</font>
+						<textcolor>D91F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.label)]</label>
+					</control>
+					<control type="label">
+						<left>30</left>
+						<top>114</top>
+						<width>234</width>
+						<height>51</height>
+						<font>font36_title</font>
+						<textcolor>FF1F1600</textcolor>
+						<label>$INFO[Window(home).Property(couch.menu.sleep.value)]</label>
 					</control>
 				</control>
 			</control>

@@ -21,6 +21,24 @@ async def test_every_subscriber_gets_every_message():
     assert await b.get() == expected
 
 
+async def test_a_toasts_optional_parts_go_only_when_given():
+    bus = EventBus()
+    sub = bus.subscribe()
+    bus.toast(
+        "Turning off in 1 minute", icon="moon", detail="Press any button", ms=60000, id="sleep"
+    )
+    assert (await sub.get())["data"] == {
+        "text": "Turning off in 1 minute",
+        "level": "info",
+        "icon": "moon",
+        "detail": "Press any button",
+        "ms": 60000,
+        "id": "sleep",
+    }
+    bus.toast("Done", icon="check")
+    assert (await sub.get())["data"] == {"text": "Done", "level": "info", "icon": "check"}
+
+
 async def test_extra_fields_are_merged_into_the_message():
     bus = EventBus()
     sub = bus.subscribe()

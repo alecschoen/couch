@@ -14,13 +14,15 @@ just draws what it's told, through its *host*:
   stops, but the menu still works. Without service.couch the volume panel is a
   notification too.
 
-The quick menu (Blue): Home, Sound, Volume and Bluetooth, on a sheet in the app's colour.
-While it's open the remote is the menu's: couchd doesn't type keys into the app (RemoteService
-asks `take_key` first), and the launcher ignores them (`overlay: true` on the key message).
+The quick menu (Blue): Home, Sound, Volume, Bluetooth and Sleep, on a sheet in the app's
+colour. While it's open the remote is the menu's: couchd doesn't type keys into the app
+(RemoteService asks `take_key` first), and the launcher ignores them (`overlay: true` on the
+key message).
 
     Left / Right   move between the cards
     OK             Home: go home. Sound: next output. Volume: mute or unmute.
-                   Bluetooth: the launcher's Bluetooth screen.
+                   Bluetooth: the launcher's Bluetooth screen. Sleep: the next sleep
+                   timer, Off, 15, 30, 60, 90 minutes (couchd/sleep.py).
     Up / Down      on Volume: louder, quieter (by VOLUME_STEP)
     Back, Blue     close it
     Home           closes it, and goes home as always
@@ -42,8 +44,12 @@ field loses focus, and when the app in front changes. Not in YouTube's TV interf
 a keyboard of its own (NO_KEYBOARD).
 
 Toasts: anything on the bus (`ctx.bus.toast`, the `overlay.toast` command, POST /api/toast)
-goes to the app in front too. They go after TOAST_MS. So does the volume panel, after the
-last change.
+goes to the app in front too. They go after TOAST_MS, or the toast's own `ms`. So does the
+volume panel, after the last change.
+
+The sleep timer's last minute (#79): before anything else, `take_key` asks the sleep timer,
+which takes any key then (couchd/sleep.py): the key turns the timer off and does nothing else,
+in the menu, the keyboard or the app. Except Home, which still goes home.
 """
 
 import asyncio
@@ -63,6 +69,8 @@ from couchd.commands import CommandError, arg
 from couchd.keyboard import ARROWS, Keyboard, Op, read_field
 from couchd.kodi import Kodi, KodiError
 from couchd.services import Context, Service
+from couchd.sleep import CHOICES as SLEEP_CHOICES
+from couchd.sleep import SleepService
 
 log = logging.getLogger(__name__)
 
@@ -74,8 +82,9 @@ VOLUME_STEP = 5
 KODI_TITLE = "Couch"
 KODI_IMAGES = {"info": "info", "warning": "warning", "error": "error"}
 
-ITEMS = ("home", "sound", "volume", "bluetooth")
+ITEMS = ("home", "sound", "volume", "bluetooth", "sleep")
 MINUS = "\u2212"  # the Volume card's "<minus> 60 +", as in the design
+SLEEP_HINT = "OK: " + " \u00b7 ".join(["Off", *map(str, SLEEP_CHOICES)])  # "OK: Off · 15 · 30…"
 PALETTES = {"youtube": "yt", "ytmusic": "yt", "plex": "plex"}  # app id -> ui/css/tokens.css palette
 NO_KEYBOARD = frozenset({"youtube"})  # YouTube's TV interface has its own keyboard
 EVENING_STARTS, EVENING_ENDS = 18, 7  # without couchd/evening.py's `dark`, as it does
@@ -115,7 +124,7 @@ def volume_from_event(data: Any, audio: dict[str, Any]) -> VolumeChange | None:
 class Action:
     """What a key in the open menu asks for."""
 
-    kind: Literal["home", "cycle_output", "volume", "mute", "bluetooth"]
+    kind: Literal["home", "cycle_output", "volume", "mute", "bluetooth", "sleep"]
     step: int = 0
 
 
@@ -163,10 +172,20 @@ class QuickMenu:
                     return True, Action("cycle_output")
                 case "volume":
                     return True, Action("mute")
+                case "sleep":
+                    return True, Action("sleep")
                 case _:
                     self.hide()
                     return True, Action("bluetooth")
         return False, None
+
+
+def local_time(iso: Any) -> str | None:
+    """ "21:20", from the sleep timer's `ends_at`."""
+    try:
+        return f"{datetime.fromisoformat(iso):%H:%M}" if isinstance(iso, str) else None
+    except ValueError:
+        return None
 
 
 def is_evening(mode: Any, dark: Any, now: datetime) -> bool:
@@ -194,16 +213,18 @@ class OverlayService(Service):
         pages: Callable[[str], str | None] | None = None,
         kodi: Kodi | None = None,
         go_home: Callable[[], Any] | None = None,
+        sleep: SleepService | None = None,
         now: Callable[[], datetime] = datetime.now,
         menu_timeout: float = MENU_TIMEOUT,
     ) -> None:
         """`pages(app_id)` gives a Chromium app's tab (AppService.page); `go_home()` takes the
-        screen back to the launcher (AppService.home)."""
+        screen back to the launcher (AppService.home); `sleep` sees every key first."""
         self.ctx = ctx
         self.chromium = chromium
         self.pages = pages or (lambda app_id: None)
         self.kodi = kodi
         self.go_home = go_home
+        self.sleep = sleep
         self.now = now
         self.menu_timeout = menu_timeout
         self.menu = QuickMenu()
@@ -258,6 +279,8 @@ class OverlayService(Service):
         """True if the overlay takes the key: it then goes to no app."""
         if not self._running:
             return False
+        if self.sleep is not None and not repeat and self.sleep.take_key(key):
+            return True  # turned the sleep timer off, and that's all
         if self.keyboard.open:
             return self._keyboard_key(key, repeat=repeat)
         if not self.menu.open:
@@ -329,12 +352,20 @@ class OverlayService(Service):
         outputs = {o["id"]: o["name"] for o in audio.get("outputs", ())}
         sound = outputs.get(audio.get("current"), "No sound")
         volume = "Muted" if audio.get("muted") else f"{MINUS} {audio.get('volume', 0)} +"
+        sleep = self.ctx.state.get("sleep")
+        minutes = sleep.get("minutes")
         values = {
             "home": ("Go to", "Home"),
             "sound": ("Sound", sound),
             "volume": ("Volume", volume),
             "bluetooth": ("Devices", "Bluetooth"),
+            "sleep": ("Sleep", f"{minutes} min" if minutes else "Off"),
         }
+        items = [{"id": i, "label": values[i][0], "value": values[i][1]} for i in ITEMS]
+        sleep_card = items[ITEMS.index("sleep")]
+        sleep_card["hint"] = SLEEP_HINT  # under the value, while it's focused
+        if minutes and (ends := local_time(sleep.get("ends_at"))):
+            sleep_card["detail"] = f"TV off at {ends}"
         return {
             "open": True,
             "app": app,
@@ -343,7 +374,7 @@ class OverlayService(Service):
             "palette": PALETTES.get(app),
             "evening": self._evening(),
             "focus": self.menu.focus,
-            "items": [{"id": i, "label": values[i][0], "value": values[i][1]} for i in ITEMS],
+            "items": items,
         }
 
     def _app_name(self, app: str) -> str:
@@ -407,6 +438,8 @@ class OverlayService(Service):
                     await commands.run("audio.step_volume", {"by": action.step})
                 case "mute":
                     await commands.run("audio.toggle_muted")
+                case "sleep":
+                    await commands.run("sleep.cycle")
         except CommandError as e:
             self.ctx.bus.toast(str(e), "error")
 
@@ -433,6 +466,8 @@ class OverlayService(Service):
                 self.close_keyboard()
             if isinstance(data.get("audio"), dict) and self.menu.open:
                 self._menu_changed()  # its Sound and Volume cards
+            elif isinstance(data.get("sleep"), dict) and self.menu.open:
+                self._menu_changed()  # its Sleep card
         elif kind == VOLUME_EVENT and not self.menu.open:  # an open menu's card says it
             change = volume_from_event(data, self.ctx.state.get("audio"))
             if change is not None:
@@ -470,12 +505,16 @@ class OverlayService(Service):
     # --- Kodi -------------------------------------------------------------------------------
 
     async def _kodi_toast(self, toast: dict[str, Any]) -> None:
+        """Kodi's own notification: Couch over the text, or the text over its `detail`."""
         assert self.kodi is not None
         image = KODI_IMAGES.get(toast.get("level", "info"), "info")
+        title, text = KODI_TITLE, str(toast.get("text", ""))
+        if toast.get("detail"):
+            title, text = text, str(toast["detail"])
+        ms = toast.get("ms")
+        ms = ms if isinstance(ms, int) and not isinstance(ms, bool) and ms > 0 else TOAST_MS
         try:
-            await self.kodi.show_notification(
-                KODI_TITLE, str(toast.get("text", "")), image, TOAST_MS
-            )
+            await self.kodi.show_notification(title, text, image, ms)
         except KodiError as e:
             log.info("couldn't toast in Kodi", extra={"error": str(e)})
 

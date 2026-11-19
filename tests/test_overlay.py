@@ -22,9 +22,11 @@ from couchd.overlay import (
     QuickMenu,
     VolumeChange,
     is_evening,
+    local_time,
     volume_from_event,
 )
 from couchd.services import Context
+from couchd.sleep import SleepService
 from couchd.state import LiveState, SavedState
 from tests.fake_chromium import OVERLAY_CALL, FakeChromium
 
@@ -68,7 +70,7 @@ def test_left_and_right_move_and_stop_at_the_ends():
         menu.key("right")
         assert menu.focus == want
     menu.key("right")
-    assert menu.focus == "bluetooth"
+    assert menu.focus == "sleep"
 
 
 def test_up_and_down_change_the_volume_only_on_volume():
@@ -87,6 +89,7 @@ def test_ok_on_each_card():
         "sound": (Action("cycle_output"), True),
         "volume": (Action("mute"), True),
         "bluetooth": (Action("bluetooth"), False),
+        "sleep": (Action("sleep"), True),  # the next time, and it stays open to show it
     }
     for item, (action, stays_open) in want.items():
         menu.show("launcher", "launcher")
@@ -209,7 +212,13 @@ async def couch(tmp_path):
 
         return run
 
-    for name in ("apps.home", "audio.cycle_output", "audio.step_volume", "audio.toggle_muted"):
+    for name in (
+        "apps.home",
+        "audio.cycle_output",
+        "audio.step_volume",
+        "audio.toggle_muted",
+        "sleep.cycle",
+    ):
         ctx.commands.add(name, record(name))
     await service.start()
     yield c
@@ -245,6 +254,7 @@ async def test_blue_on_the_launcher(couch):
         ("sound", "TV speakers"),
         ("volume", "\u2212 40 +"),
         ("bluetooth", "Bluetooth"),
+        ("sleep", "Off"),
     ]
     assert couch.press("right", "right") == [True, True]
     assert couch.menu()["focus"] == "volume"
@@ -346,6 +356,58 @@ async def test_sound_card_cycles(couch):
     assert couch.menu() is not None
 
 
+async def test_sleep_card(couch):
+    def sleep_card():
+        return couch.menu()["items"][-1]
+
+    couch.press("blue", "right", "right", "right", "right")
+    card = sleep_card()
+    assert (card["id"], card["label"], card["value"]) == ("sleep", "Sleep", "Off")
+    assert card["hint"] == "OK: Off \u00b7 15 \u00b7 30 \u00b7 60 \u00b7 90"
+    assert "detail" not in card  # nothing to say while it's off
+    couch.press("select")
+    await until(lambda: couch.ran)
+    assert couch.ran == [("sleep.cycle", {})]
+    assert couch.menu() is not None  # it stays open: the card shows the new time
+    # couchd/sleep.py's state redraws the open menu.
+    couch.ctx.state.update("sleep", {"minutes": 30, "ends_at": "2026-11-16T21:20:00+01:00"})
+    await until(lambda: sleep_card()["value"] == "30 min")
+    assert sleep_card()["detail"] == "TV off at 21:20"
+    couch.ctx.state.update("sleep", {"minutes": None, "ends_at": None})
+    await until(lambda: sleep_card()["value"] == "Off")
+    assert "detail" not in sleep_card()
+
+
+async def test_in_the_sleep_timers_last_minute_a_key_only_keeps_the_tv_on(couch):
+    ran = []
+
+    async def standby(args):
+        ran.append("tv.standby")
+
+    couch.ctx.commands.add("tv.standby", standby)
+    couch.ctx.commands.remove_prefix("sleep.")  # the fixture's stand-in: the real one now
+    sleep = couch.service.sleep = SleepService(couch.ctx, minute=0.2)
+    await sleep.start()
+    try:
+        sleep.set(2)
+        await until(lambda: sleep.warning, "the warning")
+        assert couch.press("blue") == [True]
+        assert couch.menu() is None  # it didn't open the menu
+        assert sleep.minutes is None
+        assert couch.press("blue") == [True]  # the next one does
+        assert couch.menu() is not None
+        await asyncio.sleep(0.3)
+        assert ran == []
+    finally:
+        await sleep.stop()
+
+
+def test_local_time():
+    assert local_time("2026-11-16T21:20:00+01:00") == "21:20"
+    assert local_time("nonsense") is None
+    assert local_time(None) is None
+
+
 async def test_the_menu_closes_by_itself(couch):
     couch.press("blue")
     await asyncio.sleep(0.12)
@@ -381,6 +443,31 @@ async def test_toasts_go_to_the_app_in_front(couch):
     await until(lambda: couch.kodi.sent("GUI.ShowNotification"))
     assert couch.kodi.sent("GUI.ShowNotification") == [
         {"title": "Couch", "message": "Couldn't switch", "image": "error", "displaytime": 2400}
+    ]
+
+
+async def test_a_toast_with_a_detail_and_a_time_of_its_own(couch):
+    """The sleep timer's warning: a title over a line, for the minute it has left."""
+    warning = {"icon": "moon", "detail": "Press any button to stay on", "ms": 60000, "id": "sleep"}
+    couch.front("youtube")
+    couch.ctx.bus.toast("Turning off in 1 minute", **warning)
+    await until(lambda: couch.pages.last("toast") != "none")
+    assert couch.pages.last("toast") == {
+        "text": "Turning off in 1 minute",
+        "level": "info",
+        **warning,
+    }
+
+    couch.front("plex")
+    couch.ctx.bus.toast("Turning off in 1 minute", **warning)
+    await until(lambda: couch.kodi.sent("GUI.ShowNotification"))
+    assert couch.kodi.sent("GUI.ShowNotification") == [
+        {
+            "title": "Turning off in 1 minute",
+            "message": "Press any button to stay on",
+            "image": "info",
+            "displaytime": 60000,
+        }
     ]
 
 

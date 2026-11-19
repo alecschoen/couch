@@ -11,6 +11,8 @@
 //   const view = new OverlayView(root, { corner, palette: () => "yt" });
 //   view.menu({ open: true, title: "YouTube", palette: "yt", focus: "home", items: [...] });
 //   view.toast({ text: "Sound now on TV speakers", level: "info", icon: "speaker" });
+//   view.toast({ text: "Turning off in 1 minute", detail: "Press any button to stay on",
+//                icon: "moon", ms: 60000 });
 //   view.volume({ name: "TV speakers", volume: 60, muted: false });
 
 export const TOAST_MS = 2400; // toasts and the volume panel go after this long
@@ -23,6 +25,7 @@ const ICONS = {
   info: ["M12 11v5M12 8h.01", "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18"],
   update: ["M12 4v11", "M7 10l5 5 5-5", "M5 20h14"],
   muted: ["M4 9v6h4l5 4V5L8 9z", "M17 10l4 4M21 10l-4 4"],
+  moon: ["M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"],
 };
 
 // The on-screen keyboard's icons (#77): [viewBox, stroke width, filled, ...paths].
@@ -89,6 +92,10 @@ export class OverlayView {
       const card = sheet.querySelector(`[data-item="${it.id}"]`);
       card.querySelector(".qm-card__label").textContent = it.label;
       card.querySelector(".qm-card__value").textContent = it.value;
+      // Sleep's "TV off at 21:20" and "OK: Off · 15 · 30 · 60 · 90", shown while it's focused.
+      card.querySelector(".qm-card__detail").textContent = it.detail || "";
+      card.querySelector(".qm-card__hint").textContent = it.hint || "";
+      card.classList.toggle("has-hint", !!it.hint);
       card.classList.toggle("is-focused", it.id === state.focus);
     }
   }
@@ -103,7 +110,11 @@ export class OverlayView {
     for (const it of state.items || []) {
       const card = this._el("div", "qm-card");
       card.dataset.item = it.id;
-      card.append(this._el("span", "qm-card__label"), this._el("span", "qm-card__value"));
+      const top = this._el("div", "qm-card__top");
+      top.append(this._el("span", "qm-card__label"), this._el("span", "qm-card__detail"));
+      const bottom = this._el("div", "qm-card__bottom");
+      bottom.append(this._el("span", "qm-card__value"), this._el("span", "qm-card__hint"));
+      card.append(top, bottom);
       cards.append(card);
     }
     sheet.append(head, cards);
@@ -296,16 +307,24 @@ export class OverlayView {
   }
 
   // ---- Toast: one at a time here, top right. A new one replaces it, and the volume panel.
-  toast({ text, level = "info", icon } = {}) {
+  // With a `detail` it's two lines, the text as a title over it (the sleep timer's warning);
+  // `ms` keeps it up longer than TOAST_MS.
+  toast({ text, level = "info", icon, detail, ms } = {}) {
     if (!text) return;
     this._drop("volume");
-    const el = this._el("div", `toast${level === "error" ? " is-error" : ""}`);
+    const el = this._el("div", `toast${level === "error" ? " is-error" : ""}${detail ? " has-detail" : ""}`);
     el.setAttribute("role", "status");
-    const sound = level === "info" && /^(Sound now on )(.+)$/.exec(text);
-    const body = this._el("span", "", sound ? sound[1] : text);
-    if (sound) body.append(this._el("b", "toast__em", sound[2]));
+    let body;
+    if (detail) {
+      body = this._el("span", "toast__lines");
+      body.append(this._el("span", "toast__title", text), this._el("span", "toast__detail", detail));
+    } else {
+      const sound = level === "info" && /^(Sound now on )(.+)$/.exec(text);
+      body = this._el("span", "", sound ? sound[1] : text);
+      if (sound) body.append(this._el("b", "toast__em", sound[2]));
+    }
     el.append(this._icon(toastIcon({ text, level, icon })), body);
-    this._show("toast", el);
+    this._show("toast", el, Number.isFinite(ms) && ms > 0 ? ms : TOAST_MS);
   }
 
   // ---- Volume panel: the output and its volume. Stays while it keeps changing.
@@ -338,7 +357,7 @@ export class OverlayView {
   }
 
   // ---- helpers
-  _show(kind, el) {
+  _show(kind, el, ms = TOAST_MS) {
     this._drop(kind);
     this["_" + kind] = el;
     this.corner.prepend(el);
@@ -346,12 +365,12 @@ export class OverlayView {
       duration: this._ms("--dur-quick", 200),
       easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
     });
-    this._arm(kind, el);
+    this._arm(kind, el, ms);
   }
 
-  _arm(kind, el) {
+  _arm(kind, el, ms = TOAST_MS) {
     clearTimeout(this._timers.get(kind));
-    this._timers.set(kind, setTimeout(() => this._drop(kind, { fade: true }), TOAST_MS));
+    this._timers.set(kind, setTimeout(() => this._drop(kind, { fade: true }), ms));
   }
 
   _drop(kind, { fade = false } = {}) {
