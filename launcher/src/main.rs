@@ -1,5 +1,5 @@
-//! Couch's launcher, drawn natively with Slint: Home, Settings, Bluetooth and the system
-//! screens, talking to couchd over its WebSocket (docs/protocol.md).
+//! Couch's launcher, drawn natively with Slint: Home, Settings, Bluetooth, Now Playing and the
+//! system screens, talking to couchd over its WebSocket (docs/protocol.md).
 //!
 //!   couch-launcher [ws://127.0.0.1:8765/ws]     (or COUCH_URL)
 //!

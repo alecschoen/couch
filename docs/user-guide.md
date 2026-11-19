@@ -47,7 +47,8 @@ Home is a row of cards: **YouTube**, **Plex**, **Audio**, **Bluetooth** and **Se
 Move along them and press OK. The screen takes the colour of the card you're on.
 
 The top right says where the sound is going. To change it, go to **Audio**, press OK and
-pick one, or just press Red.
+pick one, or just press Red. While music plays from a phone, it says what's playing instead,
+and OK on **Audio** opens Now Playing (Up from Audio still picks the sound).
 
 If nobody touches the remote for 5 minutes, Home dims to a clock. Any button brings Home back
 as you left it; that press does nothing else. Nothing dims while a video or music plays.
@@ -99,13 +100,21 @@ network (Wi-Fi at home) as Couch.
 The music plays wherever Couch's sound goes: the TV, headphones or a Bluetooth speaker. The
 TV remote's volume buttons work as usual, and so does the phone's volume.
 
-When music starts, Couch turns the TV on if it's off and goes to Home, closing YouTube or
-Plex. Opening YouTube or Plex while music plays stops the music, and if someone else starts
-playing from another phone, the first one stops.
+When music starts, Couch turns the TV on if it's off and shows **Now Playing**: the cover,
+the song, the artist and album, and how far it's got, closing YouTube or Plex. Opening
+YouTube or Plex while music plays stops the music, and if someone else starts playing from
+another phone, the first one stops. (To leave the TV alone instead, turn off Settings ›
+Display › **Wake the TV when music starts**: the music then plays behind whatever is on.)
 
-On Home, the remote's Play, Pause, ⏪ and ⏩ control the music from an iPhone or Mac. Couch
-can't pause or skip Spotify from the remote: use the phone. To stop, pause on the phone, or
-pick another speaker there.
+On Now Playing, Left and Right pick a button and OK presses it: previous, Play/Pause and next
+for an iPhone or Mac, and **Stop playing on Couch**, which sends the phone away. Couch can't
+pause or skip Spotify, so for Spotify there's only Stop: use the phone for the rest. Return
+goes Home and the music keeps playing; OK on Audio comes back. When the phone stops playing
+to Couch, Now Playing goes back to Home by itself.
+
+On Home and Now Playing, the remote's Play, Pause, ⏪ and ⏩ control the music from an iPhone
+or Mac too. To stop, pause on the phone, pick another speaker there, or use Stop playing on
+Couch.
 
 Couch doesn't dim to the clock or turn the TV off while music plays, and doesn't update
 itself then either.
@@ -113,11 +122,13 @@ itself then either.
 ## Settings
 
 - **Display**: evening colours (softer colours after sunset), how soon Home dims to the
-  clock, and whether the TV turns itself off after 2 hours with no buttons pressed (off
-  unless you turn it on; never while something plays).
+  clock, whether the TV turns itself off after 2 hours with no buttons pressed (off
+  unless you turn it on; never while something plays), and whether music from a phone
+  wakes the TV and shows Now Playing.
 - **Sound**: where the sound goes, a volume limit, whether the TV remote's volume
-  buttons work for headphones and Bluetooth, and UI sounds: the quiet clicks when you press
-  a button on Couch's own screens and in Plex (On, TV only, or Off). YouTube has none.
+  buttons work for headphones and Bluetooth, UI sounds: the quiet clicks when you press
+  a button on Couch's own screens and in Plex (On, TV only, or Off; YouTube has none), and
+  **Spotify and AirPlay**: off, phones don't see Couch as a speaker.
 - **Remote**: what the buttons do, and a test that shows what each button sends.
 - **Updates**: what version Couch is, and Check now. Once overnight updates are set up
   (a one-time job on a computer), Couch updates itself at night, only when nothing is

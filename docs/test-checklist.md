@@ -258,6 +258,31 @@ Overnight updates (#24) are off until you turn them on, and the Pi can't read re
 - [ ] **L8** Unplug and replug the Pi to bring it back. Turn "Turn the TV off too" back off if
       you don't want it.
 
+## M. Music from a phone (6 min)
+
+Needs an iPhone (or Mac) and, for M6, Spotify Premium, on the same network as Couch.
+
+- [ ] **M1** Settings › Sound › "Spotify and AirPlay" says "Phones see a speaker called
+      Couch". Settings › Display › "Wake the TV when music starts" is on.
+- [ ] **M2** Put the TV in standby. On the iPhone, AirPlay to Couch and play a song. Expected:
+      the TV wakes to Couch, and Now Playing shows the song, the artist and album, the
+      phone's name ("AirPlay · from …"), the cover within a few seconds, and a bar that moves
+      every second. Play/Pause is focused.
+- [ ] **M3** OK pauses (the button says Play, the kicker says paused, the bar stops) and OK
+      again plays. Left to ⏮ and OK, Right to ⏭ and OK: the song changes and so does the
+      cover. (The buttons can take a couple of seconds to work after the phone connects.)
+- [ ] **M4** Return. Expected: Home, the music keeps playing, and the top right says "Now
+      playing: …". Go to Audio and press OK. Expected: Now Playing again.
+- [ ] **M5** Stop playing on Couch. Expected: the music stops, the phone shows it's no longer
+      on Couch, and the screen goes back to Home ("Sound: …" again).
+- [ ] **M6** On Spotify, pick Couch and play. Expected: Now Playing with "Spotify · playing on
+      Couch" and only a Stop playing on Couch button. Pause on the phone: the kicker says
+      paused. Stop playing on Couch: Spotify loses Couch, the screen goes Home.
+- [ ] **M7** Turn "Wake the TV when music starts" off, open YouTube, and play from the phone.
+      Expected: YouTube stays in front and the TV doesn't change. Write down what you hear
+      (the music, YouTube, both): ____. Turn it back on.
+- [ ] **M8** Compare Now Playing with the design. Write down anything that looks off: ____.
+
 ## With a laptop (optional, any time)
 
 These need a terminal or GitHub, not just the remote.
@@ -398,5 +423,6 @@ decides what the remote's buttons do.
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
+| Music from a phone, Now Playing | #80, PR #91 |
 | Wi-Fi option | #31, PR #57 |
 | Performance, boot splash without black or white | #23, PR #60 |

@@ -17,6 +17,10 @@ export { BluetoothData, BtRow }
 import { SystemScreen, SystemData } from "screens/system.slint";
 export { SystemData }
 // END system imports
+// BEGIN nowplaying imports
+import { NowPlayingScreen, NowPlayingData, ControlPill } from "screens/nowplaying.slint";
+export { NowPlayingData, ControlPill }
+// END nowplaying imports
 // BEGIN layer imports
 import { OverlayLayer, OverlayData, MenuCard, VolumePanel } from "overlay.slint";
 import { IdleLayer, IdleData } from "idle.slint";
@@ -110,6 +114,11 @@ export component MainWindow inherits Window {
             entering: Router.entering;
         }
         // END system screen
+        // BEGIN nowplaying screen
+        if Router.top == "nowplaying": NowPlayingScreen {
+            entering: Router.entering;
+        }
+        // END nowplaying screen
     }
 
     // ---- Toasts, top right, newest first, under couchd's volume panel when it's up (on the

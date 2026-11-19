@@ -38,7 +38,7 @@ const CATEGORIES: [&str; 7] = ["display", "sound", "network", "remote", "updates
 fn uses(category: &str) -> &'static [&'static str] {
     match category {
         "display" => &["settings", "evening"],
-        "sound" => &["settings", "evening", "audio"],
+        "sound" => &["settings", "evening", "audio", "speaker"],
         "network" => &["settings", "evening", "wifi"],
         "remote" => &["settings", "evening", "remote"],
         "updates" => &["settings", "evening", "system", "updates"],
@@ -669,6 +669,12 @@ impl Inner {
                     "Turn the TV off when idle",
                     "After 2 hours on Couch with no buttons pressed. Never while something plays.",
                 ),
+                // Next to the other TV power setting: Sound has no room left.
+                toggle(
+                    "speaker.take_over",
+                    "Wake the TV when music starts",
+                    "From Spotify or AirPlay, and show what's playing",
+                ),
             ],
             "sound" => {
                 let current = state::str_at(s, "audio.current");
@@ -699,6 +705,7 @@ impl Inner {
                     ),
                     // No wrap: from No limit straight to 10 would turn the sound right down.
                     stepper("audio.volume_limit", "Volume limit", text::volume_values(), false, text::volume_label),
+                    toggle("speaker.enabled", "Spotify and AirPlay", &text::speaker_hint(s)),
                 ]
             }
             "network" => {
