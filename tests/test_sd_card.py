@@ -36,13 +36,16 @@ def test_cache_mount_is_a_bounded_tmpfs_named_after_its_path():
 def test_cache_directories_match_what_the_wrappers_look_for():
     tmpfiles = (SYSTEM / "couch-cache.conf").read_text()
     made = set(re.findall(r"^d (\S+)\s+0700 couch couch -$", tmpfiles, re.M))
-    assert made == {"/var/cache/couch/chromium", "/var/cache/couch/kodi"}
+    assert made == {"/var/cache/couch/chromium", "/var/cache/couch/kodi", "/var/cache/couch/plex"}
     assert "cache=/var/cache/couch/chromium" in (SYSTEM / "couch-browser").read_text()
     kodi = (SYSTEM / "couch-kodi").read_text()
     assert "export KODI_TEMP=/var/cache/couch/kodi" in kodi
     # The sign-ins stay where they are.
     assert "--user-data-dir=/var/lib/couch/chromium" in (SYSTEM / "couch-browser").read_text()
     assert "export KODI_DATA=/var/lib/couch/kodi" in kodi
+    from couchd.plex import DEVICE_CACHE
+
+    assert str(DEVICE_CACHE) == "/var/cache/couch/plex"
 
 
 def browser_args(tmp_path: Path, cache_exists: bool) -> list[str]:

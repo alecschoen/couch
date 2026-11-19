@@ -10,6 +10,8 @@ import asyncio
 import json
 import logging
 import weakref
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -27,6 +29,10 @@ BUS = web.AppKey("bus", EventBus)
 STATE = web.AppKey("state", LiveState)
 COMMANDS = web.AppKey("commands", Commands)
 SOCKETS = web.AppKey("sockets", weakref.WeakSet)
+# Plex's pictures for Home (couchd/plex.py): a name → the file, or None for any name it
+# didn't make.
+PlexThumbs = Callable[[str], Path | None]
+PLEX_THUMBS = web.AppKey("plex_thumbs", object)
 
 
 def _hostname(host: str | None) -> str:
@@ -95,6 +101,21 @@ async def post_command(request: web.Request) -> web.Response:
             raise web.HTTPBadRequest(text="body must be JSON") from None
     result = await run_command(request.app[COMMANDS], request.match_info["name"], args)
     return web.json_response(result, status=200 if result["ok"] else 400)
+
+
+async def get_plex_thumb(request: web.Request) -> web.Response:
+    """A picture for Home's Continue watching. Only names couchd/plex.py made are served; the
+    name is never a path."""
+    lookup = request.app[PLEX_THUMBS]
+    path = lookup(request.match_info["name"]) if callable(lookup) else None
+    if path is None:
+        raise web.HTTPNotFound(text="no such picture")
+    try:
+        body = await asyncio.to_thread(path.read_bytes)
+    except OSError:
+        raise web.HTTPNotFound(text="no such picture") from None
+    kind = "image/png" if body.startswith(b"\x89PNG") else "image/jpeg"
+    return web.Response(body=body, content_type=kind)
 
 
 async def get_commands(request: web.Request) -> web.Response:
@@ -173,11 +194,14 @@ async def _close_sockets(app: web.Application) -> None:
         await ws.close(code=WSCloseCode.GOING_AWAY, message=b"couchd shutting down")
 
 
-def create_app(*, bus: EventBus, state: LiveState, commands: Commands) -> web.Application:
+def create_app(
+    *, bus: EventBus, state: LiveState, commands: Commands, plex_thumbs: PlexThumbs | None = None
+) -> web.Application:
     app = web.Application(middlewares=[loopback_only])
     app[BUS] = bus
     app[STATE] = state
     app[COMMANDS] = commands
+    app[PLEX_THUMBS] = plex_thumbs
     app[SOCKETS] = weakref.WeakSet()
     app.on_response_prepare.append(_no_cache)
     app.on_shutdown.append(_close_sockets)
@@ -186,5 +210,6 @@ def create_app(*, bus: EventBus, state: LiveState, commands: Commands) -> web.Ap
     app.router.add_post("/api/toast", post_toast)
     app.router.add_get("/api/commands", get_commands)
     app.router.add_post("/api/command/{name}", post_command)
+    app.router.add_get("/api/plex/thumb/{name}", get_plex_thumb)
     app.router.add_get("/ws", websocket)
     return app
