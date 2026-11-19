@@ -7,9 +7,18 @@
 //! `home.hidden` setting leaves off (Settings › Display › Apps on Home); Settings always stays.
 //! The row follows the setting at once, and focus with it (`follow`).
 //!
+//! On Plex, with Plex linked (Settings › Network › Plex) and shows partway through, the
+//! headline and blurb give way to Plex's Continue watching (#86, src/plex.rs): five pictures
+//! with how far through each is. In the row the heading is the focused one's title and detail
+//! and the cards step back. OK opens Plex (couchd's plex.open: PM4K can't be pointed at the
+//! show itself, couchd/plex.py).
+//!
 //! Keys, on top of the arrows and OK:
 //!   OK or Up on Audio    into the output pills, on the current output
 //!   Down or Back         from the pills, back to the Audio card
+//!   Up on Plex           into Continue watching, on the first; Left and Right along it
+//!   Down or Back         from the row, back to the Plex card
+//!   OK in the row        open Plex
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -18,8 +27,9 @@ use serde_json::{Value, json};
 use slint::{ComponentHandle, Model, SharedString, Timer, TimerMode, VecModel};
 
 use crate::app::{App, Dir, Key, Outcome, Screen};
+use crate::plex::{self, Row};
 use crate::state;
-use crate::{HomeData, OutputPill};
+use crate::{ContinueItem, HomeData, OutputPill};
 
 struct Card {
     id: &'static str,
@@ -153,6 +163,9 @@ pub struct Home {
     output_focus: usize,
     outputs: Vec<Output>,
     model: Rc<VecModel<OutputPill>>,
+    /// Plex's Continue watching, and focus in it.
+    row: Row,
+    row_model: Rc<VecModel<ContinueItem>>,
     clock: Timer,
 }
 
@@ -166,6 +179,8 @@ impl Home {
             output_focus: 0,
             outputs: Vec::new(),
             model: Rc::new(VecModel::default()),
+            row: Row::default(),
+            row_model: Rc::new(VecModel::default()),
             clock: Timer::default(),
         }
     }
@@ -176,6 +191,57 @@ impl Home {
 
     fn on_audio(&self) -> bool {
         self.card().id == "audio"
+    }
+
+    /// On Plex, with something partway through.
+    fn shows_continue(&self) -> bool {
+        self.card().id == "plex" && !self.row.items.is_empty()
+    }
+
+    /// The row into HomeData: the pictures that have come, and the heading.
+    fn render_row(&mut self, app: &App) {
+        let data = app.ui.global::<HomeData>();
+        let shown = self.shows_continue();
+        if !shown {
+            self.row.leave();
+        }
+        let rows: Vec<ContinueItem> = self
+            .row
+            .items
+            .iter()
+            .map(|i| {
+                let thumb = i.thumb.as_deref().and_then(crate::thumbs::get);
+                ContinueItem {
+                    title: i.title.as_str().into(),
+                    subtitle: i.subtitle.as_str().into(),
+                    progress: i.progress,
+                    has_thumb: thumb.is_some(),
+                    thumb: thumb.unwrap_or_default(),
+                }
+            })
+            .collect();
+        if !self.row_model.iter().eq(rows.iter().cloned()) {
+            if self.row_model.row_count() == rows.len() {
+                for (i, row) in rows.into_iter().enumerate() {
+                    if self.row_model.row_data(i).as_ref() != Some(&row) {
+                        self.row_model.set_row_data(i, row);
+                    }
+                }
+            } else {
+                self.row_model.set_vec(rows);
+            }
+        }
+        data.set_continue(self.row_model.clone().into());
+        data.set_show_continue(shown);
+        data.set_in_row(self.row.inside);
+        data.set_row_focus(self.row.focus as i32);
+        let (title, detail, hint) = match self.row.focused() {
+            Some(i) => (i.title.as_str(), i.detail.as_str(), "OK to open Plex \u{b7} Down for the apps"),
+            None => ("Continue watching", "From your Plex server", "Up to choose"),
+        };
+        data.set_row_title(title.into());
+        data.set_row_detail(detail.into());
+        data.set_row_hint(hint.into());
     }
 
     fn current_output(&self, app: &App) -> Option<usize> {
@@ -254,6 +320,11 @@ impl Home {
         data.set_show_outputs(on_audio && !self.outputs.is_empty());
         data.set_in_outputs(self.in_outputs);
         data.set_output_focus(self.output_focus as i32);
+
+        if self.row.update(plex::items(&app.state)) {
+            crate::thumbs::keep(self.row.items.iter().filter_map(|i| i.thumb.as_deref()));
+        }
+        self.render_row(app);
     }
 
     fn focus_outputs(&mut self, app: &App) -> Outcome {
@@ -316,6 +387,10 @@ impl Screen for Home {
         self.clock.stop();
     }
 
+    fn images(&mut self, app: &mut App) {
+        self.render_row(app);
+    }
+
     fn state(&mut self, app: &mut App, _patch: Option<&Value>) {
         let before = self.card().id;
         self.render(app);
@@ -325,7 +400,22 @@ impl Screen for Home {
     }
 
     fn key(&mut self, key: &Key, app: &mut App) -> Outcome {
-        let outcome = if self.in_outputs {
+        let outcome = if self.row.inside {
+            match (key.arrow(), key.key.as_str()) {
+                (Some(dir), _) => self.row.arrow(dir),
+                (None, "back") => {
+                    self.row.leave();
+                    Outcome::Moved
+                }
+                (None, "select") => {
+                    if let Some(item) = self.row.focused() {
+                        app.command_or_toast("plex.open", json!({"key": item.key}));
+                    }
+                    Outcome::Taken
+                }
+                _ => Outcome::No,
+            }
+        } else if self.in_outputs {
             match (key.arrow(), key.key.as_str()) {
                 (Some(Dir::Down), _) | (None, "back") => {
                     self.in_outputs = false;
@@ -370,6 +460,7 @@ impl Screen for Home {
                     Outcome::Moved
                 }
                 (Some(Dir::Up), _) if self.on_audio() && !self.outputs.is_empty() => self.focus_outputs(app),
+                (Some(Dir::Up), _) if self.shows_continue() => self.row.enter(),
                 (Some(_), _) => Outcome::Edge,
                 (None, "select") => self.choose(app),
                 _ => Outcome::No,

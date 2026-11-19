@@ -1,0 +1,111 @@
+// Settings › Network › Plex (#86): link Couch to Plex for Continue watching on Home, and the
+// switch for it. While a code waits, it's shown large, to enter at plex.tv/link. Rust
+// (src/screens/plex_settings.rs) fills PlexData and moves focus; this only draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Line, Screen, Setting } from "../components.slint";
+
+export struct PlexRow {
+    label: string,
+    hint: string,
+    value: string,
+    focused: bool,
+    hairline: bool,
+    has-switch: bool,
+    switch-on: bool,
+}
+
+export global PlexData {
+    in property <[PlexRow]> rows;
+    // A code waiting to be entered at plex.tv/link.
+    in property <bool> code-shown;
+    in property <string> code;
+    // Why the last try didn't link ("The code ran out. Try again.").
+    in property <string> note;
+}
+
+export component PlexScreen inherits Screen {
+    property <length> title-y: Theme.screen-pad-top + Theme.text-sm * 1.35 + 27px;
+    property <length> rows-y: root.title-y + Theme.text-title + 21px + Theme.text-md * 1.35 + 54px;
+
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top;
+        text: "Home › Settings › Network";
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: root.title-y;
+        leading: 1;
+        text: "Plex";
+        font-family: Theme.font-display;
+        font-size: Theme.text-title;
+        font-weight: 600;
+        letter-spacing: -0.025 * Theme.text-title;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: root.title-y + Theme.text-title + 21px;
+        text: "Link your Plex account to see what you're partway through on Home.";
+        font-size: Theme.text-md;
+        opacity: Theme.a-muted;
+    }
+
+    VerticalLayout {
+        x: Theme.screen-pad-x - 27px;
+        y: root.rows-y;
+        width: 1224px;
+        height: self.preferred-height;
+        alignment: start;
+        for row in PlexData.rows: Rectangle {
+            height: line.preferred-height;
+            line := Setting {
+                x: row.focused ? Bump.x : 0;
+                y: row.focused ? Bump.y : 0;
+                animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                width: parent.width;
+                height: parent.height;
+                label: row.label;
+                hint: row.hint;
+                value: row.value;
+                has-switch: row.has-switch;
+                switch-on: row.switch-on;
+                focused: row.focused;
+                hairline: row.hairline;
+            }
+        }
+        if PlexData.code-shown: VerticalLayout {
+            padding-top: Theme.s6;
+            padding-left: 27px;
+            spacing: Theme.s2;
+            Line {
+                text: "On your phone, go to plex.tv/link and enter";
+                font-size: Theme.text-md;
+            }
+            Line {
+                leading: 1.1;
+                text: PlexData.code;
+                font-family: Theme.font-display;
+                font-size: Theme.text-wordmark;
+                font-weight: 600;
+                letter-spacing: 0.12 * Theme.text-wordmark;
+            }
+            Line {
+                text: "Back to cancel";
+                font-size: Theme.text-sm;
+                opacity: 0.7;
+            }
+        }
+        if !PlexData.code-shown && PlexData.note != "": VerticalLayout {
+            padding-top: Theme.s5;
+            padding-left: 27px;
+            Line {
+                text: PlexData.note;
+                font-size: Theme.text-md;
+                opacity: Theme.a-muted;
+            }
+        }
+    }
+}

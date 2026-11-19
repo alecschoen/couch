@@ -4,7 +4,7 @@
 
 import { Theme, Ease, Bump } from "tokens.slint";
 import { Toast } from "components.slint";
-import { HomeScreen, HomeData, OutputPill } from "screens/home.slint";
+import { HomeScreen, HomeData, OutputPill, ContinueItem } from "screens/home.slint";
 // BEGIN settings imports
 import { SettingsScreen, SettingsData, SettingsRow, SheetRow } from "screens/settings.slint";
 export { SettingsData, SettingsRow, SheetRow }
@@ -17,6 +17,10 @@ export { BluetoothData, BtRow }
 import { HomeAppsScreen, HomeAppsData, HomeAppRow } from "screens/home-apps.slint";
 export { HomeAppsData, HomeAppRow }
 // END home-apps imports
+// BEGIN plex imports
+import { PlexScreen, PlexData, PlexRow } from "screens/plex.slint";
+export { PlexData, PlexRow }
+// END plex imports
 // BEGIN weather imports
 import { WeatherHour } from "weather.slint";
 export { WeatherHour }
@@ -31,7 +35,7 @@ import { IdleLayer, IdleData } from "idle.slint";
 export { OverlayData, MenuCard, IdleData }
 // END layer imports
 
-export { Theme, Bump, HomeData, OutputPill }
+export { Theme, Bump, HomeData, OutputPill, ContinueItem }
 
 export global Router {
     // The screen on top (a takeover if one is up), and whether it came in going forward.
@@ -117,6 +121,11 @@ export component MainWindow inherits Window {
             entering: Router.entering;
         }
         // END home-apps screen
+        // BEGIN plex screen
+        if Router.top == "plex-settings": PlexScreen {
+            entering: Router.entering;
+        }
+        // END plex screen
         // BEGIN system screen
         if Router.top == "startup" || Router.top == "opening" || Router.top == "error": SystemScreen {
             kind: Router.top;

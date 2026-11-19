@@ -13,6 +13,16 @@ export struct OutputPill {
     available: bool,
 }
 
+// One of Plex's Continue watching (#86): src/plex.rs.
+export struct ContinueItem {
+    title: string,
+    subtitle: string,
+    progress: float,
+    // The picture, when it has come (src/thumbs.rs); otherwise the flat tinted placeholder.
+    thumb: image,
+    has-thumb: bool,
+}
+
 export global HomeData {
     in property <string> time;
     in property <string> date;
@@ -34,6 +44,81 @@ export global HomeData {
     // Focus is in the output pills (on `output-focus`), not on the cards.
     in property <bool> in-outputs;
     in property <int> output-focus;
+    // On Plex with a Continue watching list: the row instead of the headline and blurb. In
+    // the row, focus is on `row-focus` and the heading is its title and detail.
+    in property <bool> show-continue;
+    in property <[ContinueItem]> continue;
+    in property <bool> in-row;
+    in property <int> row-focus;
+    in property <string> row-title;
+    in property <string> row-detail;
+    in property <string> row-hint;
+}
+
+// A show or film in the row: the 16:9 picture with how far through along its foot, then the
+// title and "S2 · E5 · 18 min left". Focused, a 6px outline 5px out round the picture.
+component ContinueThumb inherits Rectangle {
+    in property <ContinueItem> item;
+    in property <bool> focused;
+    in property <bool> in-row;
+    width: 288px;
+    height: layout.preferred-height;
+    opacity: root.focused ? 1 : 0.8;
+
+    if root.focused: Rectangle {
+        x: -11px;
+        y: -11px;
+        width: 288px + 22px;
+        height: 162px + 22px;
+        border-radius: 21px + 11px;
+        border-width: 6px;
+        border-color: Theme.ink;
+    }
+    layout := VerticalLayout {
+        spacing: root.in-row ? 18px : 12px;
+        Rectangle {
+            width: 288px;
+            height: 162px;
+            border-radius: 21px;
+            clip: true;
+            background: Theme.ink.with-alpha(0.14);
+            if root.item.has-thumb: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.item.thumb;
+                image-fit: cover;
+            }
+            Rectangle {
+                y: parent.height - self.height;
+                height: 8px;
+                background: Theme.ink.with-alpha(0.2);
+                Rectangle {
+                    x: 0;
+                    width: parent.width * root.item.progress;
+                    background: Theme.ink;
+                }
+            }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: root.item.title;
+                overflow: elide;
+                font-family: Theme.font-display;
+                font-size: 27px;
+                font-weight: 600;
+                color: Theme.ink;
+            }
+            Text {
+                text: root.item.subtitle;
+                overflow: elide;
+                font-family: Theme.font-text;
+                font-size: 23px;
+                color: Theme.ink;
+                opacity: 0.75;
+            }
+        }
+    }
 }
 
 export component HomeScreen inherits Screen {
@@ -116,7 +201,63 @@ export component HomeScreen inherits Screen {
         height: self.preferred-height;
         y: parent.height - 96px - self.height;
         spacing: 0;
-        VerticalLayout {
+        // Plex's Continue watching (#86), from the design's PlexContinue mockups.
+        if HomeData.show-continue: VerticalLayout {
+            padding-bottom: Theme.s6;
+            spacing: 0;
+            HorizontalLayout {
+                spacing: Theme.s5;
+                Text {
+                    horizontal-stretch: 1;
+                    text: HomeData.row-title;
+                    overflow: elide;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-heading;
+                    font-weight: 600;
+                    color: Theme.ink;
+                }
+                // On the heading's baseline (Inter's descent at 27px is 7px less than Space
+                // Grotesk's at 45px).
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    padding-bottom: 7px;
+                    Text {
+                        text: HomeData.row-hint;
+                        font-family: Theme.font-text;
+                        font-size: Theme.text-sm;
+                        color: Theme.ink;
+                        opacity: 0.7;
+                    }
+                }
+            }
+            Text {
+                text: HomeData.row-detail;
+                overflow: elide;
+                font-family: Theme.font-text;
+                font-size: Theme.text-sm;
+                color: Theme.ink;
+                opacity: HomeData.in-row ? Theme.a-muted : 0.7;
+            }
+            HorizontalLayout {
+                padding-top: Theme.s4;
+                alignment: start;
+                spacing: 27px;
+                for item[i] in HomeData.continue: Rectangle {
+                    width: thumb.width;
+                    height: thumb.height;
+                    thumb := ContinueThumb {
+                        x: self.focused ? Bump.x : 0;
+                        y: self.focused ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        item: item;
+                        in-row: HomeData.in-row;
+                        focused: HomeData.in-row && HomeData.row-focus == i;
+                    }
+                }
+            }
+        }
+        if !HomeData.show-continue: VerticalLayout {
             spacing: 21px;
             padding-bottom: Theme.s6;
             Line {
@@ -162,6 +303,9 @@ export component HomeScreen inherits Screen {
             for label[i] in HomeData.labels: Rectangle {
                 width: card.width;
                 height: card.height;
+                // In the Continue watching row the cards step back.
+                opacity: HomeData.in-row ? 0.6 : 1;
+                animate opacity { duration: Theme.dur-quick; }
                 card := Card {
                     x: self.focused ? Bump.x : 0;
                     y: self.focused ? Bump.y : 0;
@@ -170,7 +314,7 @@ export component HomeScreen inherits Screen {
                     narrow-w: root.tight ? Theme.card-w-tight : Theme.card-w;
                     wide-w: root.tight ? Theme.card-w-focus-tight : Theme.card-w-focus;
                     wide: HomeData.current == i;
-                    focused: HomeData.current == i && !HomeData.in-outputs;
+                    focused: HomeData.current == i && !HomeData.in-outputs && !HomeData.in-row;
                     strong: true;
                 }
             }

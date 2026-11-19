@@ -33,6 +33,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
 | `weather` | `temp`, `condition` (a few words: `Cloudy`), `icon` (`clear`, `clear-night`, `partly-cloudy`, `cloudy`, `fog`, `rain`, `snow` or `thunder`), `high`, `low` (today), `hourly` (list of `{at, time, temp, icon}` for the next 12 hours: `at` in Unix seconds, `time` local `HH:MM`), `updated_at`. Whole °C. All null and `hourly` empty while there's no forecast or `display.weather` is off. See below |
+| `plex` | `linked` (bool), `link` (`{code, expires_at}` while a code waits to be entered at plex.tv/link, else null), `link_error` (why the last try didn't link, or null), `server` (the server's name, or null), `continue` (list of `{key, title, subtitle, detail, progress, thumb}`, at most 5), `updated_at`. Never the token. See below |
 | `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
@@ -61,6 +62,28 @@ nothing else. It's fetched every 30 minutes; after a failed fetch it's tried aga
 minute, doubling up to 30, and the last forecast stays until it's 3 hours old. Home shows
 now and today top right; the idle clock shows now and three later hours under the date.
 With `display.weather` off nothing is fetched and the screens show no weather at all.
+
+`plex` is Plex's Continue watching for Home (#86, `couchd/plex.py`). Couch links to a Plex
+account with Plex's PIN sign-in: `plex.link` asks plex.tv for a 4-character code (product
+"Couch", its own client identifier, saved once as `plex.client_id`), the launcher shows it,
+and once it's entered at plex.tv/link couchd's poll gets the account token. The token is kept
+only in `plex-token` next to `state.json`, mode 600; it's never in live state, logs, errors or
+the API, and `plex.unlink` deletes it. A token plex.tv refuses (401) is a sign-out: deleted,
+with `link_error` saying so.
+
+couchd then asks plex.tv for the account's servers (`resources?includeHttps=1`), probes their
+connections local first (the address found on the LAN, then a plain `http://` one beside each
+local `plex.direct` one, remote and relay last) and keeps the first that answers. The list is
+the server's `/hubs/continueWatching`, or `/library/onDeck` on an older one, films and
+episodes only, in words: `subtitle` is "S2 · E5 · 18 min left", "Film · 1 h 12 min left" or
+"S1 · E3 · Next episode"; `detail` is "Season 2 · Episode 5 · Night Shift · 18 min left";
+`progress` 0–1. `thumb` is a couchd path (`/api/plex/thumb/<name>`, see [REST](#rest)) for the
+picture at 576×324, fetched through the server's photo transcoder, or null (Home draws a flat
+placeholder). It's fetched every 5 minutes while the launcher is in front and not idle, 3 s
+after Plex goes to the background, and when `home.plex_continue` turns on; after a failure it's
+tried again after 30 s, doubling up to 30 minutes, and the last list stays. With
+`home.plex_continue` off nothing is fetched and the list is empty. In dev mode a fake plex.tv
+and server answer (code `K7QX`, linked 6 s later, the design's five items): nothing reaches Plex.
 
 `apps` says what's on screen:
 
@@ -250,6 +273,11 @@ The text `ping` gets `pong`.
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
 | `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
+| `plex.link` | Returns `{code}`: a code to enter at plex.tv/link (also in `plex.link`). Waits for it in the background; the same code while one waits. Refused when already linked |
+| `plex.cancel_link` | Stop waiting for the code |
+| `plex.unlink` | Delete the Plex token and the list |
+| `plex.open` | `key` (an item's). Opens Plex (as `apps.launch`); returns `{targeted}`, whether Plex was pointed at the item: always false for now, PM4K has no way in for that (see `couchd/plex.py`) |
+| `plex.refresh` | Fetch Continue watching again now |
 | `ui.first_frame` | `at` (ms on the page's clock, optional). The launcher sends it once per page load, after its first frame is drawn. couchd then ends the session's boot splash, if it's still up (#23) |
 | `ui.drawn` | `id`. The launcher's answer to a `draw_check` |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
@@ -359,6 +387,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
 | `audio.ui_sounds` | `on`, `tv`, `off` | `on` | UI sounds (#49), the launcher's and Plex's own: on any output, only on the TV speakers, or off |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `home.plex_continue` | bool | `true` | Plex's Continue watching on Home (#86), once Plex is linked; off, nothing is fetched |
 | `home.hidden` | list of `youtube`, `ytmusic`, `plex`, `audio`, `bluetooth` | `[]` | The cards left off Home (#89); Settings always stays. Kept in Home's order, each once |
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
@@ -384,6 +413,7 @@ keys. To add a setting, add it to `SCHEMA` in `couchd/settings.py`; services rea
 | `POST` | `/api/toast` | Body `{"text": "...", "level": "info", "icon": "check"}` (`level`, `icon` optional) → 204; shows a toast over whatever is in front |
 | `GET` | `/api/commands` | Names of the commands available right now |
 | `POST` | `/api/command/{name}` | Body = args (optional) → `{"ok": true, "data"}`, or 400 with `{"ok": false, "error"}` |
+| `GET` | `/api/plex/thumb/{name}` | A Continue watching picture (JPEG or PNG), by the name in `plex.continue[].thumb`. Only names couchd made for the current list; anything else is 404 |
 
 ```bash
 curl -s localhost:8765/api/health

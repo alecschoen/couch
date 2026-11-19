@@ -73,6 +73,11 @@ To leave Plex, press Return until it asks "Are you ready to exit Plex?" and choo
 **Signing in** (needed once): the first time, Plex shows a code. On your phone, go to
 **plex.tv/link** and type it in.
 
+**Continue watching on Home**: link Couch to Plex too (Settings › Network › Plex, then OK
+on Plex account), and enter that code at **plex.tv/link** the same way. Then, on the Plex
+card, Home shows the shows and films you're partway through. Press Up to pick one; OK opens
+Plex. To stop it, switch off **Continue watching on Home** there, or unlink.
+
 ## Bluetooth speakers and headphones
 
 1. Go to **Bluetooth** on Home and press OK.
@@ -101,6 +106,8 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 - **Updates**: what version Couch is, and Check now. Once overnight updates are set up
   (a one-time job on a computer), Couch updates itself at night, only when nothing is
   playing, and tells you on Home the next morning.
+- **Network**: how Couch is connected, Wi-Fi, and **Plex**: linking Plex for Continue
+  watching on Home.
 - **About**: the network and the TV connection.
 - **Power**: Restart, and Turn off. Press OK twice; the first press only asks.
 
