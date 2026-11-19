@@ -77,6 +77,7 @@ fn default_setting(key: &str) -> &'static Value {
             "audio.ui_sounds": "on",
             "bluetooth.auto_reconnect": true,
             "home.hidden": [],
+            "home.plex_continue": true,
             "network.wifi": false,
             "tv.off_when_idle": false,
             "tv.standby_on_poweroff": false,

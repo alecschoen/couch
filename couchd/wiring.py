@@ -23,6 +23,7 @@ from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.networkmanager import NmWifi
 from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
+from couchd.plex import DEVICE_CACHE, FakePlexApi, PlexService
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
 from couchd.splash import SplashService
@@ -106,6 +107,14 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
         EveningService(ctx),
         # The weather (#82): Open-Meteo on the Pi, a made-up forecast in dev mode.
         WeatherService(ctx, fetch=fake_forecast() if dev else None),
+        # Plex's Continue watching on Home (#86): Couch's own Plex sign-in, the list and its
+        # pictures. Dev mode has a pretend plex.tv and server, and never reaches Plex.
+        PlexService(
+            ctx,
+            api=FakePlexApi() if dev else None,
+            launch=apps.launch,
+            cache_dir=None if dev or not DEVICE_CACHE.parent.is_dir() else DEVICE_CACHE,
+        ),
     ]
     return [*services, SplashService(ctx)], overlay
 

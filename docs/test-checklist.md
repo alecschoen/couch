@@ -194,6 +194,30 @@ default).
 - [ ] **G6** (If there's time.) Open Plex again, then choose Minimize in that question.
       Expected: also back on Home.
 - [ ] **G7** Open Plex again and hold Return for about a second. Expected: Couch's Home.
+- [ ] **G8** Continue watching (#86). Settings › Network › Plex: "Not linked". OK on Plex
+      account. Expected: a 4-character code, large, under "On your phone, go to plex.tv/link
+      and enter". On your phone, enter it at plex.tv/link (your own Plex sign-in, on the
+      phone). Expected within a few seconds: a "Plex linked" message, the code goes, and the
+      row says "Linked" with "Server: <your server's name>" under it (the name may take a few
+      seconds). Settings › Network now says "Plex  Linked ›".
+- [ ] **G9** Home, on the Plex card. Expected: "Continue watching" and "From your Plex
+      server" instead of "Plex", then up to five pictures of shows and films you're partway
+      through, the same ones Plex's own Continue watching has, with a bar for how far through
+      and "S2 · E5 · 18 min left" or "Film · 1 h 12 min left" under each. The pictures are
+      wide (16:9) and sharp. Nothing partway through on the server? Home is as before.
+- [ ] **G10** Press Up. Expected: an outline round the first picture, the heading becomes
+      its title and "Season 2 · Episode 5 · <episode> · 18 min left", the cards dim. Left and
+      Right move along; Down or Return go back to the Plex card. OK on one: Plex opens (on
+      its home screen: Couch can't yet start the show itself). Note whether PM4K's own
+      Continue watching row is where the remote lands.
+- [ ] **G11** Watch a few minutes of something, Exit Plex. Expected: within about 10
+      seconds of being back on Home its bar has moved on (or it's first, if it wasn't there).
+- [ ] **G12** Settings › Network › Plex › Continue watching on Home: switch it off. Expected:
+      Home's Plex card is plain again. On again: the row is back within a few seconds.
+- [ ] **G13** Plex account: OK, then OK again within 4 s ("Press OK again to unlink").
+      Expected: "Not linked", and Home's Plex card is plain. Then link again as in G8 so it's
+      left linked. On the Pi, `sudo ls -l /var/lib/couch/plex-token` is `-rw------- couch`, and
+      `journalctl -u couchd | grep -ci token` finds nothing that looks like one.
 
 ## H. TV off and on, inputs (4 min)
 
@@ -413,6 +437,7 @@ decides what the remote's buttons do.
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
 | YouTube Music card, Apps on Home | #81, #89 |
 | Weather | #82 |
+| Plex Continue watching on Home | #86 |
 | Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
 | Wi-Fi option | #31, PR #57 |

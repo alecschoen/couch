@@ -97,6 +97,8 @@ pub trait Screen {
     fn still(&self) -> bool {
         false
     }
+    /// A picture it asked for has come (src/thumbs.rs): draw it.
+    fn images(&mut self, _app: &mut App) {}
 }
 
 enum Action {
@@ -550,6 +552,12 @@ impl App {
         let r = f(s.as_mut(), self);
         self.stack.push(s);
         Some(r)
+    }
+
+    /// A picture has come (src/thumbs.rs): every screen that shows one draws it.
+    pub fn images_changed(&mut self) {
+        self.each_screen(|s, app| s.images(app));
+        self.flush();
     }
 
     fn each_screen(&mut self, mut f: impl FnMut(&mut dyn Screen, &mut App)) {

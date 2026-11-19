@@ -13,6 +13,7 @@ from couchd.api import create_app
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.config import Config
+from couchd.plex import PlexService
 from couchd.services import Context, Service, ServiceRegistry
 from couchd.settings import Settings
 from couchd.state import LiveState, SavedState
@@ -97,7 +98,13 @@ class Daemon:
         log.info("couchd stopped")
 
     async def _start_api(self) -> None:
-        app = create_app(bus=self.bus, state=self.state, commands=self.commands)
+        plex = next((s for s in self.services if isinstance(s, PlexService)), None)
+        app = create_app(
+            bus=self.bus,
+            state=self.state,
+            commands=self.commands,
+            plex_thumbs=plex.thumbs.path if plex else None,
+        )
         self._runner = web.AppRunner(app, handle_signals=False, shutdown_timeout=2.0)
         await self._runner.setup()
         site = web.TCPSite(self._runner, HOST, self.config.server.port)

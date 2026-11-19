@@ -7,6 +7,7 @@
 //! clock after, Volume limit) change with Left and Right, or OK to step forward.
 //!
 //!   Display > Apps on Home   the cards Home shows, a switch each (screens/home_apps.rs)
+//!   Network > Plex    link Plex for Continue watching on Home (screens/plex_settings.rs)
 //!   Sound > Output    a sheet of the outputs; OK on one moves the sound there
 //!   Remote > Test     OK, then every key shows in the box (couchd's colour keys stand down
 //!                     meanwhile: remote.raw_keys); Back twice, Home, or 10 s idle stops it
@@ -40,7 +41,7 @@ fn uses(category: &str) -> &'static [&'static str] {
     match category {
         "display" => &["settings", "evening"],
         "sound" => &["settings", "evening", "audio"],
-        "network" => &["settings", "evening", "wifi"],
+        "network" => &["settings", "evening", "wifi", "plex"],
         "remote" => &["settings", "evening", "remote"],
         "updates" => &["settings", "evening", "system", "updates"],
         "about" => &["settings", "evening", "tv", "services", "system"],
@@ -429,6 +430,7 @@ impl Inner {
                 }
             }
             Kind::Link if item.key == "home-apps" => app.go("home-apps", json!({})),
+            Kind::Link if item.key == "plex" => app.go("plex-settings", json!({})),
             Kind::Link => self.open_outputs(app),
             Kind::Remote => {
                 if self.testing.is_none() {
@@ -721,6 +723,14 @@ impl Inner {
                 } else {
                     rows.push(toggle("network.wifi", "Wi-Fi", &text::wifi_hint(s, wifi_on)));
                 }
+                // Plex's sign-in for Continue watching on Home (#86): a screen of its own.
+                rows.push(Item {
+                    key: "plex",
+                    kind: Kind::Link,
+                    label: "Plex".into(),
+                    value: crate::plex::summary(s),
+                    ..Item::default()
+                });
                 rows
             }
             "remote" => {

@@ -12,6 +12,7 @@ mod app;
 mod couch;
 mod idle;
 mod overlay;
+mod plex;
 mod screens;
 #[cfg(feature = "window")]
 mod shot;
@@ -19,6 +20,7 @@ mod sounds;
 #[cfg(feature = "window")]
 mod stacking;
 mod state;
+mod thumbs;
 mod updates;
 mod weather;
 
@@ -26,6 +28,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let url = std::env::args().nth(1).or_else(|| std::env::var("COUCH_URL").ok()).unwrap_or_else(|| {
         format!("ws://127.0.0.1:{}/ws", std::env::var("COUCH_PORT").unwrap_or_else(|_| "8765".into()))
     });
+    thumbs::init(&url);
     let ui = MainWindow::new()?;
     app::start(ui.clone_strong(), url);
     #[cfg(feature = "window")]

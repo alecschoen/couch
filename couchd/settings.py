@@ -131,6 +131,9 @@ SCHEMA: dict[str, Setting] = _schema(
         ("youtube", "ytmusic", "plex", "audio", "bluetooth"),
         label="Hidden from Home",
     ),
+    # Plex's Continue watching on Home, over the Plex card (#86, couchd/plex.py); off, nothing
+    # is fetched.
+    Setting("home.plex_continue", "bool", True, label="Continue watching on Home"),
     # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.
     Setting("network.wifi", "bool", False, label="Wi-Fi"),
     # The TV goes to standby after 2 hours idle on the launcher (couchd/idle.py).
