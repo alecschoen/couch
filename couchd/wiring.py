@@ -14,17 +14,20 @@ from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.evening import EveningService
-from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv, FakeWifi
+from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeSpeaker, FakeTv, FakeWifi
 from couchd.idle import IdleService
 from couchd.kodi import FakeKodi, KodiClient
 from couchd.kodi_rpc import KodiRpc
 from couchd.kodi_sounds import KodiSoundsService
+from couchd.librespot import LibrespotSpeaker
 from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.networkmanager import NmWifi
 from couchd.overlay import OverlayService
 from couchd.pipewire import PipewireAudio
 from couchd.remote import RemoteService
 from couchd.services import Context, Service
+from couchd.shairport import ShairportSpeaker
+from couchd.speaker import SpeakerService
 from couchd.splash import SplashService
 from couchd.startup import StartupService
 from couchd.system import FakeSystem, LinuxSystem, SystemService
@@ -54,6 +57,7 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
             WifiService(ctx, FakeWifi()),
             *apps,
             overlay,
+            SpeakerService(ctx, [FakeSpeaker("spotify"), FakeSpeaker("airplay")]),
             SystemService(ctx, FakeSystem()),
             UpdatesService(ctx, FakeUpdates()),
         ]
@@ -74,6 +78,9 @@ def build_services(ctx: Context, *, dev: bool) -> list[Service]:
         WifiService(ctx, NmWifi()),
         *apps,
         overlay,
+        # Spotify Connect and AirPlay (#80): after the TV and the apps, which it wakes and
+        # sends home when music starts.
+        SpeakerService(ctx, [LibrespotSpeaker(), ShairportSpeaker()]),
         SystemService(ctx, LinuxSystem()),
         UpdatesService(ctx, SystemdUpdates()),
     ]

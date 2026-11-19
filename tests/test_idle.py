@@ -160,6 +160,25 @@ async def test_tv_stays_on_while_an_app_is_up(ctx, tv_idle, standby_calls):
     assert standby_calls == []
 
 
+async def test_never_idle_while_music_plays(ctx, idle):
+    # #80: music from a phone counts like an app, and its starting wakes the clock
+    await until(lambda: ctx.state.get("idle")["idle"])
+    ctx.state.update("speaker", {"playing": True})
+    await until(lambda: not ctx.state.get("idle")["idle"])
+    await asyncio.sleep(0.25)
+    assert not ctx.state.get("idle")["idle"]
+    with pytest.raises(CommandError, match="no music"):
+        await ctx.commands.run("idle.now")
+    ctx.state.update("speaker", {"playing": False})  # paused or gone: the clock starts now
+    await until(lambda: ctx.state.get("idle")["idle"])
+
+
+async def test_tv_stays_on_while_music_plays(ctx, tv_idle, standby_calls):
+    ctx.state.update("speaker", {"playing": True})
+    await asyncio.sleep(0.4)
+    assert standby_calls == []
+
+
 async def test_tv_already_in_standby_is_left_alone(ctx, tv_idle, standby_calls):
     ctx.state.update("tv", {"power": "standby"})
     await asyncio.sleep(0.4)

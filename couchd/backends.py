@@ -237,3 +237,64 @@ class WifiBackend(Backend):
     @abstractmethod
     async def set_enabled(self, on: bool) -> None:
         """Turn the radio on or off. Raises BackendError if that's refused."""
+
+
+# --- Speaker (Spotify Connect, AirPlay) ----------------------------------------------------
+
+SpeakerSource = Literal["spotify", "airplay"]
+# What a phone can be asked to do from the remote. "disconnect" ends its session instead.
+SpeakerControl = Literal["play_pause", "play", "pause", "next", "previous"]
+
+
+@dataclass(frozen=True)
+class Playback:
+    """What one receiver is playing. `active` is false while nobody is playing to it (the
+    rest is then empty); paused is still active. `position_ms` was the position at
+    `position_at` (Unix time, ms), so a UI moves it on by itself while `playing`. `cover`
+    goes up whenever the cover art changes; 0 means none. `controls` are the
+    SpeakerControls that work right now."""
+
+    active: bool = False
+    playing: bool = False
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    device: str | None = None  # the phone or computer playing, when it says
+    duration_ms: int | None = None
+    position_ms: int | None = None
+    position_at: int | None = None
+    cover: int = 0
+    controls: frozenset[str] = frozenset()
+
+
+class SpeakerBackend(Backend):
+    """One way of playing to Couch from a phone: a receiver (librespot, shairport-sync)
+    that couchd starts and stops, plus what it reports about what's playing."""
+
+    source: SpeakerSource
+
+    def installed(self) -> bool:
+        """The receiver's program is there (librespot is a separate build, librespot/)."""
+        return True
+
+    @abstractmethod
+    def playback(self) -> Playback: ...
+
+    def cover(self) -> tuple[bytes, str] | None:
+        """The current cover art and its content type, if there is one."""
+        return None
+
+    @abstractmethod
+    async def set_enabled(self, on: bool) -> None:
+        """Start the receiver (Couch shows up on phones) or stop it."""
+
+    async def control(self, command: SpeakerControl) -> None:
+        """Ask the phone to play, pause or skip. Raises BackendError if it can't be."""
+        raise BackendError("Couch can't control this from the remote")
+
+    @abstractmethod
+    async def disconnect(self) -> None:
+        """End the session, so the phone stops playing to Couch."""
+
+    def handle_event(self, event: str, env: dict[str, str]) -> None:
+        """An event from the receiver, through couch-speaker-event (system/)."""

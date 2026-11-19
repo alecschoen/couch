@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import ClassVar
 
+from couchd.api import Files
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.settings import Settings
@@ -24,14 +25,16 @@ STOP_TIMEOUT = 5.0
 
 @dataclass(frozen=True)
 class Context:
-    """What every service gets: the bus, both kinds of state, the command table and the
-    user's settings. Left out, `settings` is an in-memory store with the defaults."""
+    """What every service gets: the bus, both kinds of state, the command table, the
+    user's settings and the files the API serves. Left out, `settings` is an in-memory
+    store with the defaults."""
 
     bus: EventBus
     state: LiveState
     saved: SavedState
     commands: Commands
     settings: Settings = field(default=None)  # type: ignore[assignment]
+    files: Files = field(default_factory=Files)
 
     def __post_init__(self) -> None:
         if self.settings is None:

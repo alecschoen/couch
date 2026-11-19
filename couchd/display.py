@@ -103,29 +103,29 @@ class SystemdDisplay(Display):
     async def show_session(self) -> None:
         if await self._state(KODI_UNIT) in ("active", "activating", "reloading"):
             # Its ExecStopPost switches the console back to tty1, where the session is.
-            code, out = await _systemctl("stop", KODI_UNIT)
+            code, out = await systemctl("stop", KODI_UNIT)
             if code != 0:
                 log.warning("couldn't stop Kodi", extra={"detail": out or code})
         # After a burst of crashes systemd refuses to start the unit until it is reset.
-        await _systemctl("reset-failed", SESSION_UNIT)
-        code, out = await _systemctl("start", SESSION_UNIT)
+        await systemctl("reset-failed", SESSION_UNIT)
+        code, out = await systemctl("start", SESSION_UNIT)
         if code != 0:
             raise BackendError(f"couldn't start the launcher: {out or code}")
 
     async def restart_session(self) -> None:
-        await _systemctl("reset-failed", SESSION_UNIT)
-        code, out = await _systemctl("restart", SESSION_UNIT)
+        await systemctl("reset-failed", SESSION_UNIT)
+        code, out = await systemctl("restart", SESSION_UNIT)
         if code != 0:
             raise BackendError(f"couldn't restart the launcher: {out or code}")
 
     async def start_chromium(self) -> None:
-        await _systemctl("reset-failed", CHROMIUM_UNIT)
-        code, out = await _systemctl("start", CHROMIUM_UNIT)
+        await systemctl("reset-failed", CHROMIUM_UNIT)
+        code, out = await systemctl("start", CHROMIUM_UNIT)
         if code != 0:
             raise BackendError(f"couldn't start Chromium: {out or code}")
 
     async def stop_chromium(self) -> None:
-        code, out = await _systemctl("stop", CHROMIUM_UNIT)
+        code, out = await systemctl("stop", CHROMIUM_UNIT)
         if code != 0:
             log.warning("couldn't stop Chromium", extra={"detail": out or code})
 
@@ -133,7 +133,7 @@ class SystemdDisplay(Display):
         return await self._state(CHROMIUM_UNIT) in ("active", "activating", "reloading")
 
     async def start_kodi(self, on_exit: KodiExit) -> None:
-        await _systemctl("reset-failed", KODI_UNIT)
+        await systemctl("reset-failed", KODI_UNIT)
         task = self._watch(on_exit)
         # `start --wait` only returns when the unit stops again, so poll until it's up.
         try:
@@ -177,11 +177,11 @@ class SystemdDisplay(Display):
         return task
 
     async def _state(self, unit: str) -> str:
-        _, out = await _systemctl("is-active", unit)
+        _, out = await systemctl("is-active", unit)
         return out
 
 
-async def _systemctl(*args: str) -> tuple[int, str]:
+async def systemctl(*args: str) -> tuple[int, str]:
     try:
         process = await asyncio.create_subprocess_exec(
             "systemctl",

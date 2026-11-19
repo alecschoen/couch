@@ -97,7 +97,9 @@ class Daemon:
         log.info("couchd stopped")
 
     async def _start_api(self) -> None:
-        app = create_app(bus=self.bus, state=self.state, commands=self.commands)
+        app = create_app(
+            bus=self.bus, state=self.state, commands=self.commands, files=self.ctx.files
+        )
         self._runner = web.AppRunner(app, handle_signals=False, shutdown_timeout=2.0)
         await self._runner.setup()
         site = web.TCPSite(self._runner, HOST, self.config.server.port)

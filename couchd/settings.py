@@ -113,6 +113,10 @@ SCHEMA: dict[str, Setting] = _schema(
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
     # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.
     Setting("network.wifi", "bool", False, label="Wi-Fi"),
+    # Couch as a speaker for Spotify Connect and AirPlay (#80, couchd/speaker.py).
+    Setting("speaker.enabled", "bool", True, label="Spotify and AirPlay"),
+    # When music starts: wake the TV and close YouTube or Plex; opening an app stops it.
+    Setting("speaker.take_over", "bool", True, label="Music takes over the TV"),
     # The TV goes to standby after 2 hours idle on the launcher (couchd/idle.py).
     Setting("tv.off_when_idle", "bool", False, label="Turn the TV off when idle"),
     # The TV goes to standby when the Pi powers off (not on a reboot).

@@ -1,5 +1,6 @@
 """Fake hardware for `couchd --dev`: a TV, three kinds of audio output, Bluetooth devices
-that turn up while scanning, a Wi-Fi radio, and a virtual keyboard that only logs. They
+that turn up while scanning, a Wi-Fi radio, a virtual keyboard that only logs, and phones
+playing music to Couch (Spotify, AirPlay). They
 behave like the real thing closely enough to build every screen: things take a moment,
 connecting a speaker adds an output, one speaker always fails to pair.
 
@@ -8,6 +9,10 @@ connecting a speaker adds an output, one speaker always fails to pair.
 
 import asyncio
 import logging
+import struct
+import time
+import zlib
+from collections.abc import Callable
 from dataclasses import replace
 
 from couchd.backends import (
@@ -17,6 +22,10 @@ from couchd.backends import (
     Device,
     KeyboardBackend,
     Output,
+    Playback,
+    SpeakerBackend,
+    SpeakerControl,
+    SpeakerSource,
     TvBackend,
     TvPower,
     WifiBackend,
@@ -307,3 +316,114 @@ class FakeWifi(WifiBackend):
     def _update(self, status: WifiStatus) -> None:
         self._status = status
         self.changed()
+
+
+# (title, artist, album, seconds, cover colour)
+FAKE_TRACKS = (
+    ("Harbour Lights", "The Night Ferries", "Crossings", 214, (0x2E, 0x5E, 0x8C)),
+    ("Small Hours", "Marlow & Finch", "Lamplight", 187, (0xC2, 0x6A, 0x2E)),
+    ("Paper Moons", "Okra Blue", "Paper Moons", 242, (0x6E, 0x3B, 0x8C)),
+)
+
+
+def solid_png(rgb: tuple[int, int, int], size: int = 64) -> bytes:
+    """A square PNG of one colour: pretend cover art."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    row = b"\x00" + bytes(rgb) * size
+    header = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(row * size))
+        + chunk(b"IEND", b"")
+    )
+
+
+class FakeSpeaker(SpeakerBackend):
+    """A phone playing to Couch, started with `play()` (the `speaker.dev.play` command).
+    Like the real ones, the AirPlay one can be paused and skipped from the remote and the
+    Spotify one can't (only disconnected)."""
+
+    def __init__(self, source: SpeakerSource, *, clock: Callable[[], float] = time.time) -> None:
+        super().__init__()
+        self.source = source
+        self._clock = clock
+        self._enabled = False
+        self._playback = Playback()
+        self._track = 0
+        self._covers = 0
+        self.controlled: list[str] = []  # what the phone was asked to do
+
+    def playback(self) -> Playback:
+        return self._playback
+
+    def cover(self) -> tuple[bytes, str] | None:
+        if not self._playback.active:
+            return None
+        return solid_png(FAKE_TRACKS[self._track][4]), "image/png"
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    async def set_enabled(self, on: bool) -> None:
+        self._enabled = on
+        if not on:
+            await self.disconnect()
+
+    def play(self) -> None:
+        """A phone starts playing (or resumes)."""
+        if not self._playback.active:
+            self._load(0)
+        self._set_playing(True)
+
+    async def control(self, command: SpeakerControl) -> None:
+        if command not in self._playback.controls:
+            raise BackendError("Spotify can't be controlled from Couch")
+        self.controlled.append(command)
+        if command == "play_pause":
+            self._set_playing(not self._playback.playing)
+        elif command in ("play", "pause"):
+            self._set_playing(command == "play")
+        else:
+            self._load((self._track + (1 if command == "next" else -1)) % len(FAKE_TRACKS))
+            self._set_playing(True)
+
+    async def disconnect(self) -> None:
+        if self._playback.active:
+            self._playback = Playback()
+            self.changed()
+
+    def _load(self, index: int) -> None:
+        title, artist, album, seconds, _ = FAKE_TRACKS[index]
+        self._track = index
+        self._covers += 1
+        remote = frozenset({"play_pause", "play", "pause", "next", "previous", "disconnect"})
+        self._playback = Playback(
+            active=True,
+            title=title,
+            artist=artist,
+            album=album,
+            device="Pretend iPhone" if self.source == "airplay" else "Pretend Pixel",
+            duration_ms=seconds * 1000,
+            position_ms=0,
+            position_at=self._now(),
+            cover=self._covers,
+            controls=remote if self.source == "airplay" else frozenset({"disconnect"}),
+        )
+
+    def _set_playing(self, playing: bool) -> None:
+        p = self._playback
+        position = p.position_ms or 0
+        if p.playing and p.position_at is not None:
+            position += self._now() - p.position_at
+        position = min(position, p.duration_ms or position)
+        self._playback = replace(p, playing=playing, position_ms=position, position_at=self._now())
+        self.changed()
+
+    def _now(self) -> int:
+        return int(self._clock() * 1000)

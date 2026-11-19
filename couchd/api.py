@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import weakref
+from collections.abc import Callable
 from typing import Any
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -27,6 +28,32 @@ BUS = web.AppKey("bus", EventBus)
 STATE = web.AppKey("state", LiveState)
 COMMANDS = web.AppKey("commands", Commands)
 SOCKETS = web.AppKey("sockets", weakref.WeakSet)
+
+# A file's bytes and content type, or None while there's nothing to serve.
+FileGetter = Callable[[], tuple[bytes, str] | None]
+
+
+class Files:
+    """Files couchd makes and serves at `GET /api/file/<name>`, such as the speaker's cover
+    art (couchd/speaker.py). Services add a getter while they run; it's asked at each request."""
+
+    def __init__(self) -> None:
+        self._getters: dict[str, FileGetter] = {}
+
+    def add(self, name: str, getter: FileGetter) -> None:
+        if name in self._getters:
+            raise ValueError(f"file {name!r} already registered")
+        self._getters[name] = getter
+
+    def remove(self, name: str) -> None:
+        self._getters.pop(name, None)
+
+    def get(self, name: str) -> tuple[bytes, str] | None:
+        getter = self._getters.get(name)
+        return getter() if getter is not None else None
+
+
+FILES = web.AppKey("files", Files)
 
 
 def _hostname(host: str | None) -> str:
@@ -95,6 +122,14 @@ async def post_command(request: web.Request) -> web.Response:
             raise web.HTTPBadRequest(text="body must be JSON") from None
     result = await run_command(request.app[COMMANDS], request.match_info["name"], args)
     return web.json_response(result, status=200 if result["ok"] else 400)
+
+
+async def get_file(request: web.Request) -> web.Response:
+    found = request.app[FILES].get(request.match_info["name"])
+    if found is None:
+        raise web.HTTPNotFound(text="no such file")
+    body, content_type = found
+    return web.Response(body=body, content_type=content_type)
 
 
 async def get_commands(request: web.Request) -> web.Response:
@@ -173,11 +208,14 @@ async def _close_sockets(app: web.Application) -> None:
         await ws.close(code=WSCloseCode.GOING_AWAY, message=b"couchd shutting down")
 
 
-def create_app(*, bus: EventBus, state: LiveState, commands: Commands) -> web.Application:
+def create_app(
+    *, bus: EventBus, state: LiveState, commands: Commands, files: Files | None = None
+) -> web.Application:
     app = web.Application(middlewares=[loopback_only])
     app[BUS] = bus
     app[STATE] = state
     app[COMMANDS] = commands
+    app[FILES] = files if files is not None else Files()
     app[SOCKETS] = weakref.WeakSet()
     app.on_response_prepare.append(_no_cache)
     app.on_shutdown.append(_close_sockets)
@@ -186,5 +224,6 @@ def create_app(*, bus: EventBus, state: LiveState, commands: Commands) -> web.Ap
     app.router.add_post("/api/toast", post_toast)
     app.router.add_get("/api/commands", get_commands)
     app.router.add_post("/api/command/{name}", post_command)
+    app.router.add_get("/api/file/{name}", get_file)
     app.router.add_get("/ws", websocket)
     return app

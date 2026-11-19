@@ -76,6 +76,8 @@ fn default_setting(key: &str) -> &'static Value {
             "audio.ui_sounds": "on",
             "bluetooth.auto_reconnect": true,
             "network.wifi": false,
+            "speaker.enabled": true,
+            "speaker.take_over": true,
             "tv.off_when_idle": false,
             "tv.standby_on_poweroff": false,
             "updates.overnight": true,
