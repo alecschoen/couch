@@ -1,0 +1,272 @@
+// Now Playing (#80): what a phone is playing to Couch, over Spotify Connect or AirPlay. The
+// clock and the sound output at the top, the cover on the left; on the right where it comes
+// from, the title, artist and album, how far it's got, and the controls the source allows.
+// Rust (src/screens/nowplaying.rs) fills NowPlayingData and moves focus; this only draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Line, Progress, Screen } from "../components.slint";
+
+export struct ControlPill {
+    // "previous", "play_pause", "next" or "disconnect".
+    id: string,
+    // "" for a pill that's only its icon (previous, next).
+    label: string,
+    // "previous", "next", "play", "pause", or "" for none.
+    icon: string,
+}
+
+export global NowPlayingData {
+    in property <string> time;
+    in property <string> sound;
+    // "Spotify · playing on Couch", "AirPlay · from Alec's iPhone"
+    in property <string> kicker;
+    // Playing rather than paused: the kicker's dot is filled.
+    in property <bool> playing;
+    in property <string> title;
+    // "" for none: the line goes.
+    in property <string> artist;
+    in property <string> album;
+    // The cover, once it's loaded; the music note until then, and when there's none.
+    in property <bool> has-cover;
+    in property <image> cover;
+    // The bar and the times: only with a duration.
+    in property <bool> has-progress;
+    in property <float> progress;
+    in property <string> elapsed;
+    in property <string> total;
+    in property <[ControlPill]> pills;
+    in property <int> focus;
+}
+
+component Glyph inherits Image {
+    in property <string> name;
+    in property <color> tint: Theme.ink;
+    colorize: tint;
+    image-rendering: smooth;
+    source: name == "previous" ? @image-url("../icons/previous.svg")
+        : name == "next" ? @image-url("../icons/next.svg")
+        : name == "play" ? @image-url("../icons/play.svg")
+        : name == "pause" ? @image-url("../icons/pause.svg")
+        : @image-url("../icons/music.svg");
+}
+
+// A control: previous and next are round-ended squares of their icon; Play/Pause and Stop say
+// what they do. Focus is the solid ink fill, as everywhere.
+component Control inherits Rectangle {
+    in property <ControlPill> pill;
+    in property <bool> focused;
+    in property <color> ink: Theme.ink;
+    in property <color> ground: Theme.bg;
+    property <bool> icon-only: pill.label == "";
+    height: Theme.pill-h;
+    // Play/Pause keeps Pause's width, so the pills after it don't move as it changes.
+    width: icon-only ? 110px : pill.id == "play_pause" ? max(220px, lay.preferred-width) : lay.preferred-width;
+    border-radius: self.height / 2;
+    border-width: Theme.border;
+    border-color: focused ? ink : ink.with-alpha(Theme.a-outline);
+    background: focused ? ink : ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+
+    lay := HorizontalLayout {
+        padding-left: root.icon-only ? 0 : 42px;
+        padding-right: root.icon-only ? 0 : 42px;
+        spacing: 14px;
+        alignment: center;
+        if root.pill.icon != "": Glyph {
+            name: root.pill.icon;
+            width: root.icon-only ? 34px : 30px;
+            height: self.width;
+            y: (parent.height - self.height) / 2;
+            tint: root.focused ? root.ground : root.ink;
+        }
+        if !root.icon-only: Text {
+            text: root.pill.label;
+            vertical-alignment: center;
+            font-family: Theme.font-display;
+            font-size: Theme.text-card;
+            font-weight: 600;
+            color: root.focused ? root.ground : root.ink;
+            animate color { duration: Theme.dur-quick; }
+        }
+    }
+}
+
+export component NowPlayingScreen inherits Screen {
+    property <length> info-x: 780px;
+
+    // Top: the clock, small, and the sound output (where Home has it).
+    Line {
+        x: Theme.screen-pad-x;
+        y: 96px;
+        leading: 1.28;
+        text: NowPlayingData.time;
+        font-family: Theme.font-clock;
+        font-size: Theme.text-heading;
+        font-weight: 500;
+    }
+    Line {
+        x: parent.width - Theme.screen-pad-x - self.width;
+        y: 84px + Theme.s3;
+        text: NowPlayingData.sound;
+        font-size: Theme.text-sm;
+        opacity: Theme.a-muted;
+    }
+
+    // The cover, or the note in a tinted square.
+    Rectangle {
+        x: Theme.screen-pad-x;
+        y: 252px;
+        width: 576px;
+        height: 576px;
+        border-radius: Theme.radius-card;
+        clip: true;
+        background: Theme.ink.with-alpha(Theme.a-hairline);
+        if !NowPlayingData.has-cover: Glyph {
+            width: 160px;
+            height: 160px;
+            opacity: 0.55;
+        }
+        if NowPlayingData.has-cover: Image {
+            width: parent.width;
+            height: parent.height;
+            source: NowPlayingData.cover;
+            image-fit: cover;
+        }
+    }
+
+    VerticalLayout {
+        x: root.info-x;
+        y: 300px;
+        width: parent.width - root.info-x - Theme.screen-pad-x;
+        height: self.preferred-height;
+        spacing: 0;
+        HorizontalLayout {
+            alignment: start;
+            spacing: 14px;
+            opacity: Theme.a-muted;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    border-width: 2px;
+                    border-color: Theme.ink;
+                    background: NowPlayingData.playing ? Theme.ink : Theme.ink.with-alpha(0);
+                }
+            }
+            Line {
+                leading: 1.21;
+                text: NowPlayingData.kicker;
+                font-size: Theme.text-sm;
+                overflow: elide;
+            }
+        }
+        // Two lines at most, then an ellipsis.
+        VerticalLayout {
+            padding-top: Theme.s4;
+            Text {
+                // The font's own line spacing, which wrapped lines get.
+                property <length> natural: probe.preferred-height;
+                probe := Text {
+                    visible: false;
+                    text: "X";
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-title;
+                    font-weight: 600;
+                }
+                text: NowPlayingData.title;
+                font-family: Theme.font-display;
+                font-size: Theme.text-title;
+                font-weight: 600;
+                letter-spacing: -0.025 * Theme.text-title;
+                color: Theme.ink;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-alignment: center;
+                height: self.preferred-height > 1.5 * self.natural ? 2 * self.natural : self.font-size * 1.05;
+            }
+        }
+        if NowPlayingData.artist != "": VerticalLayout {
+            padding-top: Theme.s3;
+            Line {
+                leading: 1.21;
+                text: NowPlayingData.artist;
+                font-size: Theme.text-heading;
+                font-weight: 500;
+                overflow: elide;
+            }
+        }
+        if NowPlayingData.album != "": VerticalLayout {
+            padding-top: Theme.s2;
+            Line {
+                leading: 1.21;
+                text: NowPlayingData.album;
+                font-size: Theme.text-md;
+                opacity: 0.7;
+                overflow: elide;
+            }
+        }
+        if NowPlayingData.has-progress: VerticalLayout {
+            padding-top: 60px;
+            spacing: 14px;
+            Progress {
+                thickness: 9px;
+                track: 0.3;
+                value: NowPlayingData.progress;
+            }
+            HorizontalLayout {
+                opacity: Theme.a-muted;
+                Line {
+                    leading: 1.21;
+                    text: NowPlayingData.elapsed;
+                    font-size: Theme.text-sm;
+                }
+                Line {
+                    leading: 1.21;
+                    text: NowPlayingData.total;
+                    font-size: Theme.text-sm;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+        VerticalLayout {
+            padding-top: 42px;
+            HorizontalLayout {
+                alignment: start;
+                spacing: Theme.s4;
+                // Each in a box of its own size, so the nudge (Bump) moves it inside it.
+                for p[i] in NowPlayingData.pills: Rectangle {
+                    width: control.width;
+                    height: control.height;
+                    control := Control {
+                        x: self.focused ? Bump.x : 0;
+                        y: self.focused ? Bump.y : 0;
+                        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                        pill: p;
+                        focused: NowPlayingData.focus == i;
+                    }
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        x: Theme.screen-pad-x;
+        width: parent.width - 2 * Theme.screen-pad-x;
+        height: self.preferred-height;
+        y: parent.height - 78px - self.height;
+        opacity: 0.7;
+        Line {
+            leading: 1.21;
+            text: "Back for Home · music keeps playing";
+            font-size: Theme.text-sm;
+        }
+        Line {
+            leading: 1.21;
+            text: "Volume on the remote";
+            font-size: Theme.text-sm;
+            horizontal-alignment: right;
+        }
+    }
+}

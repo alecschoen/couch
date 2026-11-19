@@ -1,10 +1,13 @@
 //! Home: the B3 colour flood. Clock and date top left, the current
 //! sound output top right, a headline for the current card, and the card row. The screen
 //! floods with the colour of the card in focus. On Audio, the blurb gives way to a pill per
-//! output; picking one moves the sound there (couchd toasts "Sound now on X").
+//! output; picking one moves the sound there (couchd toasts "Sound now on X"). While a phone
+//! plays to Couch (#80), the top right says what's playing instead of the sound output, and
+//! OK on Audio goes back to Now Playing (screens/nowplaying.rs).
 //!
 //! Keys, on top of the arrows and OK:
-//!   OK or Up on Audio    into the output pills, on the current output
+//!   OK or Up on Audio    into the output pills, on the current output (OK: Now Playing,
+//!                        while something plays to Couch)
 //!   Down or Back         from the pills, back to the Audio card
 
 use std::rc::Rc;
@@ -89,6 +92,28 @@ pub fn sound_label(s: &Value) -> String {
         .to_string()
 }
 
+/// The top right: what a phone is playing to Couch, while one is; else the sound output.
+pub fn top_line(s: &Value) -> String {
+    const LONGEST: usize = 40;
+    if state::str_at(s, "speaker.source").is_none() {
+        return format!("Sound: {}", sound_label(s));
+    }
+    let what = if state::bool_at(s, "speaker.playing") == Some(true) { "Now playing" } else { "Paused" };
+    match state::str_at(s, "speaker.title").filter(|t| !t.is_empty()) {
+        Some(t) if t.chars().count() > LONGEST => {
+            // Shortened at a word, unless that's most of it.
+            let cut: String = t.chars().take(LONGEST - 1).collect();
+            let cut = match cut.rfind(' ') {
+                Some(i) if i > LONGEST / 2 => &cut[..i],
+                _ => &cut,
+            };
+            format!("{what}: {}…", cut.trim_end())
+        }
+        Some(t) => format!("{what}: {t}"),
+        None => format!("{what} on Couch"),
+    }
+}
+
 pub fn bluetooth_blurb(s: &Value) -> String {
     let connected: Vec<&str> = state::list_at(s, "bluetooth.devices")
         .iter()
@@ -137,7 +162,7 @@ impl Home {
 
     fn render(&mut self, app: &App) {
         let data = app.ui.global::<HomeData>();
-        data.set_sound(format!("Sound: {}", sound_label(&app.state)).into());
+        data.set_sound(top_line(&app.state).into());
 
         // The output pills: rebuilt only when the outputs or the current one change.
         let list = state::list_at(&app.state, "audio.outputs");
@@ -206,6 +231,9 @@ impl Home {
             Outcome::Taken
         } else if let Some(route) = card.route {
             app.go(route, json!({}));
+            Outcome::Taken
+        } else if state::str_at(&app.state, "speaker.source").is_some() {
+            app.go(crate::screens::nowplaying::NAME, json!({}));
             Outcome::Taken
         } else {
             self.focus_outputs(app)
@@ -325,5 +353,19 @@ mod tests {
         let s = json!({"bluetooth": {"devices": [{"name": "JBL", "connected": true}, {"name": "Old", "connected": false}]}});
         assert_eq!(bluetooth_blurb(&s), "JBL connected · OK to pair something new");
         assert_eq!(bluetooth_blurb(&json!({})), "Nothing connected · OK to pair something new");
+    }
+
+    #[test]
+    fn top_line_says_whats_playing() {
+        let mut s = json!({"audio": {"outputs": [{"id": "tv", "name": "TV speakers"}], "current": "tv"},
+                           "speaker": {"source": null}});
+        assert_eq!(top_line(&s), "Sound: TV speakers");
+        s["speaker"] = json!({"source": "spotify", "playing": true, "title": "Slow Lights"});
+        assert_eq!(top_line(&s), "Now playing: Slow Lights");
+        s["speaker"] = json!({"source": "airplay", "playing": false, "title": null});
+        assert_eq!(top_line(&s), "Paused on Couch");
+        s["speaker"] =
+            json!({"source": "airplay", "playing": true, "title": "A very long title that goes on and on and on"});
+        assert_eq!(top_line(&s), "Now playing: A very long title that goes on and on…");
     }
 }

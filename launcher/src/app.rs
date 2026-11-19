@@ -136,6 +136,8 @@ pub struct App {
     // couchd's draw checks (back from Plex: is cage drawing us again?), answered after the
     // next frame.
     draw_checks: Vec<u64>,
+    /// The speaker source Now Playing last came up for (screens/nowplaying.rs `follow`).
+    pub music_shown: Option<String>,
 }
 
 #[derive(Default)]
@@ -211,6 +213,7 @@ pub fn start(ui: MainWindow, url: String) {
         bump_timer: Timer::default(),
         first_frame: FirstFrame::default(),
         draw_checks: Vec::new(),
+        music_shown: None,
     };
     APP.with(|cell| *cell.borrow_mut() = Some(app));
     with_app(|app| {
@@ -275,6 +278,7 @@ impl App {
                 crate::overlay::state(self, patch);
                 crate::idle::state(self, patch);
                 crate::updates::state(self);
+                screens::nowplaying::follow(self);
                 self.update_system();
                 #[cfg(feature = "window")]
                 crate::stacking::state(self);
@@ -336,6 +340,19 @@ impl App {
                 }
             })),
         );
+    }
+
+    /// GET a file couchd makes (`path` from its state, "/api/file/…"); `done` gets the body,
+    /// or why not, on the UI thread.
+    pub fn fetch(&self, path: &str, done: impl FnOnce(&mut App, Result<Vec<u8>, String>) + Send + 'static) {
+        self.couch.fetch(path, move |result| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with_app(|app| {
+                    done(app, result);
+                    app.flush();
+                });
+            });
+        });
     }
 
     pub fn setting(&self, key: &str) -> &Value {
@@ -408,6 +425,11 @@ impl App {
 
     pub fn current_name(&self) -> &'static str {
         self.takeover.as_ref().or(self.stack.last()).map(|s| s.name()).unwrap_or("")
+    }
+
+    /// The screen on top of the stack, under any takeover.
+    pub fn stack_top(&self) -> &'static str {
+        self.stack.last().map(|s| s.name()).unwrap_or("")
     }
 
     /// Set the flood to the top screen's palette (its colour follows focus). Done once the
