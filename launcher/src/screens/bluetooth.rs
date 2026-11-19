@@ -152,7 +152,7 @@ struct Rect {
 }
 
 /// A column's row height and spacing, with this many rows.
-fn row_size(rows: usize) -> (f32, f32) {
+pub(crate) fn row_size(rows: usize) -> (f32, f32) {
     let natural = rows as f32 * ROW_STEP - (ROW_STEP - ROW_H);
     if natural > ROWS_H { (TIGHT_ROW_H, TIGHT_ROW_STEP) } else { (ROW_H, ROW_STEP) }
 }
@@ -194,7 +194,7 @@ fn score(o: Rect, c: Rect, dir: Dir) -> Option<f32> {
 }
 
 /// focus.js _scrollIntoView, for a column: the new scroll offset.
-fn scroll_to_show(scroll: f32, index: usize, rows: usize) -> f32 {
+pub(crate) fn scroll_to_show(scroll: f32, index: usize, rows: usize) -> f32 {
     let r = row_rect(0, index, scroll, rows);
     let (top, bottom) = (ROWS_TOP, ROWS_TOP + ROWS_H);
     let mut s = scroll;
@@ -206,7 +206,7 @@ fn scroll_to_show(scroll: f32, index: usize, rows: usize) -> f32 {
     s.clamp(0.0, max_scroll(rows))
 }
 
-fn max_scroll(rows: usize) -> f32 {
+pub(crate) fn max_scroll(rows: usize) -> f32 {
     if rows == 0 {
         return 0.0;
     }

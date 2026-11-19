@@ -8,6 +8,7 @@ pub mod bluetooth;
 pub mod home;
 pub mod settings;
 pub mod system;
+pub mod wifi;
 
 /// Build a screen by its router name.
 pub fn make(name: &str, params: &Value, app: &mut App) -> Box<dyn Screen> {
@@ -15,6 +16,7 @@ pub fn make(name: &str, params: &Value, app: &mut App) -> Box<dyn Screen> {
         "home" => Box::new(home::Home::new()),
         "settings" => Box::new(settings::Settings::new(params, app)),
         "bluetooth" => Box::new(bluetooth::Bluetooth::new(params, app)),
+        "wifi" => Box::new(wifi::Wifi::new(params, app)),
         "startup" => Box::new(system::System::new("startup", params, app)),
         "opening" => Box::new(system::System::new("opening", params, app)),
         "error" => Box::new(system::System::new("error", params, app)),

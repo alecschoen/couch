@@ -99,6 +99,15 @@ pub fn wifi_hint(s: &Value, on: bool) -> String {
     }
 }
 
+/// Settings › Network's Wi-Fi network row: the network it's on, or isn't.
+pub fn wifi_network(s: &Value) -> String {
+    match (state::str_at(s, "wifi.connection"), state::str_at(s, "wifi.ssid")) {
+        (Some("connected"), Some(ssid)) => ssid.into(),
+        (Some("connecting"), Some(ssid)) => format!("Connecting to {ssid}…"),
+        _ => "Not connected".into(),
+    }
+}
+
 fn signal_words(signal: Option<f64>) -> Option<&'static str> {
     let s = signal?;
     Some(if s >= 70.0 {
@@ -350,6 +359,11 @@ mod tests {
         assert_eq!(wifi_hint(&w, false), "Off. Couch uses the network cable.");
         let w = json!({"wifi": {"available": true, "enabled": true, "connection": "connecting", "ssid": null}});
         assert_eq!(wifi_hint(&w, true), "Connecting to a network…");
+        assert_eq!(wifi_network(&w), "Not connected");
+        let w = json!({"wifi": {"enabled": true, "connection": "connected", "ssid": "Home"}});
+        assert_eq!(wifi_network(&w), "Home");
+        let w = json!({"wifi": {"enabled": true, "connection": "connecting", "ssid": "Café"}});
+        assert_eq!(wifi_network(&w), "Connecting to Café…");
         let s = json!({"services": {"tv": "running"}, "tv": {"power": "standby"}});
         assert_eq!(tv_connection(&s), "HDMI-CEC · TV in standby");
         assert_eq!(tv_connection(&json!({})), "No HDMI-CEC");

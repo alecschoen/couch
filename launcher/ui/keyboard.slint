@@ -1,0 +1,333 @@
+// The on-screen keyboard: a sheet that slides up from the bottom over a scrim, with what it's
+// for, the hints for the remote's keys, the text box, and four rows of keys. Rust
+// (src/keyboard.rs) owns the text, the page, focus and where each key goes, and fills
+// KeyboardData; this only draws it. Any screen can open it (the Wi-Fi screen does, for a
+// password): it's drawn over whatever is on top.
+//
+// The design is the Couch keyboard's Password board, at 1920×1080: 84px in from the sides,
+// 51px of padding above and 60px below, 33px between header, box and keys.
+
+import { Theme, Ease, Bump } from "tokens.slint";
+import { Line } from "components.slint";
+
+export struct KbKey {
+    // Where it is in its row, from the left of the keys (Rust lays the row out).
+    x: length,
+    w: length,
+    label: string,
+    // "", "shift", "caps" (Shift is on), "delete", "space" or "go" (before the label on Done).
+    icon: string,
+    // The design's .fn keys: words in the text face, not a letter in the display face.
+    small: bool,
+    // Done: tinted.
+    go: bool,
+    // "red" or "blue": the remote key that does the same.
+    dot: string,
+    focused: bool,
+}
+
+export struct KbRow {
+    keys: [KbKey],
+}
+
+export global KeyboardData {
+    // Open: up from the bottom. Everything else stays set while it slides away.
+    in property <bool> open;
+    // Above the title ("Wi-Fi · Living room"), and the title ("Password").
+    in property <string> kicker;
+    in property <string> title;
+    // In the empty box.
+    in property <string> placeholder;
+    // A password: a lock in the box, dots for the text, and the Show/Hide chip.
+    in property <bool> secret;
+    in property <bool> shown;
+    in property <bool> chip-focused;
+    // What the box shows (dots, for a hidden password), and whether there's nothing typed.
+    in property <string> text;
+    in property <bool> empty: true;
+    in property <[KbRow]> rows;
+}
+
+component KeyIcon inherits Image {
+    in property <string> name;
+    in property <color> tint;
+    colorize: tint;
+    image-rendering: smooth;
+    width: name == "space" ? 64px : name == "delete" ? 44px : name == "go" ? 36px : 40px;
+    height: name == "space" ? 40px : self.width;
+    source: name == "shift" ? @image-url("icons/shift.svg")
+        : name == "caps" ? @image-url("icons/caps.svg")
+        : name == "delete" ? @image-url("icons/delete.svg")
+        : name == "space" ? @image-url("icons/space.svg")
+        : @image-url("icons/go.svg");
+}
+
+// The colour dot of a remote key: 16px (24px in the hints), in a ring of the ink.
+component KeyDot inherits Rectangle {
+    in property <string> key;
+    in property <length> size: 16px;
+    in property <length> ring: 2px;
+    in property <color> ink;
+    width: size + 2 * ring;
+    height: self.width;
+    border-radius: self.width / 2;
+    background: ink;
+    Rectangle {
+        x: root.ring;
+        y: root.ring;
+        width: root.size;
+        height: root.size;
+        border-radius: root.size / 2;
+        background: root.key == "red" ? Theme.key-red : Theme.key-blue;
+    }
+}
+
+component KeyCap inherits Rectangle {
+    in property <KbKey> item;
+    property <color> fg: item.focused ? Theme.bg : Theme.ink;
+    height: 84px;
+    border-radius: 24px;
+    border-width: Theme.border;
+    border-color: item.focused ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+    background: item.focused ? Theme.ink : item.go ? Theme.ink.with-alpha(Theme.a-tint) : Theme.ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: Theme.s2;
+        if root.item.icon != "" && root.item.icon != "go": VerticalLayout {
+            alignment: center;
+            KeyIcon { name: root.item.icon; tint: root.fg; }
+        }
+        if root.item.label != "": Text {
+            text: root.item.label;
+            vertical-alignment: center;
+            font-family: root.item.small ? Theme.font-text : Theme.font-display;
+            font-size: root.item.small ? 29px : 42px;
+            font-weight: root.item.small ? 600 : 500;
+            color: root.fg;
+            animate color { duration: Theme.dur-quick; }
+        }
+        if root.item.icon == "go": VerticalLayout {
+            alignment: center;
+            KeyIcon { name: "go"; tint: root.fg; }
+        }
+    }
+    // The design's dot sits 12px from the top and 14px from the right, inside the border.
+    if root.item.dot != "": KeyDot {
+        x: parent.width - Theme.border - 14px - 16px - 2px;
+        y: Theme.border + 12px - 2px;
+        key: root.item.dot;
+        ink: root.fg;
+    }
+}
+
+// A remote hint in the header: a dot (or a bold word) and what it does.
+component Hint inherits HorizontalLayout {
+    in property <string> dot;
+    in property <string> bold;
+    in property <string> label;
+    spacing: Theme.s2;
+    if root.dot != "": VerticalLayout {
+        alignment: center;
+        KeyDot { key: root.dot; size: 24px; ring: 3px; ink: Theme.ink; }
+    }
+    if root.bold != "": Line {
+        leading: 1.21;
+        text: root.bold;
+        font-size: Theme.text-sm;
+        font-weight: 600;
+    }
+    Line {
+        leading: 1.21;
+        text: root.label;
+        font-size: Theme.text-sm;
+    }
+}
+
+// The Show/Hide chip: a pill with the eye.
+component ShowChip inherits Rectangle {
+    in property <bool> focused;
+    in property <bool> shown;
+    property <color> fg: focused ? Theme.bg : Theme.ink;
+    height: Theme.pill-h;
+    width: lay.preferred-width;
+    border-radius: self.height / 2;
+    border-width: Theme.border;
+    border-color: focused ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+    background: focused ? Theme.ink : Theme.ink.with-alpha(0);
+    animate background, border-color { duration: Theme.dur-quick; }
+    lay := HorizontalLayout {
+        padding-left: 36px + Theme.border;
+        padding-right: 36px + Theme.border;
+        spacing: Theme.s2;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 34px;
+                height: 34px;
+                source: @image-url("icons/eye.svg");
+                colorize: root.fg;
+                image-rendering: smooth;
+            }
+        }
+        Text {
+            text: root.shown ? "Hide" : "Show";
+            vertical-alignment: center;
+            font-family: Theme.font-text;
+            font-size: Theme.text-base;
+            font-weight: 500;
+            color: root.fg;
+            animate color { duration: Theme.dur-quick; }
+        }
+    }
+}
+
+// The text box: the lock, what's typed and the caret, or the placeholder.
+component TextBox inherits Rectangle {
+    height: 120px;
+    border-radius: Theme.radius-row;
+    border-width: Theme.border;
+    border-color: Theme.ink;
+    // The caret blinks: 1.1 s on and off, as the design's steps(1) animation.
+    property <bool> blink: true;
+    Timer {
+        interval: 550ms;
+        running: KeyboardData.open && !Theme.reduced;
+        triggered => {
+            root.blink = !root.blink;
+        }
+    }
+    // Inside: 36px to the left (after the border), 18px to the right, 24px between.
+    property <length> left: Theme.border + 36px + (KeyboardData.secret ? 44px + 24px : 0);
+    property <length> right: Theme.border + 18px + (KeyboardData.secret ? chip.width + 24px : 0);
+
+    if KeyboardData.secret: Image {
+        x: Theme.border + 36px;
+        y: (parent.height - self.height) / 2;
+        width: 44px;
+        height: 44px;
+        source: @image-url("icons/lock.svg");
+        colorize: Theme.ink;
+        image-rendering: smooth;
+    }
+
+    Rectangle {
+        x: root.left;
+        width: parent.width - root.left - root.right;
+        clip: true;
+        // Too long to fit: the end shows, where the caret is.
+        property <length> run: typed.preferred-width + 3px + 4px;
+        typed := Text {
+            x: min(0, parent.width - parent.run);
+            height: parent.height;
+            text: KeyboardData.text;
+            vertical-alignment: center;
+            font-family: Theme.font-display;
+            font-size: 54px;
+            font-weight: 500;
+            letter-spacing: 0.04 * 54px;
+            color: Theme.ink;
+        }
+        caret := Rectangle {
+            x: typed.x + typed.preferred-width + 3px;
+            y: (parent.height - self.height) / 2;
+            width: 4px;
+            height: 58px;
+            background: Theme.ink;
+            opacity: root.blink || Theme.reduced ? 1 : 0;
+        }
+        if KeyboardData.empty: Line {
+            x: caret.x + caret.width + 18px;
+            y: (parent.height - self.height) / 2;
+            text: KeyboardData.placeholder;
+            font-size: 35px;
+            opacity: Theme.a-faint;
+        }
+    }
+
+    chip := ShowChip {
+        x: parent.width - Theme.border - 18px - self.width;
+        y: (parent.height - self.height) / 2;
+        visible: KeyboardData.secret;
+        focused: KeyboardData.chip-focused;
+        shown: KeyboardData.shown;
+    }
+}
+
+export component KeyboardSheet inherits Rectangle {
+    property <bool> open: KeyboardData.open;
+    // The header: the kicker (27px, Inter's normal line), 6px, the title (45px, Space
+    // Grotesk's normal line).
+    property <length> header-h: 27px * 1.21 + 6px + 45px * 1.276;
+    property <length> keys-h: 4 * 84px + 3 * 15px;
+    property <length> sheet-h: 51px + header-h + 33px + 120px + 33px + keys-h + 60px;
+
+    Rectangle {
+        background: #050506.with-alpha(0.5);
+        opacity: root.open ? 1 : 0;
+        animate opacity { duration: Theme.dur-sheet; }
+    }
+
+    Rectangle {
+        x: 0;
+        y: root.open ? root.height - root.sheet-h : root.height;
+        animate y { duration: Theme.dur-sheet; easing: Ease.out; }
+        width: root.width;
+        height: root.sheet-h;
+        background: Theme.bg;
+
+        // ---- Header: what it's for on the left, the remote's keys on the right, along the
+        // bottom of the title.
+        Line {
+            x: 84px;
+            y: 51px;
+            leading: 1.21;
+            text: KeyboardData.kicker;
+            font-size: Theme.text-sm;
+            opacity: Theme.a-muted;
+        }
+        Line {
+            x: 84px;
+            y: 51px + 27px * 1.21 + 6px;
+            leading: 1.276;
+            text: KeyboardData.title;
+            font-family: Theme.font-display;
+            font-size: Theme.text-heading;
+            font-weight: 600;
+            letter-spacing: -0.01 * 45px;
+        }
+        HorizontalLayout {
+            x: parent.width - 84px - self.width;
+            y: 51px + root.header-h - self.height;
+            width: self.preferred-width;
+            height: 27px * 1.21;
+            spacing: Theme.s5;
+            opacity: Theme.a-muted;
+            Hint { dot: "red"; label: "Delete"; }
+            Hint { dot: "blue"; label: "Shift"; }
+            Hint { bold: "0–9"; label: "Numbers"; }
+            Hint { bold: "Back"; label: "to close"; }
+        }
+
+        TextBox {
+            x: 84px;
+            y: 51px + root.header-h + 33px;
+            width: parent.width - 168px;
+        }
+
+        // ---- The keys.
+        for row[r] in KeyboardData.rows: Rectangle {
+            x: 84px;
+            y: 51px + root.header-h + 33px + 120px + 33px + r * (84px + 15px);
+            width: parent.width - 168px;
+            height: 84px;
+            for k in row.keys: KeyCap {
+                x: k.x + (k.focused ? Bump.x : 0);
+                y: k.focused ? Bump.y : 0;
+                width: k.w;
+                item: k;
+            }
+        }
+    }
+}

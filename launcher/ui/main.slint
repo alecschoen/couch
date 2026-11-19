@@ -13,6 +13,11 @@ export { SettingsData, SettingsRow, SheetRow }
 import { BluetoothScreen, BluetoothData, BtRow } from "screens/bluetooth.slint";
 export { BluetoothData, BtRow }
 // END bluetooth imports
+// BEGIN wifi imports
+import { WifiScreen, WifiData, WifiRow } from "screens/wifi.slint";
+import { KeyboardSheet, KeyboardData, KbKey, KbRow } from "keyboard.slint";
+export { WifiData, WifiRow, KeyboardData, KbKey, KbRow }
+// END wifi imports
 // BEGIN system imports
 import { SystemScreen, SystemData } from "screens/system.slint";
 export { SystemData }
@@ -104,6 +109,11 @@ export component MainWindow inherits Window {
             entering: Router.entering;
         }
         // END bluetooth screen
+        // BEGIN wifi screen
+        if Router.top == "wifi": WifiScreen {
+            entering: Router.entering;
+        }
+        // END wifi screen
         // BEGIN system screen
         if Router.top == "startup" || Router.top == "opening" || Router.top == "error": SystemScreen {
             kind: Router.top;
@@ -111,6 +121,9 @@ export component MainWindow inherits Window {
         }
         // END system screen
     }
+
+    // ---- The on-screen keyboard (src/keyboard.rs), over the screen that opened it.
+    KeyboardSheet { }
 
     // ---- Toasts, top right, newest first, under couchd's volume panel when it's up (on the
     // web the panel joins the top of the toast stack and pushes them down).

@@ -1,4 +1,4 @@
-//! Couch's launcher, drawn natively with Slint: Home, Settings, Bluetooth and the system
+//! Couch's launcher, drawn natively with Slint: Home, Settings, Bluetooth, Wi-Fi and the system
 //! screens, talking to couchd over its WebSocket (docs/protocol.md).
 //!
 //!   couch-launcher [ws://127.0.0.1:8765/ws]     (or COUCH_URL)
@@ -11,6 +11,7 @@ slint::include_modules!();
 mod app;
 mod couch;
 mod idle;
+mod keyboard;
 mod overlay;
 mod screens;
 #[cfg(feature = "window")]
