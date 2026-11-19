@@ -1,7 +1,8 @@
 # Couch: how to use it
 
-Couch is the box behind the TV. It plays YouTube and Plex, and sends the sound to the TV,
-headphones or a Bluetooth speaker. You use it with the TV's own remote.
+Couch is the box behind the TV. It plays YouTube and Plex, and music from your phone
+(Spotify and AirPlay), and sends the sound to the TV, headphones or a Bluetooth speaker. You
+use it with the TV's own remote.
 
 ## Turning it on
 
@@ -49,7 +50,7 @@ The top right says where the sound is going. To change it, go to **Audio**, pres
 pick one, or just press Red.
 
 If nobody touches the remote for 5 minutes, Home dims to a clock. Any button brings Home back
-as you left it; that press does nothing else. Nothing dims while a video plays.
+as you left it; that press does nothing else. Nothing dims while a video or music plays.
 
 ## YouTube
 
@@ -83,6 +84,31 @@ the sound goes back to it. When it's off, the sound plays from the TV.
 
 To stop using a speaker, choose it under Your devices, hold OK, and pick **Disconnect** or
 **Forget**.
+
+## Music from your phone (Spotify and AirPlay)
+
+Couch is a speaker too. Your phone sees it as **Couch**, as long as the phone is on the same
+network (Wi-Fi at home) as Couch.
+
+- **Spotify**: start a song, tap the speaker icon at the bottom of the player, and pick
+  **Couch**. This needs Spotify Premium; the free plan can't play to speakers. The first
+  time, Couch may take a few seconds to show up.
+- **iPhone, iPad or Mac**: open Control Center (on a Mac, the sound menu in the menu bar),
+  tap the AirPlay icon, and pick **Couch**. No password.
+
+The music plays wherever Couch's sound goes: the TV, headphones or a Bluetooth speaker. The
+TV remote's volume buttons work as usual, and so does the phone's volume.
+
+When music starts, Couch turns the TV on if it's off and goes to Home, closing YouTube or
+Plex. Opening YouTube or Plex while music plays stops the music, and if someone else starts
+playing from another phone, the first one stops.
+
+On Home, the remote's Play, Pause, ⏪ and ⏩ control the music from an iPhone or Mac. Couch
+can't pause or skip Spotify from the remote: use the phone. To stop, pause on the phone, or
+pick another speaker there.
+
+Couch doesn't dim to the clock or turn the TV off while music plays, and doesn't update
+itself then either.
 
 ## Settings
 

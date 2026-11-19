@@ -33,6 +33,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
 | `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
+| `speaker` | Couch as a Spotify Connect and AirPlay speaker: what a phone is playing to it. See [Speaker](#speaker) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
 `system` also has `url`, the launcher's own address.
@@ -44,8 +45,9 @@ done regardless, so nothing holds Home back for long. After a couchd restart it 
 
 `idle` drives the idle clock. When it turns true the launcher covers itself with a dark
 clock and date that drifts every 3 minutes; dimming and the clock are the same step, set by
-`display.dim_after`. Only the launcher goes idle, never while an app is in front. Activity is
-any `key`, a change of `apps.foreground`, the TV being turned back on, or `idle.activity`.
+`display.dim_after`. Only the launcher goes idle, never while an app is in front or music
+plays to Couch (`speaker.playing`). Activity is any `key`, a change of `apps.foreground`,
+music starting or stopping, the TV being turned back on, or `idle.activity`.
 The `key` that wakes the clock is sent before the `idle: false` patch, so the launcher drops
 that press instead of acting on it. With `tv.off_when_idle` on, the TV is put in standby once
 the launcher has had no activity for `tv_off_after` (2 hours), once each time.
@@ -118,6 +120,57 @@ service, does the work and couchd reads its status file:
   a toast ("Updated to v0.2.0", or "Couldn't update to v0.3.0. Couch stayed on v0.2.0") the
   next time the launcher is on the TV, then sends `updates.announced`. Null after that.
 
+### Speaker
+
+`speaker` (#80, `couchd/speaker.py`) is what a phone plays to Couch. Phones see a speaker
+called "Couch" two ways, each a receiver: Spotify Connect (librespot, `couch-spotify.service`)
+and AirPlay (shairport-sync, `couch-airplay.service`). Both play through PipeWire like
+everything else, so the sound goes to `audio.current` and the volume buttons work on it.
+
+```json
+"speaker": {"name": "Couch", "receivers": {"spotify": "on", "airplay": "on"},
+            "source": "airplay", "playing": true,
+            "title": "Clair de Lune", "artist": "Claude Debussy", "album": "Suite bergamasque",
+            "device": "Alec's iPhone", "cover": "/api/file/speaker-cover?v=airplay-3",
+            "duration_ms": 300000, "position_ms": 15000, "position_at": 1794780000123,
+            "controls": ["play_pause", "play", "pause", "next", "previous", "disconnect"]}
+```
+
+- `receivers`: each receiver's state: `on`, `off` (the `speaker.enabled` setting is off),
+  `missing` (not installed: librespot is a separate build) or `failed` (its unit wouldn't
+  start or stop).
+- `source`: `spotify`, `airplay`, or null while nothing is playing to Couch. When both have
+  something, it's the one that started playing last. All the other keys are that source's.
+- `playing`: playing rather than paused. A paused source stays until the phone lets go.
+- `title`, `artist`, `album`: strings or null. They can be null while `source` is set: after
+  a couchd restart they're back at the next track or pause, and AirPlay sends them a moment
+  after the music starts. For a Spotify podcast `artist` is the show and `album` is null.
+- `device`: the phone's name, when the receiver says it (AirPlay's device name, Spotify's
+  Connect client), else null.
+- `cover`: where to fetch the cover art (`GET` it from couchd: JPEG or PNG), or null. The
+  `v` changes with each new picture, so a new value means fetch again. A 404 means it's gone.
+- `duration_ms`, `position_ms`: null when unknown. `position_ms` was the position at
+  `position_at` (Unix time in ms). While `playing`, the position now is `position_ms + (now -
+  position_at)`, up to `duration_ms`; while paused it stays put. A new `position_at` comes
+  with every seek, pause, resume and track.
+- `controls`: what the commands below can do right now. `disconnect` always; AirPlay adds
+  `play_pause`, `play`, `pause`, `next` and `previous` once it knows how to reach the phone
+  (DACP: the phone's address, token and port, a second or two after it connects). Spotify
+  never has more: librespot has no way to take commands, so Couch can't pause or skip
+  Spotify, only end the session. Pausing and skipping Spotify is on the phone.
+
+When music starts (a source starts playing), with `speaker.take_over` on: the TV is woken
+and switched to Couch if it isn't showing it (`tv.power_on`), and if an app is in front or
+opening, couchd goes home (`apps.home`). Opening YouTube or Plex while music plays stops the
+music. A phone starting while the other receiver plays stops that one. "Stops" is a pause
+where the source can pause (AirPlay with `pause` in `controls`), else a disconnect.
+
+With the launcher in front and something on `source`, the remote's media keys go to it:
+`play`, `pause`, `play_pause`, `stop` (a pause), `fast_forward` (next) and `rewind`
+(previous). They still come as `key` messages too. With Spotify they do nothing.
+
+Updates (#24) wait while `playing`, and so do the idle clock and `tv.off_when_idle`.
+
 **`toast`**: a short notice to show on screen, for 2.4 s.
 
 ```json
@@ -171,7 +224,8 @@ the TV remote.
 When the TV goes to standby, couchd sends a `pause` key, so whatever is playing stops: the
 `pause` key pauses a Chromium app in front over DevTools (every `video` and `audio` on the
 page) and Kodi over its JSON-RPC (127.0.0.1:9090, `Player.PlayPause` with `play: false`), as
-well as being typed into the app.
+well as being typed into the app. On the launcher it pauses music playing to Couch from
+an iPhone or Mac (see [Speaker](#speaker)).
 
 **`volume_changed`**: couchd changed the volume or mute, for the volume panel (#18).
 
@@ -241,7 +295,11 @@ The text `ping` gets `pong`.
 | `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
-| `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
+| `speaker.play_pause`, `.play`, `.pause`, `.next`, `.previous` | Ask the phone playing to Couch to do that ([Speaker](#speaker)). An error when nothing is playing, or the source can't (it's not in `speaker.controls`: Spotify never, AirPlay until it knows the phone's DACP port) |
+| `speaker.disconnect` | End the session: the phone stops playing to Couch. Restarts that receiver, which any phone can play to again a few seconds later |
+| `speaker.event` | `source` (`spotify` or `airplay`), `event`, `env` (an object of strings). From `couch-speaker-event` (system/), which librespot runs for each event (`PLAYER_EVENT`, with its variables in `env`) and the receivers' units run with `receiver_stopped` when they stop. Not for screens |
+| `speaker.dev.play`, `speaker.dev.stop` | Dev mode only: `source` (`airplay` by default). A pretend phone starts playing to Couch (again: resumes), or goes |
+| `idle.now` | Go idle (the idle clock) at once. Only on the launcher, with no music playing. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
 | `ui.first_frame` | `at` (ms on the page's clock, optional). The launcher sends it once per page load, after its first frame is drawn. couchd then ends the session's boot splash, if it's still up (#23) |
 | `ui.drawn` | `id`. The launcher's answer to a `draw_check` |
 | `apps.dev.kodi_exit` | Dev mode only: the pretend Kodi exits. `crashed` (bool, optional) |
@@ -351,7 +409,9 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `audio.ui_sounds` | `on`, `tv`, `off` | `on` | UI sounds (#49), the launcher's and Plex's own: on any output, only on the TV speakers, or off |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
-| `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
+| `speaker.enabled` | bool | true | Couch is a Spotify Connect and AirPlay speaker (#80): the receivers run. Off stops them, and phones no longer see Couch |
+| `speaker.take_over` | bool | true | When music starts: wake the TV and go home from an app; opening an app stops the music. Off: music plays in the background, whatever is on screen |
+| `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher (and no music playing) |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |
 | `updates.overnight` | bool | true | Install updates overnight (#24): read by couch-update's nightly run |
 
@@ -374,6 +434,7 @@ keys. To add a setting, add it to `SCHEMA` in `couchd/settings.py`; services rea
 | `POST` | `/api/toast` | Body `{"text": "...", "level": "info", "icon": "check"}` (`level`, `icon` optional) → 204; shows a toast over whatever is in front |
 | `GET` | `/api/commands` | Names of the commands available right now |
 | `POST` | `/api/command/{name}` | Body = args (optional) → `{"ok": true, "data"}`, or 400 with `{"ok": false, "error"}` |
+| `GET` | `/api/file/{name}` | A file couchd makes, with its content type, or 404. One so far: `speaker-cover`, the cover art of what's playing to Couch (`speaker.cover` has the URL to use) |
 
 ```bash
 curl -s localhost:8765/api/health

@@ -91,6 +91,11 @@ def test_busy_reason():
     assert busy_reason(in_use, nightly=False) is None
     assert busy_reason(in_use, nightly=True) == "Couch is in use"
     assert busy_reason({**in_use, "idle": {"idle": True}}, nightly=True) is None
+    # music from a phone (#80), on the launcher, TV on or off
+    music = {**IDLE, "speaker": {"playing": True}}
+    assert busy_reason(music, nightly=False) == "music is playing"
+    assert busy_reason({**music, "tv": {"power": "standby"}}, nightly=True) == "music is playing"
+    assert busy_reason({**IDLE, "speaker": {"playing": False}}, nightly=True) is None
     off = {**IDLE, "settings": {"updates.overnight": False}}
     assert busy_reason(off, nightly=True) == "overnight updates are off"
     assert busy_reason(off, nightly=False) is None

@@ -106,10 +106,73 @@ def test_polkit_rule_covers_only_our_units():
         "couch-session.service",
         "couch-chromium.service",  # the native launcher's Chromium for YouTube
         "couch-kodi.service",
+        "couch-spotify.service",  # the speaker's receivers (#80)
+        "couch-airplay.service",
         "couch-update-now.service",  # Check now (#24): start only
     }
     assert 'subject.user !== "couch"' in rule
     assert 'unit === "couch-update-now.service" && verb === "start"' in rule
+
+
+def test_the_speaker_is_installed():
+    """#80: librespot and shairport-sync as couch, started by couchd, both called Couch."""
+    script = INSTALL.read_text()
+    packages = re.search(r"^PACKAGES=\((.*?)^\)", script, re.M | re.S).group(1)
+    assert re.search(r"^\s+shairport-sync\b", packages, re.M)
+    assert "librespot" not in packages  # not packaged: librespot/build.sh
+    units = re.search(r"^SPEAKER_UNITS=\((.*)\)$", script, re.M).group(1).split()
+    assert units == ["couch-spotify.service", "couch-airplay.service"]
+    for name in ("couch-spotify", "couch-airplay", "couch-speaker-event"):
+        assert f'"$SRC/system/{name}" "$PREFIX/bin/{name}" 755' in script, name
+    assert '"$SRC/system/shairport-sync.conf" "$PREFIX/share/shairport-sync.conf" 644' in script
+    assert '"$SRC/librespot/dist/librespot-$(uname -m)" "$PREFIX/bin/librespot" 755' in script
+    assert re.search(r"^    install_speaker$", script, re.M)
+    assert re.search(r"^    uninstall_speaker$", script, re.M)
+    # the package's own AirPlay speaker is masked, and unmasked again on uninstall
+    assert 'systemctl -q mask "$SHAIRPORT_PACKAGE_UNIT"' in script
+    assert "SHAIRPORT_PACKAGE_UNIT=shairport-sync.service" in script
+    for unit, wrapper in zip(units, ("couch-spotify", "couch-airplay"), strict=True):
+        text = (ROOT / "system" / unit).read_text()
+        assert "User=couch" in text
+        assert f"ExecStart=/opt/couch/bin/{wrapper}" in text
+        source = wrapper.removeprefix("couch-")
+        assert f"ExecStopPost=-/opt/couch/bin/couch-speaker-event {source} receiver_stopped" in text
+        assert not re.search(r"^\[Install\]", text, re.M)  # only couchd starts them
+        # both play into the couch session's PipeWire
+        wrap = (ROOT / "system" / wrapper).read_text()
+        assert 'export XDG_RUNTIME_DIR="$RUNTIME"' in wrap
+        assert "pulse/native" in wrap
+    spotify = (ROOT / "system" / "couch-spotify").read_text()
+    for flag in (
+        "--name Couch",
+        "--backend pulseaudio",
+        "--zeroconf-backend avahi",
+        "--system-cache /var/lib/couch/spotify",
+        "--disable-audio-cache",
+        '--onevent "/opt/couch/bin/couch-speaker-event spotify"',
+    ):
+        assert flag in spotify, flag
+    assert "StateDirectory=couch/spotify" in (ROOT / "system" / "couch-spotify.service").read_text()
+    airplay = (ROOT / "system" / "couch-airplay.service").read_text()
+    assert "RuntimeDirectory=couch-speaker" in airplay
+    conf = (ROOT / "system" / "shairport-sync.conf").read_text()
+    assert 'name = "Couch";' in conf
+    assert 'output_backend = "pa";' in conf
+    assert 'pipe_name = "/run/couch-speaker/airplay-metadata";' in conf
+    assert "password" not in conf.replace("No password", "")
+    # the pipe couchd reads is the one shairport-sync writes
+    from couchd import shairport
+
+    assert str(shairport.PIPE) == "/run/couch-speaker/airplay-metadata"
+    # the librespot build is pinned
+    build = (ROOT / "librespot" / "build.sh").read_text()
+    assert re.search(r"^VERSION=\d+\.\d+\.\d+$", build, re.M)
+    assert re.search(r"^SHA256=[0-9a-f]{64}$", build, re.M)
+    assert "--locked" in build
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "librespot/dist/librespot-aarch64"], cwd=ROOT, check=False
+    )
+    assert ignored.returncode == 0
 
 
 def test_updates_are_installed():

@@ -146,9 +146,10 @@ def is_newer(candidate: str, current: str | None) -> bool:
 def busy_reason(snapshot: dict[str, Any], *, nightly: bool) -> str | None:
     """Why not to update now, from couchd's /api/state; None when it may.
 
-    Playing means an app (YouTube, Plex) is in front while the TV is on. With the TV in
-    standby couchd has paused it. The nightly run also waits for nobody to be using Couch:
-    the TV off, or the launcher gone idle."""
+    Playing means an app (YouTube, Plex) is in front while the TV is on, or music playing to
+    Couch from a phone (Spotify, AirPlay), TV on or not. With the TV in standby couchd has
+    paused the app. The nightly run also waits for nobody to be using Couch: the TV off, or
+    the launcher gone idle."""
     apps = snapshot.get("apps") or {}
     tv = snapshot.get("tv") or {}
     idle = snapshot.get("idle") or {}
@@ -161,6 +162,8 @@ def busy_reason(snapshot: dict[str, Any], *, nightly: bool) -> str | None:
         return "Plex is open"
     if foreground != "launcher" and not tv_off:
         return "something is playing"
+    if (snapshot.get("speaker") or {}).get("playing"):
+        return "music is playing"
     if nightly:
         if settings.get("updates.overnight") is False:
             return "overnight updates are off"

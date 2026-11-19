@@ -1,0 +1,32 @@
+#!/bin/sh
+# couch-spotify.service: librespot, so Couch is a Spotify Connect speaker called "Couch" (#80).
+#
+# It plays through PipeWire's PulseAudio server in the couch user's session, like everything
+# else on Couch, so the sound goes to the output couchd picked and the TV remote's volume
+# works on it. couchd starts this unit (and couchd/librespot.py reads its events) while the
+# speaker.enabled setting is on. Spotify Connect needs Spotify Premium.
+#
+# Audio isn't cached (the SD card). librespot keeps the credentials the phone hands it in
+# /var/lib/couch/spotify, and nothing else of Spotify's is stored.
+RUNTIME="/run/user/$(id -u)"
+export XDG_RUNTIME_DIR="$RUNTIME"
+# The session's PipeWire may not be up yet at boot, or may be restarting.
+tries=0
+while [ ! -S "$RUNTIME/pulse/native" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 60 ]; then
+        echo "couch-spotify: no PipeWire at $RUNTIME/pulse/native (is the session up?)" >&2
+        exit 1
+    fi
+    sleep 1
+done
+exec /opt/couch/bin/librespot \
+    --name Couch \
+    --device-type speaker \
+    --backend pulseaudio \
+    --bitrate 320 \
+    --initial-volume 100 \
+    --zeroconf-backend avahi \
+    --system-cache /var/lib/couch/spotify \
+    --disable-audio-cache \
+    --onevent "/opt/couch/bin/couch-speaker-event spotify"

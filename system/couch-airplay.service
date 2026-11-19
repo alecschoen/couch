@@ -1,0 +1,24 @@
+[Unit]
+Description=Couch AirPlay speaker (shairport-sync, started by couchd)
+Documentation=https://github.com/alecschoen/couch
+After=network-online.target avahi-daemon.service
+Wants=avahi-daemon.service
+# The package's own shairport-sync.service is masked by install.sh: one "Couch" is enough.
+Conflicts=shairport-sync.service
+
+[Service]
+Type=simple
+User=couch
+ExecStart=/opt/couch/bin/couch-airplay
+# However shairport-sync ends, couchd hears that nothing plays any more.
+ExecStopPost=-/opt/couch/bin/couch-speaker-event airplay receiver_stopped
+# The metadata pipe couchd reads (couchd/shairport.py). Kept across restarts so couchd's open
+# pipe stays the one shairport-sync writes to; only couch can get into it.
+RuntimeDirectory=couch-speaker
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
+
+# No [Install]: couchd starts this unit while the speaker.enabled setting is on.

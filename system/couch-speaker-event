@@ -1,0 +1,93 @@
+#!/usr/bin/python3 -I
+"""couch-speaker-event SOURCE [EVENT]: tell couchd what a speaker receiver did (#80).
+
+librespot runs `couch-speaker-event spotify` for each of its player events (--onevent),
+with the event in PLAYER_EVENT and its details in other environment variables. The
+couch-spotify and couch-airplay units also run it with EVENT `receiver_stopped` when they
+stop. It posts {"source", "event", "env"} to couchd's speaker.event command
+(couchd/speaker.py) and always exits 0: librespot waits for it, and a couchd that isn't
+listening mustn't hold up the music.
+
+Standard library only. couchd's port is server.port in /etc/couch/config.toml (8765);
+COUCH_API overrides the whole address (the tests).
+"""
+
+import json
+import os
+import sys
+import tomllib
+import urllib.request
+
+CONFIG = "/etc/couch/config.toml"
+TIMEOUT = 2.0
+# What couchd reads (couchd/librespot.py); the rest of the environment stays here.
+KEYS = (
+    "TRACK_ID",
+    "URI",
+    "NAME",
+    "ARTISTS",
+    "ALBUM",
+    "SHOW_NAME",
+    "ITEM_TYPE",
+    "COVERS",
+    "DURATION_MS",
+    "POSITION_MS",
+    "CLIENT_NAME",
+)
+# Events couchd has no use for: not worth a request each.
+IGNORED = frozenset(
+    {
+        "preloading",
+        "preload_next",
+        "loading",
+        "end_of_track",
+        "volume_changed",
+        "play_request_id_changed",
+        "shuffle_changed",
+        "repeat_changed",
+        "auto_play_changed",
+        "filter_explicit_content_changed",
+        "unavailable",
+        "sink",
+    }
+)
+
+
+def api() -> str:
+    if os.environ.get("COUCH_API"):
+        return os.environ["COUCH_API"].rstrip("/")
+    port = 8765
+    try:
+        with open(CONFIG, "rb") as f:
+            port = int(tomllib.load(f).get("server", {}).get("port", port))
+    except (OSError, ValueError, TypeError, AttributeError, tomllib.TOMLDecodeError):
+        pass
+    return f"http://127.0.0.1:{port}"
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        print("usage: couch-speaker-event SOURCE [EVENT]", file=sys.stderr)
+        return 0
+    source = argv[1]
+    event = argv[2] if len(argv) > 2 else os.environ.get("PLAYER_EVENT", "")
+    if not event or event in IGNORED:
+        return 0
+    env = {k: os.environ[k] for k in KEYS if k in os.environ}
+    body = json.dumps({"source": source, "event": event, "env": env}).encode()
+    request = urllib.request.Request(
+        f"{api()}/api/command/speaker.event",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            response.read()
+    except OSError as e:  # couchd down, or it said no (HTTPError is an OSError)
+        print(f"couch-speaker-event: couchd didn't take {event!r}: {e}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

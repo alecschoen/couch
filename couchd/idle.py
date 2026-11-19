@@ -2,16 +2,18 @@
 
 The couch counts as idle when nobody has touched the remote for `display.dim_after` seconds
 (a setting, 5 minutes by default; 0 = never) and the launcher is in front. While YouTube or
-Plex is up nothing goes idle: an hour of film has no key presses.
+Plex is up nothing goes idle: an hour of film has no key presses. Nor while music plays to
+Couch from a phone (`speaker.playing`, couchd/speaker.py): the launcher shows it.
 
 Dim and the clock are one thing: "Dim to clock after" on the Settings screen. When `idle`
 turns true the launcher covers itself with the dark idle clock (launcher/src/idle.rs); there is no
 separate dimming step and no second timer.
 
-Activity is any remote key (`key` messages on the bus), a change of app, the TV being turned
-back on, or the UI saying so with `idle.activity`. The key that wakes the clock reaches the
-UI before `idle` turns false (the bus is in order, and this service hears it at the same
-time as the UI), so the launcher can swallow it: that press only wakes the clock.
+Activity is any remote key (`key` messages on the bus), a change of app, music starting or
+stopping, the TV being turned back on, or the UI saying so with `idle.activity`. The key
+that wakes the clock reaches the UI before `idle` turns false (the bus is in order, and this
+service hears it at the same time as the UI), so the launcher can swallow it: that press
+only wakes the clock.
 
 With the `tv.off_when_idle` setting on, the TV is put in standby once the launcher has gone
 `tv_off_after` (2 hours) without activity, once per idle stretch, and not if the TV is in
@@ -61,6 +63,7 @@ class IdleService(Service):
         self._idle = False
         self._tv_off_done = False  # this idle stretch already turned the TV off
         self._foreground: str | None = None
+        self._music = False  # something plays to Couch from a phone
         self._tv_power: str | None = None
         self._listeners: list[Callable[[bool], None]] = []
         self._poke = asyncio.Event()
@@ -100,6 +103,7 @@ class IdleService(Service):
     async def start(self) -> None:
         self._foreground = self.ctx.state.get("apps").get("foreground")
         self._tv_power = self.ctx.state.get("tv").get("power")
+        self._music = bool(self.ctx.state.get("speaker").get("playing"))
         self.ctx.commands.add("idle.activity", self._activity_command)
         self.ctx.commands.add("idle.now", self._now_command)
         self._unwatch = self.ctx.settings.on_change(self._setting_changed)
@@ -179,8 +183,12 @@ class IdleService(Service):
                 self.activity()
             elif kind == "state":
                 apps, tv = data.get("apps", {}), data.get("tv", {})
+                speaker = data.get("speaker", {})
                 if "foreground" in apps and apps["foreground"] != self._foreground:
                     self._foreground = apps["foreground"]
+                    self.activity()
+                if "playing" in speaker and bool(speaker["playing"]) != self._music:
+                    self._music = bool(speaker["playing"])
                     self.activity()
                 if "power" in tv and tv["power"] != self._tv_power:
                     was, self._tv_power = self._tv_power, tv["power"]
@@ -190,7 +198,8 @@ class IdleService(Service):
                         self._poke.set()
 
     def _on_launcher(self) -> bool:
-        return self._foreground in (None, "launcher")
+        """The launcher is in front with nothing playing: it may go idle."""
+        return self._foreground in (None, "launcher") and not self._music
 
     def _setting_changed(self, key: str, value) -> None:
         if key == TV_OFF or (key == DIM_AFTER and self._idle_after is None):
@@ -217,5 +226,5 @@ class IdleService(Service):
 
     async def _now_command(self, args: dict[str, Any]) -> None:
         if not self._on_launcher():
-            raise CommandError("Only on the launcher")
+            raise CommandError("Only on the launcher, with no music playing")
         self.go_idle()

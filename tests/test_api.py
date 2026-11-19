@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from couchd.api import create_app
+from couchd.api import Files, create_app
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.state import LiveState
@@ -135,6 +135,25 @@ async def echo(args):
         raise BackendError("speaker said no")
     await asyncio.sleep(args.get("delay", 0))
     return {"echo": args}
+
+
+async def test_files_are_served_while_their_service_has_them(bus, state, commands):
+    files = Files()
+    app = create_app(bus=bus, state=state, commands=commands, files=files)
+    async with TestClient(TestServer(app, host="127.0.0.1")) as client:
+        assert (await client.get("/api/file/speaker-cover")).status == 404
+        cover: list = [None]
+        files.add("speaker-cover", lambda: cover[0])
+        assert (await client.get("/api/file/speaker-cover")).status == 404  # nothing now
+        cover[0] = (b"\x89PNG...", "image/png")
+        response = await client.get("/api/file/speaker-cover?v=airplay-3")
+        assert response.status == 200
+        assert response.content_type == "image/png"
+        assert await response.read() == b"\x89PNG..."
+        with pytest.raises(ValueError):
+            files.add("speaker-cover", lambda: None)
+        files.remove("speaker-cover")
+        assert (await client.get("/api/file/speaker-cover")).status == 404
 
 
 async def test_command_over_rest(client, commands):

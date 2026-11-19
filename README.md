@@ -19,6 +19,7 @@
 - **One remote.** The TV's remote reaches the Pi over HDMI-CEC: arrows, OK, Back, the colour keys and volume all work, in the launcher, in YouTube and in Plex. Hold Back to go home from anywhere, press Blue for the quick menu ([the user guide](docs/user-guide.md) has every key).
 - **YouTube** is YouTube's own TV interface, with hardware video decoding and your account. Back on its home screen takes you home.
 - **Plex** opens straight into your Plex library (Plex for Kodi, with Kodi hidden), and leaving it lands you back on Home.
+- **A speaker for your phone:** Couch shows up as "Couch" in Spotify (Spotify Connect, with Premium) and in the AirPlay menu of iPhones and Macs. Music wakes the TV and plays through whatever output Couch's sound is on.
 - **Sound where you want it:** TV speakers, the headphone jack or a Bluetooth speaker, switched from Home or with the Red key, and the TV remote's volume keys follow it.
 - **It looks after itself:** the TV turns on with the Pi and off when it's idle, a silent boot with an animation instead of text, overnight updates when nobody's watching, and it survives power cuts.
 

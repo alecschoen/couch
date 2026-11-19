@@ -11,7 +11,8 @@ Everything `install.sh` puts outside `/opt/couch`: systemd units, the cage sessi
 - `couch-kodi.service`: Kodi on tty2 for Plex. Not enabled: couchd starts it. It switches the console to tty2 as it starts and back to tty1 however it ends (`couch-kodi-vt`, as root), so `couch-session.service` waits behind it, paused by logind, and leaving Plex shows the launcher as it was, without starting the session again. It also starts the session when Kodi exits, in case it wasn't running, so the launcher comes back even without couchd.
 - `couch-kodi`: the Kodi command line (DRM/GBM, profile in `/var/lib/couch/kodi`, filled by #22)
 - `couch-kodi-vt`: the console switches around Kodi. tty2 goes into graphics mode before it's shown, so no black console shows between the Opening screen and Kodi's splash, and the switch back waits until the kernel has released Kodi's framebuffers, so cage can take the screen again (text mode first: the kernel ignores a switch away from a console in graphics mode). The unit has no `TTYReset`, which would put tty2 back in text mode as Kodi starts.
-- `couch.rules`: polkit rules letting the `couch` user start, stop and reset those two units, reboot or power off the Pi (Settings › Power), and switch Wi-Fi on and off (Settings › Network), nothing else. Installed as `/etc/polkit-1/rules.d/50-couch.rules`.
+- `couch-spotify.service`, `couch-spotify`, `couch-airplay.service`, `couch-airplay`, `shairport-sync.conf`, `couch-speaker-event`: Couch as a Spotify Connect and AirPlay speaker (#80), see [Speaker](#speaker). Not enabled: couchd starts them.
+- `couch.rules`: polkit rules letting the `couch` user start, stop and reset the session, Chromium, Kodi and speaker units, reboot or power off the Pi (Settings › Power), and switch Wi-Fi on and off (Settings › Network), nothing else. Installed as `/etc/polkit-1/rules.d/50-couch.rules`.
 - `config.example.toml`: every config key with its default
 - `couch-bootfiles`: edits `cmdline.txt` and `config.txt` in `/boot/firmware`, and undoes exactly those edits. Each change has an owner (`boot` for the silent boot), so other boot settings can come and go on their own. It keeps the first copy of each file as `*.couch-orig`. Installed as `/opt/couch/bin/couch-bootfiles`; run it with `show` to see what Couch changed.
 - `boot-config.txt`: the silent boot's lines for `config.txt` (`disable_splash=1`, `disable_overscan=1`), in a `# >>> couch:boot` block at the end.
@@ -39,6 +40,24 @@ To look at the same thing couchd sees, on the Pi:
 ```bash
 sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) pactl list sinks short
 sudo -u couch XDG_RUNTIME_DIR=/run/user/$(id -u couch) wpctl status
+```
+
+## Speaker
+
+Phones see Couch as a speaker called "Couch" (#80): in Spotify's device list (Spotify Connect, which needs **Spotify Premium**) and in the AirPlay menu of iPhones, iPads and Macs. couchd runs both receivers while the `speaker.enabled` setting is on (the default), shows what they play in the `speaker` live state, and wakes the TV and goes home when music starts (`speaker.take_over`; `couchd/speaker.py`, [docs/protocol.md](../docs/protocol.md#speaker)).
+
+- **AirPlay** is Debian's `shairport-sync` (4.3.7 in trixie), from apt. Debian builds it for classic AirPlay (AirPlay 1, no NQPTP), which every Apple device still plays to; AirPlay 2's multi-room isn't there. `couch-airplay.service` runs it with `/opt/couch/share/shairport-sync.conf` (`shairport-sync.conf` here): the name "Couch", no password, PulseAudio output, and the metadata pipe `/run/couch-speaker/airplay-metadata`, which couchd reads for the title, artist, album, cover art and position (`couchd/shairport.py`). The play, pause and skip buttons go back to the phone over DACP, once Avahi has found the phone's control port. The package's own `shairport-sync.service` (named after the Pi) is masked by `install.sh`, and unmasked by `--uninstall`.
+- **Spotify Connect** is [librespot](https://github.com/librespot-org/librespot). Neither Debian nor Raspberry Pi OS packages it for trixie, and Couch adds no third-party apt repositories or install scripts, so `librespot/build.sh` builds it on a PC, in Docker, the way `launcher/cross-build.sh` builds the launcher: one pinned release (0.8.0), its source tarball checked against a sha256, its `Cargo.lock` (`--locked`), and trixie's own Rust (1.85) with the `pulseaudio-backend`, `with-avahi` and `rustls-tls-native-roots` features. The result is `librespot/dist/librespot-aarch64` (about 16 MB), which `install.sh` installs as `/opt/couch/bin/librespot` (`scripts/deploy.sh` builds it the first time). Without it there's no Spotify, AirPlay still works, and the `speaker.receivers` state says `missing`. To update, change `VERSION` and `SHA256` in `build.sh`. `couch-spotify.service` runs it as "Couch" (`--device-type speaker`, 320 kbit/s). Phones find it through Avahi (zeroconf) and hand it their login; librespot keeps those credentials in its own cache, `/var/lib/couch/spotify` (mode 700), and nothing else of Spotify's is stored. No audio cache, for the SD card. For each event librespot runs `couch-speaker-event spotify`, which posts it to couchd (`speaker.event`, `couchd/librespot.py`); couchd fetches the cover from Spotify itself. librespot takes no commands from outside, so couchd can't pause or skip Spotify, only end the session (by restarting the unit).
+
+Both units run as `couch` and play into the PipeWire of its session through the PulseAudio socket (`/run/user/<uid>/pulse/native`), like the launcher and Chromium. So the sound goes to whatever output couchd picked (WirePlumber moves new streams to the default sink) and the TV remote's volume buttons work on it. The phone's own volume is applied in the stream, on top of that. Each wrapper waits up to a minute for the session's PipeWire. Both units restart when they crash, and their `ExecStopPost` runs `couch-speaker-event <source> receiver_stopped`, so couchd never shows "playing" for a receiver that's gone. `couch-speaker-event` uses Python's standard library only and always exits 0, so a couchd that isn't listening never holds up librespot.
+
+On the Pi:
+
+```bash
+systemctl status couch-spotify couch-airplay
+journalctl -b -u couch-spotify -u couch-airplay
+avahi-browse -rt _spotify-connect._tcp; avahi-browse -rt _raop._tcp
+curl -s localhost:8765/api/state | python3 -m json.tool | grep -A20 '"speaker"'
 ```
 
 ## Wi-Fi
