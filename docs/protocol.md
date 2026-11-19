@@ -161,7 +161,7 @@ Some keys are couchd's, wherever you are, and are never typed into apps: `home` 
 to the launcher, `red` moves the sound to the next available output, `blue` opens the
 quick menu (see [Overlays](#overlays)), and `green` and `yellow` are kept for later. Screens shouldn't give
 `red` or `blue` another meaning, except while they've claimed the raw keys: then couchd's
-colour keys stand down (`remote.raw_keys`, for Settings' remote test). Their `key` messages
+colour keys stand down (`remote.raw_keys`, for Settings' remote test and the on-screen keyboard). Their `key` messages
 say `raw: true`, Red doesn't move the sound and Blue doesn't open the quick menu, so the
 screen gets them like any other key; `home` still goes home. The claim is the launcher's
 only, and lapses 15 s after it was made or after the last key. A keyboard (in dev mode, or plugged into the Pi) is turned
