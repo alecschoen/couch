@@ -99,6 +99,25 @@ pub fn wifi_hint(s: &Value, on: bool) -> String {
     }
 }
 
+/// Under Spotify and AirPlay: whether phones can see Couch (live state `speaker.receivers`).
+pub fn speaker_hint(s: &Value) -> String {
+    let receivers = [("Spotify", "spotify"), ("AirPlay", "airplay")]
+        .map(|(name, id)| (name, state::str_at(s, &format!("speaker.receivers.{id}"))));
+    if let Some((name, _)) = receivers.iter().find(|(_, r)| *r == Some("failed")) {
+        return format!("{name} didn't start");
+    }
+    if receivers.iter().any(|(_, r)| *r == Some("off")) {
+        return "Off. Phones don't see Couch.".into();
+    }
+    let missing: Vec<&str> = receivers.iter().filter(|(_, r)| *r == Some("missing")).map(|(n, _)| *n).collect();
+    let working: Vec<&str> = receivers.iter().filter(|(_, r)| *r != Some("missing")).map(|(n, _)| *n).collect();
+    match (working.as_slice(), missing.as_slice()) {
+        ([], _) => "Not installed".into(),
+        ([on], [off]) => format!("Phones see Couch on {on}. {off} isn't installed."),
+        _ => "Phones see a speaker called Couch".into(),
+    }
+}
+
 fn signal_words(signal: Option<f64>) -> Option<&'static str> {
     let s = signal?;
     Some(if s >= 70.0 {
@@ -353,6 +372,18 @@ mod tests {
         let s = json!({"services": {"tv": "running"}, "tv": {"power": "standby"}});
         assert_eq!(tv_connection(&s), "HDMI-CEC · TV in standby");
         assert_eq!(tv_connection(&json!({})), "No HDMI-CEC");
+    }
+
+    #[test]
+    fn speaker() {
+        let r =
+            |spotify: &str, airplay: &str| json!({"speaker": {"receivers": {"spotify": spotify, "airplay": airplay}}});
+        assert_eq!(speaker_hint(&json!({})), "Phones see a speaker called Couch");
+        assert_eq!(speaker_hint(&r("on", "on")), "Phones see a speaker called Couch");
+        assert_eq!(speaker_hint(&r("missing", "on")), "Phones see Couch on AirPlay. Spotify isn't installed.");
+        assert_eq!(speaker_hint(&r("missing", "off")), "Off. Phones don't see Couch.");
+        assert_eq!(speaker_hint(&r("on", "failed")), "AirPlay didn't start");
+        assert_eq!(speaker_hint(&r("missing", "missing")), "Not installed");
     }
 
     #[test]
