@@ -36,6 +36,8 @@ export global Router {
 export struct ToastItem {
     text: string,
     em: string,
+    // A second line under `text` (the sleep timer's warning), or "".
+    detail: string,
     icon: string,
     error: bool,
     // Fading out (components.js Toasts): Rust removes it after dur-quick.
@@ -65,6 +67,7 @@ component ToastSlot inherits Rectangle {
         y: -18px * (1 - root.made);
         text: item.text;
         em: item.em;
+        detail: item.detail;
         icon: item.icon;
         error: item.error;
     }

@@ -28,6 +28,7 @@ export component Icon inherits Image {
         : name == "update" ? @image-url("icons/update.svg")
         : name == "muted" ? @image-url("icons/muted.svg")
         : name == "usb" ? @image-url("icons/usb.svg")
+        : name == "moon" ? @image-url("icons/moon.svg")
         : @image-url("icons/info.svg");
 }
 
@@ -378,10 +379,12 @@ export component Progress inherits Rectangle {
 }
 
 // ---- Toast: top right, ink on the ground; red for an error. `em` is drawn bold after `text`
-// ("Sound now on" + "TV speakers").
+// ("Sound now on" + "TV speakers"). With a `detail`, two lines: `text` as a title over it, a
+// bigger icon and a shadow (.toast.has-detail: the sleep timer's warning).
 export component Toast inherits Rectangle {
     in property <string> text;
     in property <string> em;
+    in property <string> detail;
     in property <string> icon: "check";
     in property <bool> error;
     in property <color> ink: Theme.ink;
@@ -389,9 +392,47 @@ export component Toast inherits Rectangle {
     property <color> fg: error ? #ffffff : ground;
     border-radius: Theme.radius-card;
     background: error ? Theme.key-red : ink;
-    width: min(900px, lay.preferred-width);
-    height: lay.preferred-height;
+    width: min(900px, detail != "" ? two.preferred-width : lay.preferred-width);
+    height: detail != "" ? two.preferred-height : lay.preferred-height;
+    drop-shadow-offset-y: detail != "" ? 12px : 0;
+    drop-shadow-blur: detail != "" ? 40px : 0;
+    drop-shadow-color: detail != "" ? #00000059 : transparent;
+    two := HorizontalLayout {
+        visible: root.detail != "";
+        padding-left: 39px;
+        padding-right: 39px;
+        padding-top: 27px;
+        padding-bottom: 27px;
+        spacing: Theme.s4;
+        Icon {
+            name: root.icon;
+            tint: root.fg;
+            width: 44px;
+            height: 44px;
+            y: (parent.height - self.height) / 2;
+        }
+        VerticalLayout {
+            spacing: Theme.s1;
+            Text {
+                text: root.text;
+                font-family: Theme.font-display;
+                font-size: Theme.text-card;
+                font-weight: 600;
+                color: root.fg;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                font-family: Theme.font-text;
+                font-size: 25px;
+                color: root.fg;
+                opacity: 0.8;
+                overflow: elide;
+            }
+        }
+    }
     lay := HorizontalLayout {
+        visible: root.detail == "";
         padding-left: 39px;
         padding-right: 39px;
         padding-top: 27px;

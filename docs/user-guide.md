@@ -19,7 +19,7 @@ Home.
 | Return | Go back one step. |
 | **Hold Return** (about a second) | **Go Home, from anywhere**, even out of YouTube or Plex. |
 | Red | Send the sound somewhere else: TV → headphones → Bluetooth → TV. |
-| Blue | Quick menu: Home, sound, volume and Bluetooth, on top of whatever's playing. |
+| Blue | Quick menu: Home, sound, volume, Bluetooth and the sleep timer, on top of whatever's playing. |
 | Play, Pause, Stop, ⏪ ⏩ | Control what's playing. |
 | Volume + / − / Mute | The TV's volume. When the sound goes to headphones or a Bluetooth speaker, these change their volume instead. |
 
@@ -29,16 +29,23 @@ When you turn the TV off, whatever's playing pauses.
 
 ## The quick menu
 
-Press Blue, wherever you are, even in the middle of a film. A menu comes up with four
-cards: **Home**, **Sound**, **Volume** and **Bluetooth**. Left and Right move between them,
-and what's playing underneath carries on and doesn't react.
+Press Blue, wherever you are, even in the middle of a film. A menu comes up with five
+cards: **Home**, **Sound**, **Volume**, **Bluetooth** and **Sleep**. Left and Right move
+between them, and what's playing underneath carries on and doesn't react.
 
 - **Home**: back to Couch's Home.
 - **Sound**: OK sends the sound to the next place, like Red.
 - **Volume**: Up and Down make it louder and quieter; OK mutes and unmutes.
 - **Bluetooth**: OK opens the Bluetooth screen.
+- **Sleep**: turns the TV off after a while. Each OK picks the next time: 15, 30, 60 or 90
+  minutes, then Off. The card says when the TV goes off ("TV off at 21:20").
 
 Return or Blue closes the menu. It also closes by itself after half a minute.
+
+A minute before the sleep timer ends, a message comes up: "Turning off in 1 minute". Press
+any button to keep watching; that press only turns the timer off. Otherwise the TV goes off
+and whatever's playing pauses. Turning the TV off yourself, or restarting Couch, turns the
+timer off too.
 
 ## Home
 

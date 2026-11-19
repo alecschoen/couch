@@ -121,7 +121,9 @@ pub struct App {
     actions: Vec<Action>,
     repaint_pending: bool,
     toasts: Rc<VecModel<ToastItem>>,
-    toast_ids: Vec<u64>,
+    /// Each toast row's own id, and couchd's for it if it gave one (a toast with the same
+    /// takes its place).
+    toast_ids: Vec<(u64, Option<String>)>,
     next_toast: u64,
     pub sounds: Sounds,
     // screens/system.js
@@ -285,7 +287,7 @@ impl App {
                 let level = data.get("level").and_then(Value::as_str).unwrap_or("info");
                 let icon = data.get("icon").and_then(Value::as_str);
                 crate::overlay::hide_volume(self);
-                self.toast(text, level, icon);
+                self.toast_with(text, level, icon, ToastExtra::from_message(&data));
             }
             "volume_panel" => crate::overlay::volume(self, &data),
             "draw_check" => {
@@ -631,6 +633,11 @@ impl App {
 
     /// Show a toast, top right, for TOAST_MS. couchd's own come here too.
     pub fn toast(&mut self, text: &str, level: &str, icon: Option<&str>) {
+        self.toast_with(text, level, icon, ToastExtra::default());
+    }
+
+    /// A toast with a second line, a time of its own or an id (couchd's sleep timer warning).
+    pub fn toast_with(&mut self, text: &str, level: &str, icon: Option<&str>, extra: ToastExtra) {
         if level == "error" {
             // The error screen says what went wrong, so a failed launch needn't say it again.
             // A command's reply can beat the state patch that sets the error: wait a moment.
@@ -638,42 +645,55 @@ impl App {
             Timer::single_shot(Duration::from_millis(250), move || {
                 with_app(|app| {
                     if state::at(&app.state, "apps.error").is_null() {
-                        app.show_toast(&text, "error", icon.as_deref());
+                        app.show_toast(&text, "error", icon.as_deref(), extra);
                     }
                 });
             });
             return;
         }
-        self.show_toast(text, level, icon);
+        self.show_toast(text, level, icon, extra);
     }
 
-    fn show_toast(&mut self, text: &str, level: &str, icon: Option<&str>) {
+    fn show_toast(&mut self, text: &str, level: &str, icon: Option<&str>, extra: ToastExtra) {
         self.sounds.play(self, if level == "error" { "error" } else { "toast" });
         let icon = toast_icon(text, level, icon);
         // couchd's "Sound now on X" gets a bold X, as in the design.
         let (text, em) = match text.strip_prefix("Sound now on ") {
-            Some(rest) if level == "info" => ("Sound now on".to_string(), rest.to_string()),
+            Some(rest) if level == "info" && extra.detail.is_empty() => ("Sound now on".to_string(), rest.to_string()),
             _ => (text.to_string(), String::new()),
         };
+        // The one it replaces goes at once (the web overlay has only one toast anyway).
+        let same = extra.id.as_ref().and_then(|tag| self.toast_ids.iter().position(|t| t.1.as_ref() == Some(tag)));
+        if let Some(i) = same {
+            self.toast_ids.remove(i);
+            self.toasts.remove(i);
+        }
         let id = self.next_toast;
         self.next_toast += 1;
         self.toasts.insert(
             0,
-            ToastItem { text: text.into(), em: em.into(), icon: icon.into(), error: level == "error", gone: false },
+            ToastItem {
+                text: text.into(),
+                em: em.into(),
+                detail: extra.detail.into(),
+                icon: icon.into(),
+                error: level == "error",
+                gone: false,
+            },
         );
-        self.toast_ids.insert(0, id);
+        self.toast_ids.insert(0, (id, extra.id));
         while self.toasts.row_count() > MAX_TOASTS {
             self.toasts.remove(self.toasts.row_count() - 1);
             self.toast_ids.pop();
         }
-        Timer::single_shot(Duration::from_millis(TOAST_MS), move || {
+        Timer::single_shot(Duration::from_millis(extra.ms.unwrap_or(TOAST_MS)), move || {
             with_app(|app| app.drop_toast(id));
         });
     }
 
     /// Fade it out, then remove it.
     fn drop_toast(&mut self, id: u64) {
-        let Some(i) = self.toast_ids.iter().position(|&t| t == id) else { return };
+        let Some(i) = self.toast_ids.iter().position(|t| t.0 == id) else { return };
         if let Some(mut row) = self.toasts.row_data(i) {
             row.gone = true;
             self.toasts.set_row_data(i, row);
@@ -681,7 +701,7 @@ impl App {
         let fade = Duration::from_millis(if self.reduced_motion() { 0 } else { 200 }); // dur-quick
         Timer::single_shot(fade, move || {
             with_app(|app| {
-                if let Some(i) = app.toast_ids.iter().position(|&t| t == id) {
+                if let Some(i) = app.toast_ids.iter().position(|t| t.0 == id) {
                     app.toast_ids.remove(i);
                     app.toasts.remove(i);
                 }
@@ -776,9 +796,31 @@ impl App {
     }
 }
 
+/// A toast's optional parts, from couchd's `toast` message (docs/protocol.md).
+#[derive(Debug, Default, PartialEq)]
+pub struct ToastExtra {
+    /// A second line: the text becomes a title over it.
+    pub detail: String,
+    /// How long it stays up, if not TOAST_MS.
+    pub ms: Option<u64>,
+    /// A toast with the same id takes the place of this one.
+    pub id: Option<String>,
+}
+
+impl ToastExtra {
+    pub fn from_message(data: &Value) -> Self {
+        let text = |k: &str| data.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+        ToastExtra {
+            detail: text("detail").unwrap_or_default(),
+            ms: data.get("ms").and_then(Value::as_u64).filter(|&ms| ms > 0),
+            id: text("id"),
+        }
+    }
+}
+
 /// Which icon a toast gets (as ui/js/overlay-view.js's toastIcon).
 pub fn toast_icon(text: &str, level: &str, icon: Option<&str>) -> &'static str {
-    const ICONS: [&str; 6] = ["speaker", "bluetooth", "check", "info", "update", "muted"];
+    const ICONS: [&str; 7] = ["speaker", "bluetooth", "check", "info", "update", "muted", "moon"];
     if let Some(i) = icon.and_then(|i| ICONS.iter().find(|&&n| n == i)) {
         return i;
     }
@@ -799,5 +841,19 @@ mod tests {
         assert_eq!(toast_icon("Oops", "error", None), "info");
         assert_eq!(toast_icon("Speaker connected", "info", Some("bluetooth")), "bluetooth");
         assert_eq!(toast_icon("x", "info", Some("nonsense")), "check");
+        assert_eq!(toast_icon("Turning off in 1 minute", "info", Some("moon")), "moon");
+    }
+
+    #[test]
+    fn toast_extras() {
+        use serde_json::json;
+        let warning = json!({"text": "Turning off in 1 minute", "detail": "Press any button to stay on",
+            "icon": "moon", "ms": 60000, "id": "sleep"});
+        assert_eq!(
+            ToastExtra::from_message(&warning),
+            ToastExtra { detail: "Press any button to stay on".into(), ms: Some(60000), id: Some("sleep".into()) }
+        );
+        assert_eq!(ToastExtra::from_message(&json!({"text": "Paired"})), ToastExtra::default());
+        assert_eq!(ToastExtra::from_message(&json!({"text": "x", "ms": -5, "id": ""})), ToastExtra::default());
     }
 }

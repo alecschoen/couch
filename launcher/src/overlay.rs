@@ -26,7 +26,7 @@ const QUICK_MS: u64 = 200;
 
 #[derive(Default)]
 struct Overlay {
-    /// The open sheet's card ids ("home sound volume bluetooth"); None while there's none
+    /// The open sheet's card ids ("home sound volume bluetooth sleep"); None while there's none
     /// (or it's sliding out).
     menu_ids: Option<String>,
     menu_generation: i32,
@@ -187,7 +187,12 @@ fn menu_view(menu: &Value, dev: bool) -> Option<MenuView> {
             .map_or(-1, |i| i as i32),
         cards: items
             .iter()
-            .map(|i| MenuCard { label: text(i, "label").into(), value: text(i, "value").into() })
+            .map(|i| MenuCard {
+                label: text(i, "label").into(),
+                value: text(i, "value").into(),
+                detail: text(i, "detail").into(),
+                hint: text(i, "hint").into(),
+            })
             .collect(),
     })
 }
@@ -210,16 +215,21 @@ mod tests {
         json!({"open": true, "app": "launcher", "host": host, "title": "Couch", "palette": null,
             "focus": "volume", "items": [
                 {"id": "home", "label": "Go to", "value": "Home"},
-                {"id": "volume", "label": "Volume", "value": "\u{2212} 60 +"}]})
+                {"id": "volume", "label": "Volume", "value": "\u{2212} 60 +"},
+                {"id": "sleep", "label": "Sleep", "value": "30 min", "detail": "TV off at 21:20",
+                    "hint": "OK: Off \u{b7} 15 \u{b7} 30 \u{b7} 60 \u{b7} 90"}]})
     }
 
     #[test]
     fn menu_drawn_only_where_it_is_hosted() {
         let view = menu_view(&menu("launcher"), false).unwrap();
-        assert_eq!(view.ids, "home volume");
+        assert_eq!(view.ids, "home volume sleep");
         assert_eq!(view.focus, 1);
         assert_eq!(view.palette, None);
         assert_eq!(view.cards[1].value, "\u{2212} 60 +");
+        assert_eq!((view.cards[1].detail.as_str(), view.cards[1].hint.as_str()), ("", ""));
+        assert_eq!(view.cards[2].detail, "TV off at 21:20");
+        assert_eq!(view.cards[2].hint, "OK: Off \u{b7} 15 \u{b7} 30 \u{b7} 60 \u{b7} 90");
         assert!(menu_view(&menu("chromium"), true).is_none());
         assert!(menu_view(&menu("kodi"), false).is_none());
         assert!(menu_view(&menu("kodi"), true).is_some());

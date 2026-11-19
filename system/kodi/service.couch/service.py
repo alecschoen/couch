@@ -42,7 +42,7 @@ HOME = 10000
 PLEX = "script.plexmod"
 SENDER = "couch"
 OVERLAY = "Other.overlay"  # NotifyAll's message, as Kodi hands it to onNotification
-MENU_ITEMS = ("home", "sound", "volume", "bluetooth")
+MENU_ITEMS = ("home", "sound", "volume", "bluetooth", "sleep")
 VOLUME_MS = 2400  # unless couchd says otherwise
 
 
@@ -126,6 +126,9 @@ class Overlay:
             if isinstance(item, dict) and item.get("id") in MENU_ITEMS:
                 self.set(f"couch.menu.{item['id']}.label", str(item.get("label", "")))
                 self.set(f"couch.menu.{item['id']}.value", str(item.get("value", "")))
+                # Sleep's "TV off at 21:20" and "OK: Off · 15 · …"; "" clears them.
+                self.set(f"couch.menu.{item['id']}.detail", str(item.get("detail", "")))
+                self.set(f"couch.menu.{item['id']}.hint", str(item.get("hint", "")))
         self.set("couch.menu", "1")
 
     def volume(self, panel, ms=VOLUME_MS):

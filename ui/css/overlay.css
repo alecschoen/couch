@@ -14,8 +14,10 @@
   gap: var(--s-2);
 }
 
-/* ---- Quick menu: a .sheet in the app's palette, four cards. couchd says which is focused;
-   the focused card is wide and inverted, like a focused .card. */
+/* ---- Quick menu: a .sheet in the app's palette, five cards. couchd says which is focused;
+   the focused card is wide and inverted, like a focused .card, and the others narrow so all
+   five fit (4 x 294 + 450 + 4 x 27 = 1734 of 1752). The design: "Quick menu with a Sleep
+   card". */
 .qm {
   gap: var(--s-5);
 }
@@ -40,14 +42,14 @@
 
 .qm__cards {
   display: flex;
-  gap: var(--s-4);
+  gap: 27px;
 }
 
 .qm-card {
   box-sizing: border-box;
-  width: 345px;
+  width: 294px;
   height: 192px;
-  padding: 27px 30px;
+  padding: 27px;
   border-radius: var(--radius-card);
   border: var(--border) solid color-mix(in srgb, currentColor var(--a-outline), transparent);
   display: flex;
@@ -59,23 +61,74 @@
 
 .qm-card.is-focused {
   width: var(--card-w-focus);
+  padding: 24px 27px; /* 27px 30px inside the fill, as its border is the fill's colour */
   background-color: var(--palette-ink);
   border-color: var(--palette-ink);
   color: var(--palette-bg);
 }
 
+/* The label, and on the right a detail (Sleep's "TV off at 21:20"); the value, and under it
+   a hint (Sleep's "OK: Off · 15 · 30 · 60 · 90"). Detail and hint only while it's focused. */
+.qm-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+
+.qm-card__bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
 .qm-card__label {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   opacity: var(--a-muted);
+  white-space: nowrap;
 }
 
 .qm-card__value {
   font-family: var(--font-display);
-  font-size: var(--text-row);
+  font-size: var(--text-card);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.qm-card__detail,
+.qm-card__hint {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: var(--a-faint);
+}
+
+.qm-card__detail {
+  font-size: 25px;
+}
+
+.qm-card__hint {
+  font-size: 23px;
+}
+
+.qm-card:not(.is-focused) :is(.qm-card__detail, .qm-card__hint),
+.qm-card__detail:empty,
+.qm-card__hint:empty {
+  display: none;
+}
+
+/* A card with a hint, focused: a bigger value with the hint under it. */
+.qm-card.has-hint.is-focused .qm-card__label {
+  font-weight: 500;
+  opacity: 1;
+}
+
+.qm-card.has-hint.is-focused .qm-card__value {
+  font-size: var(--text-heading);
+  line-height: 1;
 }
 
 /* ---- Volume panel: the output's name, the number, a bar. */

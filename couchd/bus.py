@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 Message = dict[str, Any]
 
 TOAST_LEVELS = ("info", "warning", "error")
-TOAST_ICONS = ("speaker", "bluetooth", "check", "info", "update", "muted")  # ui/js/overlay-view.js
+# ui/js/overlay-view.js and the launcher draw these (launcher/ui/components.slint Icon).
+TOAST_ICONS = ("speaker", "bluetooth", "check", "info", "update", "muted", "moon")
 
 _CLOSED: Message = {"type": "__closed__"}
 
@@ -88,12 +89,23 @@ class EventBus:
         for sub in list(self._subscribers):
             sub._offer(message)
 
-    def toast(self, text: str, level: str = "info", *, icon: str | None = None) -> None:
-        """A toast on whatever is on screen (couchd/overlay.py). `icon` is optional; see
-        docs/protocol.md for the names."""
-        data = {"text": text, "level": level}
-        if icon is not None:
-            data["icon"] = icon
+    def toast(
+        self,
+        text: str,
+        level: str = "info",
+        *,
+        icon: str | None = None,
+        detail: str | None = None,
+        ms: int | None = None,
+        id: str | None = None,
+    ) -> None:
+        """A toast on whatever is on screen (couchd/overlay.py). All but `text` are optional
+        (docs/protocol.md has the icons): `detail` is a second line under it, `ms` how long
+        it stays up if not the usual 2.4 s, and a toast with the same `id` as one still up
+        takes its place."""
+        data: dict[str, Any] = {"text": text, "level": level}
+        extra = {"icon": icon, "detail": detail, "ms": ms, "id": id}
+        data.update({k: v for k, v in extra.items() if v is not None})
         self.publish("toast", data)
 
     @property

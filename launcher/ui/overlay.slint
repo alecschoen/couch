@@ -9,6 +9,9 @@ import { Line } from "components.slint";
 export struct MenuCard {
     label: string,
     value: string,
+    // Sleep's "TV off at 21:20" and "OK: Off · 15 · 30 · 60 · 90"; "" for the others.
+    detail: string,
+    hint: string,
 }
 
 export global OverlayData {
@@ -40,15 +43,23 @@ export global OverlayData {
 }
 
 // ---- A quick menu card (.qm-card): a label over a value. The focused one is wide and
-// inverted, like a focused Card; its width changes at once, the fill fades.
+// inverted, like a focused Card, and the others narrow so five fit; its width changes at
+// once, the fill fades. Focused, a card with a hint (Sleep) has its detail right of the
+// label ("TV off at 21:20") and a bigger value with the hint under it.
 component MenuCardView inherits Rectangle {
     in property <string> label;
     in property <string> value;
+    in property <string> detail;
+    in property <string> hint;
     in property <bool> focused;
     in property <color> ink;
     in property <color> ground;
     property <color> fg: focused ? ground : ink;
-    width: focused ? Theme.card-w-focus : 345px;
+    property <bool> hinted: focused && hint != "";
+    // From the card's edge: 3px of outline and 27px, or 27px by 30px of the focused fill.
+    property <length> pad-x: 30px;
+    property <length> pad-y: focused ? 27px : Theme.border + 27px;
+    width: focused ? Theme.card-w-focus : 294px;
     height: 192px;
     border-radius: Theme.radius-card;
     border-width: Theme.border;
@@ -57,22 +68,49 @@ component MenuCardView inherits Rectangle {
     animate background, border-color, fg { duration: Theme.dur-quick; easing: ease; }
 
     Line {
-        x: Theme.border + 30px;
-        y: Theme.border + 27px;
-        width: parent.width - 2 * (Theme.border + 30px);
+        x: root.pad-x;
+        y: root.pad-y;
+        width: parent.width - 2 * root.pad-x;
         text: root.label;
-        font-size: Theme.text-xs;
+        font-size: Theme.text-sm;
+        font-weight: root.hinted ? 500 : 400;
         color: root.fg;
-        opacity: Theme.a-muted;
+        opacity: root.hinted ? 1 : Theme.a-muted;
+    }
+
+    // On the label's baseline (CSS align-items: baseline): 2px lower at 25px than at 27px.
+    if root.focused && root.detail != "": Line {
+        x: root.pad-x;
+        y: root.pad-y + 2px;
+        width: parent.width - 2 * root.pad-x;
+        horizontal-alignment: right;
+        text: root.detail;
+        font-size: 25px;
+        color: root.fg;
+        opacity: Theme.a-faint;
+        overflow: elide;
+    }
+
+    hint-line := Line {
+        x: root.pad-x;
+        y: parent.height - root.pad-y - self.height;
+        width: parent.width - 2 * root.pad-x;
+        visible: root.hinted;
+        text: root.hint;
+        font-size: 23px;
+        color: root.fg;
+        opacity: Theme.a-faint;
+        overflow: elide;
     }
 
     Line {
-        x: Theme.border + 30px;
-        y: parent.height - Theme.border - 27px - self.height;
-        width: parent.width - 2 * (Theme.border + 30px);
+        x: root.pad-x;
+        y: root.hinted ? hint-line.y - Theme.s1 - self.height : parent.height - root.pad-y - self.height;
+        width: parent.width - 2 * root.pad-x;
+        leading: root.hinted ? 1 : 1.35;
         text: root.value;
         font-family: Theme.font-display;
-        font-size: Theme.text-row;
+        font-size: root.hinted ? Theme.text-heading : Theme.text-card;
         font-weight: 600;
         color: root.fg;
         overflow: elide;
@@ -135,10 +173,12 @@ component QuickMenu inherits Rectangle {
 
             HorizontalLayout {
                 alignment: start;
-                spacing: Theme.s4;
+                spacing: 27px;
                 for card[i] in OverlayData.menu-cards: MenuCardView {
                     label: card.label;
                     value: card.value;
+                    detail: card.detail;
+                    hint: card.hint;
                     focused: OverlayData.menu-focus == i;
                     ink: root.ink;
                     ground: root.ground;

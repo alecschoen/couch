@@ -359,6 +359,7 @@ def test_overlay_dialog_draws_from_couch_properties():
     for item in service.MENU_ITEMS:
         assert f"couch.menu.{item}.value" in text
         assert f"couch.menu.focus),{item})" in text
+    assert "couch.menu.sleep.detail" in text and "couch.menu.sleep.hint" in text
     for step in range(5, 101, 5):  # every step the service can set has a bar
         assert f"couch.volume.step),{step})" in text
 
@@ -500,6 +501,13 @@ MENU = {
         {"id": "sound", "label": "Sound", "value": "TV speakers"},
         {"id": "volume", "label": "Volume", "value": "\u2212 40 +"},
         {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"},
+        {
+            "id": "sleep",
+            "label": "Sleep",
+            "value": "30 min",
+            "detail": "TV off at 21:20",
+            "hint": "OK: Off \u00b7 15 \u00b7 30 \u00b7 60 \u00b7 90",
+        },
         {"id": "nope", "label": "x", "value": "y"},
     ],
 }
@@ -516,6 +524,10 @@ def test_overlay_draws_couchds_menu(overlay):
     assert props["couch.menu.volume.value"] == "\u2212 40 +"
     assert props["couch.menu.sound.value"] == "TV speakers"
     assert props["couch.evening"] == ""
+    assert props["couch.menu.sleep.value"] == "30 min"
+    assert props["couch.menu.sleep.detail"] == "TV off at 21:20"
+    assert props["couch.menu.sleep.hint"].startswith("OK: Off")
+    assert props["couch.menu.home.detail"] == ""  # the others have none
     assert "couch.menu.nope.value" not in props
     ov.handle({"menu": {"open": False}})
     assert props["couch.menu"] == ""

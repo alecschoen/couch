@@ -32,6 +32,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
+| `sleep` | `minutes` (what the sleep timer was set to, or null while it's off), `ends_at` (when the TV goes off: local time, ISO 8601, or null), `warning` (true in the last minute). See [Sleep timer](#sleep-timer) |
 | `overlay` | `menu`: the quick menu, or null while it's closed; `keyboard`: the on-screen keyboard (`open`, `app`, `kind`, `title`; never what's typed), or null. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
@@ -125,9 +126,19 @@ service, does the work and couchd reads its status file:
 ```
 
 `level` is `info`, `warning` or `error`. `icon` is optional: `speaker`, `bluetooth`, `check`,
-`info`, `update` or `muted`; without one, a toast gets `info` for a warning or an error,
-`speaker` for "Sound now on X", and `check` otherwise. couchd shows it over the app in front
-too (see [Overlays](#overlays)); the launcher shows it itself.
+`info`, `update`, `muted` or `moon`; without one, a toast gets `info` for a warning or an
+error, `speaker` for "Sound now on X", and `check` otherwise. couchd shows it over the app in
+front too (see [Overlays](#overlays)); the launcher shows it itself.
+
+Three more keys are optional, and only there when set. `detail` is a second line: the toast
+shows `text` as a title over it, with a bigger icon. `ms` is how long it stays up, if not
+2.4 s. A toast with the same `id` as one still up takes its place at once. The sleep
+timer's warning has all three:
+
+```json
+{"type": "toast", "data": {"text": "Turning off in 1 minute", "level": "info", "icon": "moon",
+ "detail": "Press any button to stay on", "ms": 60000, "id": "sleep"}}
+```
 
 **`volume_panel`**: show the volume panel, for 2.4 s after the last one. couchd sends it for
 each `volume_changed` while the quick menu is closed (see [Overlays](#overlays)).
@@ -242,6 +253,8 @@ The text `ping` gets `pong`.
 | `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |
 | `apps.clear_error` | Dismiss `apps.error` |
 | `idle.activity` | Counts as a key press for idle detection |
+| `sleep.set` | `minutes` (0–240; 0 turns it off). Starts the sleep timer from now, or again from now if it's running; returns the `sleep` state |
+| `sleep.cycle` | The quick menu's Sleep card: the next of Off, 15, 30, 60 and 90 minutes (a time that isn't one of them goes on to the next one up); returns the `sleep` state |
 | `idle.now` | Go idle (the idle clock) at once. Only on the launcher. For trying it out; `COUCH_IDLE_AFTER=10` in couchd's environment shortens the wait instead |
 | `ui.first_frame` | `at` (ms on the page's clock, optional). The launcher sends it once per page load, after its first frame is drawn. couchd then ends the session's boot splash, if it's still up (#23) |
 | `ui.drawn` | `id`. The launcher's answer to a `draw_check` |
@@ -291,11 +304,12 @@ The quick menu, toasts and the volume panel show over every app: the launcher, Y
 Plex (#18, `couchd/overlay.py`). couchd decides what they show; each app draws it.
 
 **Quick menu.** Blue opens it, over the app in front, as a sheet in that app's colour:
-Home, Sound, Volume and Bluetooth. While it's open the remote is the menu's: Left and Right
-move between the cards, Up and Down on Volume change the volume by 5 (`audio.step_volume`:
-never above the limit, and up unmutes), OK picks (Home goes
+Home, Sound, Volume, Bluetooth and Sleep. While it's open the remote is the menu's: Left and
+Right move between the cards, Up and Down on Volume change the volume by 5
+(`audio.step_volume`: never above the limit, and up unmutes), OK picks (Home goes
 home, Sound moves to the next output, Volume mutes or unmutes, Bluetooth opens the
-Bluetooth screen), and Back or Blue close it. Home closes it and goes home. Other keys
+Bluetooth screen, Sleep sets the next time with `sleep.cycle` and the menu stays open to
+show it), and Back or Blue close it. Home closes it and goes home. Other keys
 (play/pause, Red) work as always. It closes by itself after 30 s without a key, and when
 the app in front changes. `overlay.menu`:
 
@@ -305,8 +319,14 @@ the app in front changes. `overlay.menu`:
    {"id": "home", "label": "Go to", "value": "Home"},
    {"id": "sound", "label": "Sound", "value": "TV speakers"},
    {"id": "volume", "label": "Volume", "value": "− 60 +"},
-   {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"}]}
+   {"id": "bluetooth", "label": "Devices", "value": "Bluetooth"},
+   {"id": "sleep", "label": "Sleep", "value": "30 min", "detail": "TV off at 21:20",
+    "hint": "OK: Off · 15 · 30 · 60 · 90"}]}
 ```
+
+An item's `detail` and `hint` are optional. Only Sleep has them, and they show only while
+its card has the focus: `detail` to the right of the label (only while the timer is set),
+`hint` under the value.
 
 `host` says who draws it:
 
@@ -352,6 +372,32 @@ it's open, never what's typed:
 or to Kodi as its own notification (`GUI.ShowNotification`, 2.4 s). Any feature can show
 one: `ctx.bus.toast(text, level, icon=...)` inside couchd, the `overlay.toast` command, or
 `POST /api/toast`.
+
+**Toasts with a `detail`** are two lines everywhere. In Kodi, `text` is the notification's
+title and `detail` its message (instead of "Couch" over the text), and `ms` is its display
+time.
+
+### Sleep timer
+
+`couchd/sleep.py` (#79). Set from the quick menu's Sleep card or with `sleep.set`; the TV
+goes off after that many minutes, wherever it is. It's in memory only: a couchd restart
+turns it off.
+
+- One minute before the end, `sleep.warning` turns true and a toast says so over whatever
+  is in front, for that minute: "Turning off in 1 minute", "Press any button to stay on"
+  (the `moon` icon, id `sleep`). It also counts as `idle.activity`, so the idle clock
+  doesn't hide it on the launcher.
+- Any remote button in that minute turns the timer off, and a "Sleep timer off" toast takes
+  the warning's place. The overlay asks the timer before anything else, so that press does
+  nothing more, except Home, which still goes home. A key while a launcher screen has the
+  raw keys, and a `volume_changed` (the TV remote's volume buttons), turn it off too but
+  still go through. Setting it again in that minute replaces the warning with "TV off at
+  21:20".
+- At the end it runs `tv.standby`, as the idle switch-off does; the TV going to standby
+  pauses whatever is playing (as with the TV's own remote). If the TV goes to standby before
+  then, the timer is off.
+
+Setting it from the menu shows no toast: the card's value says it.
 
 **Volume panel**: the output's name and volume, top right, for each `volume_changed` (the
 TV remote's volume buttons, a command, the limit) and 2.4 s after the last one; couchd sends
