@@ -1,5 +1,6 @@
 // Lets couchd (the couch user) hand the screen between the browser session, the native
-// launcher's Chromium for YouTube and Kodi: start, stop and reset those three units, and start Settings > Updates' Check now
+// launcher's Chromium for YouTube and Kodi, and switch the Spotify and AirPlay receivers
+// (#80): start, stop and reset those five units, and start Settings > Updates' Check now
 // (couch-update-now.service), and nothing else.
 polkit.addRule(function (action, subject) {
     if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "couch") {
@@ -7,7 +8,13 @@ polkit.addRule(function (action, subject) {
     }
     var unit = action.lookup("unit");
     var verb = action.lookup("verb");
-    var units = ["couch-session.service", "couch-chromium.service", "couch-kodi.service"];
+    var units = [
+        "couch-session.service",
+        "couch-chromium.service",
+        "couch-kodi.service",
+        "couch-spotify.service",
+        "couch-airplay.service",
+    ];
     var verbs = ["start", "stop", "restart", "reset-failed"];
     if (units.indexOf(unit) >= 0 && verbs.indexOf(verb) >= 0) {
         return polkit.Result.YES;

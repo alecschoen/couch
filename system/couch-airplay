@@ -1,0 +1,20 @@
+#!/bin/sh
+# couch-airplay.service: shairport-sync, so Couch is an AirPlay speaker called "Couch" (#80).
+#
+# Debian's shairport-sync with Couch's config (/opt/couch/share/shairport-sync.conf): no
+# password, PipeWire's PulseAudio server in the couch user's session for the sound (so
+# couchd's output and the TV remote's volume apply), and the metadata pipe couchd reads.
+RUNTIME="/run/user/$(id -u)"
+export XDG_RUNTIME_DIR="$RUNTIME"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME/bus"
+# The session's PipeWire may not be up yet at boot, or may be restarting.
+tries=0
+while [ ! -S "$RUNTIME/pulse/native" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 60 ]; then
+        echo "couch-airplay: no PipeWire at $RUNTIME/pulse/native (is the session up?)" >&2
+        exit 1
+    fi
+    sleep 1
+done
+exec /usr/bin/shairport-sync -c /opt/couch/share/shairport-sync.conf

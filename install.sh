@@ -29,6 +29,10 @@
 # The timer and unattended-upgrades only with `nightly = true` in /etc/couch/update.toml.
 # For Wi-Fi (#31) it adds a polkit rule, a drop-in for systemd-rfkill, and couch-wifi-boot
 # with its unit and udev rule; it never switches Wi-Fi itself.
+# For the speaker (#80, Spotify Connect and AirPlay) it adds couch-spotify's and
+# couch-airplay's units, which couchd starts, librespot (librespot/dist, built on a PC by
+# librespot/build.sh) and shairport-sync's config in /opt/couch, and masks the shairport-sync
+# package's own unit.
 set -euo pipefail
 trap 'echo "error: install.sh stopped at line $LINENO" >&2' ERR
 
@@ -96,6 +100,10 @@ SD_CACHE_MOUNT=$UNIT_DIR/var-cache-couch.mount
 SD_CACHE_TMPFILES=/etc/tmpfiles.d/couch-cache.conf
 SD_TMP_CONF=$UNIT_DIR/local-fs.target.d/50-couch-tmp.conf
 CACHE_CHANGED=0
+# The speaker (#80). Installed but not enabled: couchd starts them while speaker.enabled is
+# on. The package's shairport-sync.service is masked: it would be a second AirPlay speaker.
+SPEAKER_UNITS=(couch-spotify.service couch-airplay.service)
+SHAIRPORT_PACKAGE_UNIT=shairport-sync.service
 PACKAGES=(
     cage chromium                        # the session: Wayland kiosk + browser
     kodi kodi-inputstream-adaptive       # Plex via Kodi (#22)
@@ -104,6 +112,7 @@ PACKAGES=(
     libpulse0 libfontconfig1             # the native launcher: its UI sounds, its fonts
     bluez libspa-0.2-bluetooth           # Bluetooth, and PipeWire's plugin for its audio
     polkitd                              # lets couchd switch to Kodi and back, and reboot
+    shairport-sync avahi-daemon          # the AirPlay speaker, and zeroconf for it and Spotify
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     python3-evdev                        # the remote's virtual keyboard (#8)
     fonts-noto-core
@@ -348,6 +357,7 @@ install_couch() {
     install_audio
     install_uinput && code=1
     install_wifi
+    install_speaker
 
     local u
     for u in "${UNITS[@]}"; do
@@ -439,6 +449,58 @@ install_audio() {
     if ensure_file "$SRC/system/wireplumber-couch.conf" "$WIREPLUMBER_CONF" 644; then
         # Picked up at WirePlumber's next start; restart it now if couch's session is up.
         systemctl --user -M "$COUCH_USER@" -q restart wireplumber.service 2>/dev/null || true
+    fi
+}
+
+# Couch as a speaker (#80): Spotify Connect (librespot) and AirPlay (shairport-sync), both
+# called "Couch". The units run as couch and play through its session's PipeWire, like
+# everything else; couchd starts and stops them (the speaker.enabled setting) and reads what
+# they play (couchd/speaker.py). See system/README.md, "Speaker".
+install_speaker() {
+    local restart=0 reload=0 u
+    # librespot isn't packaged for trixie: a pinned release built by librespot/build.sh.
+    if [[ -f $SRC/librespot/dist/librespot-$(uname -m) ]]; then
+        ensure_file "$SRC/librespot/dist/librespot-$(uname -m)" "$PREFIX/bin/librespot" 755 \
+            && restart=1
+    elif [[ ! -x $PREFIX/bin/librespot ]]; then
+        echo "  warning: no librespot binary, so no Spotify Connect: build one with" \
+            "librespot/build.sh and run install.sh again (AirPlay works without it)" >&2
+    fi
+    ensure_file "$SRC/system/couch-spotify" "$PREFIX/bin/couch-spotify" 755 && restart=1
+    ensure_file "$SRC/system/couch-airplay" "$PREFIX/bin/couch-airplay" 755 && restart=1
+    ensure_file "$SRC/system/couch-speaker-event" "$PREFIX/bin/couch-speaker-event" 755 || true
+    ensure_file "$SRC/system/shairport-sync.conf" "$PREFIX/share/shairport-sync.conf" 644 \
+        && restart=1
+    ensure_file "$SRC/system/couch-spotify.service" "$UNIT_DIR/couch-spotify.service" 644 \
+        && reload=1
+    ensure_file "$SRC/system/couch-airplay.service" "$UNIT_DIR/couch-airplay.service" 644 \
+        && reload=1
+    # One AirPlay "Couch", not a second speaker named after the Pi.
+    if [[ $(readlink "$UNIT_DIR/$SHAIRPORT_PACKAGE_UNIT") != /dev/null ]]; then
+        systemctl -q disable --now "$SHAIRPORT_PACKAGE_UNIT" 2>/dev/null || true
+        systemctl -q mask "$SHAIRPORT_PACKAGE_UNIT"
+        note "masked the shairport-sync package's own $SHAIRPORT_PACKAGE_UNIT"
+        reload=1
+    fi
+    ((reload)) && systemctl daemon-reload
+    ((restart || reload)) || return 0
+    # Only what's running: couchd starts the rest while the setting is on.
+    for u in "${SPEAKER_UNITS[@]}"; do
+        if systemctl -q is-active "$u"; then
+            systemctl restart "$u"
+            note "restarted $u"
+        fi
+    done
+}
+
+uninstall_speaker() {
+    local u
+    systemctl stop "${SPEAKER_UNITS[@]}" 2>/dev/null || true
+    for u in "${SPEAKER_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    if [[ $(readlink "$UNIT_DIR/$SHAIRPORT_PACKAGE_UNIT") == /dev/null ]]; then
+        rm -f "$UNIT_DIR/$SHAIRPORT_PACKAGE_UNIT"
+        echo "Unmasked $SHAIRPORT_PACKAGE_UNIT (still disabled: systemctl enable --now it" \
+            "for the package's own AirPlay speaker)."
     fi
 }
 
@@ -708,6 +770,7 @@ uninstall() {
     uninstall_sd_card
     uninstall_boot
     uninstall_updates
+    uninstall_speaker
     systemctl stop "${STATIC_UNITS[@]}" 2>/dev/null || true
     for u in "${UNITS[@]}"; do
         systemctl disable --now "$u" 2>/dev/null || true
@@ -747,7 +810,7 @@ case ${1:-} in
 --revert-boot) uninstall_boot; echo "Boot files are back as they were, from the next boot."; exit 0 ;;
 --revert-sd) uninstall_sd_card; echo "The SD card protection is off, fully from the next boot."; exit 0 ;;
 "") ;;
-*) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+*) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
 
 check_system

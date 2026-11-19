@@ -1,0 +1,23 @@
+[Unit]
+Description=Couch Spotify Connect speaker (librespot, started by couchd)
+Documentation=https://github.com/alecschoen/couch
+# Zeroconf goes through Avahi. librespot doesn't register again after Avahi restarts, so it
+# restarts with it.
+After=network-online.target avahi-daemon.service
+Wants=avahi-daemon.service
+PartOf=avahi-daemon.service
+
+[Service]
+Type=simple
+User=couch
+ExecStart=/opt/couch/bin/couch-spotify
+# However librespot ends, couchd hears that nothing plays any more.
+ExecStopPost=-/opt/couch/bin/couch-speaker-event spotify receiver_stopped
+# librespot's own credentials cache (handed over by the phone through zeroconf).
+StateDirectory=couch/spotify
+StateDirectoryMode=0700
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
+
+# No [Install]: couchd starts this unit while the speaker.enabled setting is on.
