@@ -31,9 +31,11 @@ Section times are rough.
 
 ## B. Home and the remote (5 min)
 
-- [ ] **B1** Press Right through the cards: YouTube, Plex, Audio, Bluetooth, Settings. Expected:
-      each one turns the whole screen its own colour and changes the big title. The colours
-      look right on this TV (Plex's gold is the one most likely to look off).
+- [ ] **B1** Press Right through the cards: YouTube, YouTube Music, Plex, Audio, Bluetooth,
+      Settings. Expected: each one turns the whole screen its own colour (YouTube Music shares
+      YouTube's red) and changes the big title. The six cards fit between the screen's edges,
+      "YouTube Music" on two lines while it isn't in focus. The colours look right on this TV
+      (Plex's gold is the one most likely to look off).
 - [ ] **B2** From the couch: the clock, the line under the title and "Sound: …" are easy to read.
 - [ ] **B3** Hold Left down. Expected: focus moves along by itself after a moment, then faster.
       It stops when you let go, without running on past it.

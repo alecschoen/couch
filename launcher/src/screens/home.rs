@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, SharedString, Timer, TimerMode, VecModel};
 
 use crate::app::{App, Dir, Key, Outcome, Screen};
 use crate::state;
@@ -27,7 +27,7 @@ struct Card {
     blurb: &'static str,
 }
 
-const CARDS: [Card; 5] = [
+const CARDS: [Card; 6] = [
     Card {
         id: "youtube",
         name: "YouTube",
@@ -36,6 +36,16 @@ const CARDS: [Card; 5] = [
         route: None,
         headline: None,
         blurb: "Subscriptions, search and your watch history",
+    },
+    // In YouTube's red too: it's YouTube's, and a sixth colour would crowd the palette.
+    Card {
+        id: "ytmusic",
+        name: "YouTube Music",
+        palette: "yt",
+        app: Some("ytmusic"),
+        route: None,
+        headline: None,
+        blurb: "Your mixes, playlists and search",
     },
     Card {
         id: "plex",
@@ -74,7 +84,6 @@ const CARDS: [Card; 5] = [
         blurb: "Display, updates and power",
     },
 ];
-const AUDIO: usize = 2;
 
 pub fn sound_label(s: &Value) -> String {
     let Some(outputs) = state::at(s, "audio.outputs").as_array() else {
@@ -110,6 +119,9 @@ struct Output {
 }
 
 pub struct Home {
+    /// The cards in the row, as indices into CARDS, and the current one (into `cards`).
+    cards: Vec<usize>,
+    labels: Rc<VecModel<SharedString>>,
     current: usize,
     in_outputs: bool,
     output_focus: usize,
@@ -121,6 +133,8 @@ pub struct Home {
 impl Home {
     pub fn new() -> Self {
         Home {
+            cards: (0..CARDS.len()).collect(),
+            labels: Rc::new(VecModel::default()),
             current: 0,
             in_outputs: false,
             output_focus: 0,
@@ -128,6 +142,14 @@ impl Home {
             model: Rc::new(VecModel::default()),
             clock: Timer::default(),
         }
+    }
+
+    fn card(&self) -> &'static Card {
+        &CARDS[self.cards[self.current]]
+    }
+
+    fn on_audio(&self) -> bool {
+        self.card().id == "audio"
     }
 
     fn current_output(&self, app: &App) -> Option<usize> {
@@ -172,8 +194,14 @@ impl Home {
         }
         data.set_outputs(self.model.clone().into());
 
-        let card = &CARDS[self.current];
-        let on_audio = self.current == AUDIO;
+        let labels: Vec<SharedString> = self.cards.iter().map(|&i| CARDS[i].name.into()).collect();
+        if !self.labels.iter().eq(labels.iter().cloned()) {
+            self.labels.set_vec(labels);
+        }
+        data.set_labels(self.labels.clone().into());
+
+        let card = self.card();
+        let on_audio = self.on_audio();
         data.set_current(self.current as i32);
         data.set_headline(card.headline.unwrap_or(card.name).into());
         let blurb = match card.id {
@@ -200,7 +228,7 @@ impl Home {
     }
 
     fn choose(&mut self, app: &mut App) -> Outcome {
-        let card = &CARDS[self.current];
+        let card = self.card();
         if let Some(id) = card.app {
             app.command_or_toast("apps.launch", json!({"app": id}));
             Outcome::Taken
@@ -229,7 +257,7 @@ impl Screen for Home {
     }
 
     fn palette(&self, _app: &App) -> String {
-        CARDS[self.current].palette.into()
+        self.card().palette.into()
     }
 
     fn show(&mut self, app: &mut App) {
@@ -292,11 +320,11 @@ impl Screen for Home {
                     self.current -= 1;
                     Outcome::Moved
                 }
-                (Some(Dir::Right), _) if self.current + 1 < CARDS.len() => {
+                (Some(Dir::Right), _) if self.current + 1 < self.cards.len() => {
                     self.current += 1;
                     Outcome::Moved
                 }
-                (Some(Dir::Up), _) if self.current == AUDIO && !self.outputs.is_empty() => self.focus_outputs(app),
+                (Some(Dir::Up), _) if self.on_audio() && !self.outputs.is_empty() => self.focus_outputs(app),
                 (Some(_), _) => Outcome::Edge,
                 (None, "select") => self.choose(app),
                 _ => Outcome::No,

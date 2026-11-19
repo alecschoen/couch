@@ -56,14 +56,18 @@ export component BodyText inherits Text {
 
 // ---- Card: the B3 app card. `wide` is the row's current card (wider); `strong` gives a wide
 // card that doesn't have focus a full-ink outline (Home, while focus is in the output pills).
+// `narrow-w` and `wide-w` are its two widths (Home's row of six is tighter). A label too long
+// for the card wraps onto a second line ("YouTube / Music"), growing upwards.
 export component Card inherits Rectangle {
     in property <string> label;
     in property <bool> focused;
     in property <bool> wide;
     in property <bool> strong;
+    in property <length> narrow-w: Theme.card-w;
+    in property <length> wide-w: Theme.card-w-focus;
     in property <color> ink: Theme.ink;
     in property <color> ground: Theme.bg;
-    width: wide ? Theme.card-w-focus : Theme.card-w;
+    width: wide ? wide-w : narrow-w;
     height: Theme.card-h;
     animate width { duration: Theme.dur-card; easing: Ease.out; }
 
@@ -78,6 +82,8 @@ export component Card inherits Rectangle {
     Text {
         x: 30px;
         y: parent.height - 27px - self.preferred-height;
+        width: parent.width - 60px;
+        wrap: word-wrap;
         text: root.label;
         font-family: Theme.font-display;
         font-size: Theme.text-card;

@@ -52,7 +52,7 @@ def test_launcher_ui_sound_modes_are_couchds():
 def test_home_launches_real_apps():
     home = (LAUNCHER / "screens" / "home.rs").read_text()
     launched = set(re.findall(r'app: Some\("([\w-]+)"\)', home))
-    assert launched == {"youtube", "plex"}
+    assert launched == {"youtube", "ytmusic", "plex"}
     apps_py = (ROOT / "couchd" / "apps.py").read_text()
     assert launched <= set(re.findall(r"""App\(\s*["']([\w-]+)["']""", apps_py))
 

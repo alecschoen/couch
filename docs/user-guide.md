@@ -42,8 +42,9 @@ Return or Blue closes the menu. It also closes by itself after half a minute.
 
 ## Home
 
-Home is a row of cards: **YouTube**, **Plex**, **Audio**, **Bluetooth** and **Settings**.
-Move along them and press OK. The screen takes the colour of the card you're on.
+Home is a row of cards: **YouTube**, **YouTube Music**, **Plex**, **Audio**, **Bluetooth**
+and **Settings**. Move along them and press OK. The screen takes the colour of the card
+you're on.
 
 The top right says where the sound is going. To change it, go to **Audio**, press OK and
 pick one, or just press Red.
