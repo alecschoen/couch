@@ -3,6 +3,10 @@
 //! floods with the colour of the card in focus. On Audio, the blurb gives way to a pill per
 //! output; picking one moves the sound there (couchd toasts "Sound now on X").
 //!
+//! The row is YouTube, YouTube Music, Plex, Audio, Bluetooth and Settings, less the cards the
+//! `home.hidden` setting leaves off (Settings › Display › Apps on Home); Settings always stays.
+//! The row follows the setting at once, and focus with it (`follow`).
+//!
 //! Keys, on top of the arrows and OK:
 //!   OK or Up on Audio    into the output pills, on the current output
 //!   Down or Back         from the pills, back to the Audio card
@@ -85,6 +89,28 @@ const CARDS: [Card; 6] = [
     },
 ];
 
+/// Every card Home can show, in order, as (id, name): for Settings › Apps on Home.
+pub fn all_cards() -> impl Iterator<Item = (&'static str, &'static str)> {
+    CARDS.iter().map(|c| (c.id, c.name))
+}
+
+/// The cards on Home, as indices into CARDS: all but those the `home.hidden` setting leaves
+/// off (#89, Settings > Display > Apps on Home). Settings always stays: it's the way back.
+pub fn visible_cards(s: &Value) -> Vec<usize> {
+    let hidden: Vec<&str> = state::setting(s, "home.hidden")
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    (0..CARDS.len()).filter(|&i| CARDS[i].id == "settings" || !hidden.contains(&CARDS[i].id)).collect()
+}
+
+/// Where focus goes when the row changes under it: the same card if it's still there, else
+/// the next one along that is (the last, if none after it is).
+fn follow(old: &[usize], current: usize, new: &[usize]) -> usize {
+    let card = old.get(current).copied().unwrap_or(0);
+    new.iter().position(|&i| i >= card).unwrap_or(new.len().saturating_sub(1))
+}
+
 pub fn sound_label(s: &Value) -> String {
     let Some(outputs) = state::at(s, "audio.outputs").as_array() else {
         return "…".into(); // not heard from couchd yet
@@ -133,7 +159,7 @@ pub struct Home {
 impl Home {
     pub fn new() -> Self {
         Home {
-            cards: (0..CARDS.len()).collect(),
+            cards: visible_cards(&serde_json::json!({})),
             labels: Rc::new(VecModel::default()),
             current: 0,
             in_outputs: false,
@@ -158,6 +184,14 @@ impl Home {
     }
 
     fn render(&mut self, app: &App) {
+        let cards = visible_cards(&app.state);
+        if cards != self.cards {
+            self.current = follow(&self.cards, self.current, &cards);
+            self.cards = cards;
+            if !self.on_audio() {
+                self.in_outputs = false;
+            }
+        }
         let data = app.ui.global::<HomeData>();
         data.set_sound(format!("Sound: {}", sound_label(&app.state)).into());
 
@@ -276,7 +310,11 @@ impl Screen for Home {
     }
 
     fn state(&mut self, app: &mut App, _patch: Option<&Value>) {
+        let before = self.card().id;
         self.render(app);
+        if self.card().id != before {
+            app.repaint(); // a hidden card took focus with it: the flood follows
+        }
     }
 
     fn key(&mut self, key: &Key, app: &mut App) -> Outcome {
@@ -353,5 +391,33 @@ mod tests {
         let s = json!({"bluetooth": {"devices": [{"name": "JBL", "connected": true}, {"name": "Old", "connected": false}]}});
         assert_eq!(bluetooth_blurb(&s), "JBL connected · OK to pair something new");
         assert_eq!(bluetooth_blurb(&json!({})), "Nothing connected · OK to pair something new");
+    }
+
+    fn ids(cards: &[usize]) -> Vec<&'static str> {
+        cards.iter().map(|&i| CARDS[i].id).collect()
+    }
+
+    #[test]
+    fn hidden_cards_leave_the_row_but_settings_stays() {
+        let all = visible_cards(&json!({}));
+        assert_eq!(ids(&all), ["youtube", "ytmusic", "plex", "audio", "bluetooth", "settings"]);
+        let s = json!({"settings": {"home.hidden": ["ytmusic", "bluetooth", "settings"]}});
+        assert_eq!(ids(&visible_cards(&s)), ["youtube", "plex", "audio", "settings"]);
+        let s = json!({"settings": {"home.hidden": ["youtube", "ytmusic", "plex", "audio", "bluetooth"]}});
+        assert_eq!(ids(&visible_cards(&s)), ["settings"]);
+    }
+
+    #[test]
+    fn focus_follows_the_row() {
+        let all = visible_cards(&json!({}));
+        let fewer = visible_cards(&json!({"settings": {"home.hidden": ["ytmusic", "plex"]}}));
+        // Still there: stays on it (Audio, index 3 → 1).
+        assert_eq!(follow(&all, 3, &fewer), 1);
+        // Gone: the next card along that's still there (YouTube Music → Audio).
+        assert_eq!(follow(&all, 1, &fewer), 1);
+        // Back again: the same card, wherever it is now.
+        assert_eq!(follow(&fewer, 2, &all), 4);
+        let only = visible_cards(&json!({"settings": {"home.hidden": ["youtube"]}}));
+        assert_eq!(follow(&all, 0, &only), 0);
     }
 }

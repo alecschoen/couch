@@ -13,6 +13,10 @@ export { SettingsData, SettingsRow, SheetRow }
 import { BluetoothScreen, BluetoothData, BtRow } from "screens/bluetooth.slint";
 export { BluetoothData, BtRow }
 // END bluetooth imports
+// BEGIN home-apps imports
+import { HomeAppsScreen, HomeAppsData, HomeAppRow } from "screens/home-apps.slint";
+export { HomeAppsData, HomeAppRow }
+// END home-apps imports
 // BEGIN system imports
 import { SystemScreen, SystemData } from "screens/system.slint";
 export { SystemData }
@@ -104,6 +108,11 @@ export component MainWindow inherits Window {
             entering: Router.entering;
         }
         // END bluetooth screen
+        // BEGIN home-apps screen
+        if Router.top == "home-apps": HomeAppsScreen {
+            entering: Router.entering;
+        }
+        // END home-apps screen
         // BEGIN system screen
         if Router.top == "startup" || Router.top == "opening" || Router.top == "error": SystemScreen {
             kind: Router.top;

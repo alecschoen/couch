@@ -6,6 +6,7 @@
 //! Down in the panel stop at its first and last rows. Rows that pick from a range (Dim to
 //! clock after, Volume limit) change with Left and Right, or OK to step forward.
 //!
+//!   Display > Apps on Home   the cards Home shows, a switch each (screens/home_apps.rs)
 //!   Sound > Output    a sheet of the outputs; OK on one moves the sound there
 //!   Remote > Test     OK, then every key shows in the box (couchd's colour keys stand down
 //!                     meanwhile: remote.raw_keys); Back twice, Home, or 10 s idle stops it
@@ -427,6 +428,7 @@ impl Inner {
                     self.step(item, 1, app);
                 }
             }
+            Kind::Link if item.key == "home-apps" => app.go("home-apps", json!({})),
             Kind::Link => self.open_outputs(app),
             Kind::Remote => {
                 if self.testing.is_none() {
@@ -669,6 +671,14 @@ impl Inner {
                     "Turn the TV off when idle",
                     "After 2 hours on Couch with no buttons pressed. Never while something plays.",
                 ),
+                // The cards on Home (#89): a screen of its own (screens/home_apps.rs).
+                Item {
+                    key: "home-apps",
+                    kind: Kind::Link,
+                    label: "Apps on Home".into(),
+                    value: crate::screens::home_apps::summary(s),
+                    ..Item::default()
+                },
             ],
             "sound" => {
                 let current = state::str_at(s, "audio.current");

@@ -225,3 +225,40 @@ def test_ui_sounds_default_on_and_take_only_known_modes(state):
     with pytest.raises(SettingError):
         settings.set("audio.ui_sounds", "loud")
     assert settings.get("audio.ui_sounds") == "tv"
+
+
+def test_hidden_cards_are_known_cards_and_never_settings(state, tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings(state, path, save_delay=0)
+    assert settings.get("home.hidden") == []
+    # Kept in Home's order, each once, whatever order they came in.
+    assert settings.set("home.hidden", ["plex", "ytmusic", "plex"]) is True
+    assert settings.get("home.hidden") == ["ytmusic", "plex"]
+    assert state.get("settings")["home.hidden"] == ["ytmusic", "plex"]
+    assert settings.set("home.hidden", ["ytmusic", "plex"]) is False
+    for bad in (["settings"], ["netflix"], "plex", [1], None, {"plex": True}):
+        with pytest.raises(SettingError):
+            settings.set("home.hidden", bad)
+    assert settings.get("home.hidden") == ["ytmusic", "plex"]
+    settings.flush()
+
+    # It survives a restart; a file naming a card that isn't one falls back to none hidden.
+    again = Settings(LiveState(EventBus()), path)
+    again.load()
+    assert again.get("home.hidden") == ["ytmusic", "plex"]
+    path.write_text(json.dumps({"home.hidden": ["plex", "settings"]}))
+    again.load()
+    assert again.get("home.hidden") == []
+
+
+async def test_hidden_cards_through_the_commands(state):
+    settings = Settings(state)
+    commands = Commands()
+    settings.add_commands(commands)
+    got = await commands.run("settings.set", {"key": "home.hidden", "value": ["bluetooth"]})
+    assert got == {"home.hidden": ["bluetooth"]}
+    described = await commands.run("settings.describe")
+    hidden = next(d for d in described if d["key"] == "home.hidden")
+    assert hidden["type"] == "list"
+    assert hidden["choices"] == ["youtube", "ytmusic", "plex", "audio", "bluetooth"]
+    assert await commands.run("settings.reset", {"key": "home.hidden"}) == {"home.hidden": []}

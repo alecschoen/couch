@@ -249,7 +249,7 @@ The text `ping` gets `pong`.
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
 | `settings.set` | `key`, `value`. Validated and saved; returns `{key: value}`. See [Settings](#settings) |
 | `settings.reset` | `key`. Back to its default |
-| `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
+| `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}`; a `list` setting holds some of its `choices` |
 | `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
 | `overlay.toast` | `text`; `level`, `icon` (optional, as in `toast`). Shows a toast over whatever is in front, like `ctx.bus.toast()` inside couchd |
 | `overlay.menu` | `open` (bool). Opens or closes the quick menu, as Blue and Back do |
@@ -350,6 +350,7 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
 | `audio.ui_sounds` | `on`, `tv`, `off` | `on` | UI sounds (#49), the launcher's and Plex's own: on any output, only on the TV speakers, or off |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `home.hidden` | list of `youtube`, `ytmusic`, `plex`, `audio`, `bluetooth` | `[]` | The cards left off Home (#89); Settings always stays. Kept in Home's order, each once |
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |

@@ -89,7 +89,8 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 
 - **Display**: evening colours (softer colours after sunset), how soon Home dims to the
   clock, and whether the TV turns itself off after 2 hours with no buttons pressed (off
-  unless you turn it on; never while something plays).
+  unless you turn it on; never while something plays). **Apps on Home** picks which cards
+  Home shows: switch off the ones you never use. Settings is always there.
 - **Sound**: where the sound goes, a volume limit, whether the TV remote's volume
   buttons work for headphones and Bluetooth, and UI sounds: the quiet clicks when you press
   a button on Couch's own screens and in Plex (On, TV only, or Off). YouTube has none.

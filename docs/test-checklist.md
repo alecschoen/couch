@@ -57,6 +57,10 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 
 - [ ] **C1** Display: "Resolution" says 1920 × 1080 · 60 Hz. Evening colors: After sunset /
       Always / Off. Dim to clock after: Left and Right change it.
+- [ ] **C1b** Display › Apps on Home (#89): switch off YouTube Music and Plex, press Home.
+      Expected: Home has four cards, at the roomier widths, and focus is on a card that's
+      there. Switch them on again: six cards. Settings has no switch. Restart couchd
+      (`sudo systemctl restart couchd`): the choice is kept.
 - [ ] **C2** Sound: Output opens a list of outputs; picking one moves the sound. The two
       switches flip with OK. Volume limit changes with Left and Right.
 - [ ] **C2b** UI sounds (#49), on by default. On Home and in Settings, from the couch:
