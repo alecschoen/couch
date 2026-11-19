@@ -1,0 +1,28 @@
+// The weather's icons (#82): line icons in the style of ui/icons, one per couchd/weather.py
+// ICONS name, tinted like the others. Home and the idle clock draw them at their own sizes.
+
+import { Theme } from "tokens.slint";
+
+export component WeatherIcon inherits Image {
+    in property <string> name;
+    in property <color> tint: Theme.ink;
+    width: 72px;
+    height: 72px;
+    colorize: tint;
+    image-rendering: smooth;
+    source: name == "clear" ? @image-url("icons/weather-clear.svg")
+        : name == "clear-night" ? @image-url("icons/weather-clear-night.svg")
+        : name == "partly-cloudy" ? @image-url("icons/weather-partly-cloudy.svg")
+        : name == "fog" ? @image-url("icons/weather-fog.svg")
+        : name == "rain" ? @image-url("icons/weather-rain.svg")
+        : name == "snow" ? @image-url("icons/weather-snow.svg")
+        : name == "thunder" ? @image-url("icons/weather-thunder.svg")
+        : @image-url("icons/weather-cloudy.svg");
+}
+
+// One of the idle clock's hours: "22:00" over the icon and "11°".
+export struct WeatherHour {
+    label: string,
+    icon: string,
+    temp: string,
+}

@@ -31,10 +31,15 @@ Section times are rough.
 
 ## B. Home and the remote (5 min)
 
-- [ ] **B1** Press Right through the cards: YouTube, Plex, Audio, Bluetooth, Settings. Expected:
-      each one turns the whole screen its own colour and changes the big title. The colours
-      look right on this TV (Plex's gold is the one most likely to look off).
+- [ ] **B1** Press Right through the cards: YouTube, YouTube Music, Plex, Audio, Bluetooth,
+      Settings. Expected: each one turns the whole screen its own colour (YouTube Music shares
+      YouTube's red) and changes the big title. The six cards fit between the screen's edges,
+      "YouTube Music" on two lines while it isn't in focus. The colours look right on this TV
+      (Plex's gold is the one most likely to look off).
 - [ ] **B2** From the couch: the clock, the line under the title and "Sound: …" are easy to read.
+- [ ] **B2b** The weather (#82), top right: an icon and the temperature, then the sky and
+      today's high and low ("Cloudy · 15° / 7°"), then "Sound: …". Expected: it matches a
+      weather site for your town, in °C. (Nothing there, and the timezone isn't set? See J5.)
 - [ ] **B3** Hold Left down. Expected: focus moves along by itself after a moment, then faster.
       It stops when you let go, without running on past it.
 - [ ] **B4** On Audio, press OK. Expected: a row of outputs (TV speakers, Headphone jack, and any
@@ -55,6 +60,10 @@ Open the Settings card. Up and Down pick a category; Right or OK goes into it; R
 
 - [ ] **C1** Display: "Resolution" says 1920 × 1080 · 60 Hz. Evening colors: After sunset /
       Always / Off. Dim to clock after: Left and Right change it.
+- [ ] **C1b** Display › Apps on Home (#89): switch off YouTube Music and Plex, press Home.
+      Expected: Home has four cards, at the roomier widths, and focus is on a card that's
+      there. Switch them on again: six cards. Settings has no switch. Restart couchd
+      (`sudo systemctl restart couchd`): the choice is kept.
 - [ ] **C2** Sound: Output opens a list of outputs; picking one moves the sound. The two
       switches flip with OK. Volume limit changes with Left and Right.
 - [ ] **C2b** UI sounds (#49), on by default. On Home and in Settings, from the couch:
@@ -213,6 +222,9 @@ default).
       anything for a minute. Expected: a dark screen with the time and date.
 - [ ] **J2** Leave it for 3 minutes more (or come back to it later). Expected: the clock has
       moved to another spot, so nothing burns in.
+- [ ] **J2b** Under the date: "Now" and three later times, two hours apart, each with an icon
+      and a temperature. At every spot the clock goes to, all of it stays on screen and clear
+      of "Press any button".
 - [ ] **J3** Press any button. Expected: Home comes back as you left it. That press only wakes
       the screen; it doesn't also move focus or open anything.
 - [ ] **J4** Play a YouTube video and leave it for over a minute. Expected: no clock while it
@@ -225,6 +237,9 @@ default).
 - [ ] **J7** "Turn the TV off when idle" is off by default. It turns the TV off after 2 hours on
       Couch with no buttons pressed, never while something plays. Leave it off unless you want
       it; it's too slow to test here.
+- [ ] **J8** Settings › Display › Weather: switch it off. Expected: Home's top right is just
+      "Sound: …" again, where it was, and the clock has no weather under the date. Switch it
+      back on: the weather is back within a few seconds.
 
 ## K. Updates (3 min)
 
@@ -396,6 +411,8 @@ decides what the remote's buttons do.
 | Quick menu, messages, volume panel | #18, PR #56 |
 | TV remote volume | #11, PR #53 |
 | Idle clock, evening colours, TV off when idle | #20, PR #50 |
+| YouTube Music card, Apps on Home | #81, #89 |
+| Weather | #82 |
 | Updates | #24, PR #54 |
 | Power cuts, SD card | #25, PR #51 |
 | Wi-Fi option | #31, PR #57 |

@@ -1,9 +1,11 @@
 // The idle clock (artboard "Screen · Idle clock" ×1.5): a
-// dark clock and date over everything once couchd says the launcher is idle. Rust
-// (src/idle.rs) says when, what time it is and where the clock sits; this draws it.
+// dark clock and date over everything once couchd says the launcher is idle, and under them
+// the weather for the next hours. Rust (src/idle.rs) says when, what time it is, the weather
+// and where the clock sits; this draws it.
 
 import { Theme, Ease } from "tokens.slint";
 import { Line } from "components.slint";
+import { WeatherIcon, WeatherHour } from "weather.slint";
 
 export global IdleData {
     in property <bool> shown;
@@ -11,6 +13,8 @@ export global IdleData {
     in property <int> generation;
     in property <string> time;
     in property <string> date;
+    // "Now" and three hours to come (src/weather.rs), under the date; none: no strip.
+    in property <[WeatherHour]> weather;
     // "Sound: TV speakers · the TV turns off after an hour"
     in property <string> footer;
     // The clock's top-left corner: it drifts between a few spots against burn-in.
@@ -31,9 +35,10 @@ component Clock inherits Rectangle {
     opacity: made;
     background: Theme.bg-of("idle");
 
+    // Kept clear of the screen's edges and the footer, whatever the spot.
     Rectangle {
-        x: IdleData.x;
-        y: IdleData.y;
+        x: min(IdleData.x, parent.width - Theme.screen-pad-x - self.width);
+        y: min(IdleData.y, foot-box.y - 42px - self.height);
         width: box.preferred-width;
         height: box.preferred-height;
         animate x, y { duration: IdleData.drifting && !Theme.reduced ? 2400ms : 0ms; easing: Ease.in-out; }
@@ -59,11 +64,50 @@ component Clock inherits Rectangle {
                     opacity: 0.7;
                 }
             }
+
+            // The weather: each hour's time over its icon and temperature.
+            if IdleData.weather.length > 0: Rectangle {
+                opacity: 0.7;
+                HorizontalLayout {
+                    alignment: start;
+                    padding-left: 12px;
+                    padding-top: 45px;
+                    spacing: 60px;
+                    for hour in IdleData.weather: VerticalLayout {
+                        spacing: 10px;
+                        Line {
+                            leading: 1.2;
+                            text: hour.label;
+                            font-size: Theme.text-idle-hint;
+                            color: root.ink;
+                            opacity: 0.8;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 12px;
+                            WeatherIcon {
+                                name: hour.icon;
+                                tint: root.ink;
+                                width: 40px;
+                                height: 40px;
+                            }
+                            Line {
+                                leading: 1.2;
+                                text: hour.temp;
+                                font-family: Theme.font-display;
+                                font-size: 36px;
+                                font-weight: 500;
+                                color: root.ink;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     // "Press any button", and where the sound goes.
-    Rectangle {
+    foot-box := Rectangle {
         x: Theme.screen-pad-x;
         width: parent.width - 2 * Theme.screen-pad-x;
         height: foot.preferred-height;

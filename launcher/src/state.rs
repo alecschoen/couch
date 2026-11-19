@@ -70,11 +70,13 @@ fn default_setting(key: &str) -> &'static Value {
         serde_json::json!({
             "display.evening": "sunset",
             "display.motion": "auto",
+            "display.weather": true,
             "display.dim_after": 300,
             "audio.volume_limit": 100,
             "audio.tv_remote_volume": true,
             "audio.ui_sounds": "on",
             "bluetooth.auto_reconnect": true,
+            "home.hidden": [],
             "network.wifi": false,
             "tv.off_when_idle": false,
             "tv.standby_on_poweroff": false,

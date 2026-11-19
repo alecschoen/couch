@@ -39,8 +39,9 @@ class SettingError(CommandError):
 
 @dataclass(frozen=True)
 class Setting:
-    """`kind` is "bool", "int" or "choice". An int has min/max/step; a choice has choices,
-    whose values are strings or ints."""
+    """`kind` is "bool", "int", "choice" or "list". An int has min/max/step; a choice has
+    choices, whose values are strings or ints; a list is some of its choices (strings), each
+    once, kept in the order of `choices` whatever order they came in."""
 
     key: str
     kind: str
@@ -70,13 +71,21 @@ class Setting:
                 options = ", ".join(repr(c) for c in self.choices)
                 raise SettingError(f"{self.key} must be one of {options}")
             return value
+        if self.kind == "list":
+            if not isinstance(value, list | tuple) or not all(isinstance(v, str) for v in value):
+                raise SettingError(f"{self.key} must be a list of names")
+            unknown = [v for v in value if v not in self.choices]
+            if unknown:
+                options = ", ".join(repr(c) for c in self.choices)
+                raise SettingError(f"{self.key} can only hold {options}, not {unknown[0]!r}")
+            return [c for c in self.choices if c in value]
         raise AssertionError(self.kind)
 
     def describe(self) -> dict[str, Any]:
         out: dict[str, Any] = {"key": self.key, "type": self.kind, "default": self.default}
         if self.label:
             out["label"] = self.label
-        if self.kind == "choice":
+        if self.kind in ("choice", "list"):
             out["choices"] = list(self.choices)
         if self.kind == "int":
             out.update(min=self.min, max=self.max, step=self.step)
@@ -96,6 +105,8 @@ SCHEMA: dict[str, Setting] = _schema(
         "display.evening", "choice", "sunset", ("sunset", "always", "off"), label="Evening colors"
     ),
     Setting("display.motion", "choice", "auto", ("auto", "reduced", "full"), label="Reduce motion"),
+    # The weather on Home and the idle clock (#82, couchd/weather.py); off: nothing is fetched.
+    Setting("display.weather", "bool", True, label="Weather"),
     # Seconds without a key press on the launcher before it dims to the clock; 0 = never.
     Setting(
         "display.dim_after",
@@ -111,6 +122,15 @@ SCHEMA: dict[str, Setting] = _schema(
     # UI sounds (#49, launcher/src/sounds.rs): everywhere, only on the TV speakers, or off.
     Setting("audio.ui_sounds", "choice", "on", ("on", "tv", "off"), label="UI sounds"),
     Setting("bluetooth.auto_reconnect", "bool", True, label="Reconnect Bluetooth at start"),
+    # The cards left off Home (#89, launcher/src/screens/home.rs). Settings is never one of
+    # them: it's the way back to this setting.
+    Setting(
+        "home.hidden",
+        "list",
+        [],
+        ("youtube", "ytmusic", "plex", "audio", "bluetooth"),
+        label="Hidden from Home",
+    ),
     # The Wi-Fi radio (#31). Off unless asked for: Couch is meant to be on Ethernet.
     Setting("network.wifi", "bool", False, label="Wi-Fi"),
     # The TV goes to standby after 2 hours idle on the launcher (couchd/idle.py).

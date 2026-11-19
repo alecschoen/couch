@@ -47,6 +47,7 @@ pub fn startup_label(startup: &Value) -> &'static str {
 pub fn app_look(app_id: &str, s: &Value) -> (String, &'static str) {
     match app_id {
         "youtube" => ("YouTube".into(), "yt"),
+        "ytmusic" => ("YouTube Music".into(), "yt"),
         "plex" => ("Plex".into(), "plex"),
         _ => {
             let listed = state::list_at(s, "apps.list")
@@ -282,6 +283,7 @@ mod tests {
     fn looks() {
         let s = json!({"apps": {"list": [{"id": "kodi2", "name": "Films"}]}});
         assert_eq!(app_look("plex", &s), ("Plex".into(), "plex"));
+        assert_eq!(app_look("ytmusic", &s), ("YouTube Music".into(), "yt"));
         assert_eq!(app_look("kodi2", &s), ("Films".into(), "system"));
         assert_eq!(app_look("nope", &s), ("nope".into(), "system"));
     }

@@ -20,6 +20,7 @@ mod sounds;
 mod stacking;
 mod state;
 mod updates;
+mod weather;
 
 fn main() -> Result<(), slint::PlatformError> {
     let url = std::env::args().nth(1).or_else(|| std::env::var("COUCH_URL").ok()).unwrap_or_else(|| {

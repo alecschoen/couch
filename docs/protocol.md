@@ -32,6 +32,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
+| `weather` | `temp`, `condition` (a few words: `Cloudy`), `icon` (`clear`, `clear-night`, `partly-cloudy`, `cloudy`, `fog`, `rain`, `snow` or `thunder`), `high`, `low` (today), `hourly` (list of `{at, time, temp, icon}` for the next 12 hours: `at` in Unix seconds, `time` local `HH:MM`), `updated_at`. Whole °C. All null and `hourly` empty while there's no forecast or `display.weather` is off. See below |
 | `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 
@@ -53,6 +54,13 @@ the launcher has had no activity for `tv_off_after` (2 hours), once each time.
 `evening` is the sun where the Pi is, worked out offline from its timezone (tzdata's
 coordinates for the zone; `timedatectl set-timezone` changes it), rechecked every minute.
 With `display.evening` on `sunset` the launcher uses its deep colours while `dark` is true.
+
+`weather` comes from [Open-Meteo](https://open-meteo.com) (free, no key), for the same
+place as `evening`, rounded to 2 decimals: the request carries those coordinates and
+nothing else. It's fetched every 30 minutes; after a failed fetch it's tried again after a
+minute, doubling up to 30, and the last forecast stays until it's 3 hours old. Home shows
+now and today top right; the idle clock shows now and three later hours under the date.
+With `display.weather` off nothing is fetched and the screens show no weather at all.
 
 `apps` says what's on screen:
 
@@ -249,7 +257,7 @@ The text `ping` gets `pong`.
 | `apps.dev.network` | Dev mode only: `internet` (bool), `plex` (`ok`, `unreachable` or `unknown`). Both optional |
 | `settings.set` | `key`, `value`. Validated and saved; returns `{key: value}`. See [Settings](#settings) |
 | `settings.reset` | `key`. Back to its default |
-| `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}` |
+| `settings.describe` | Returns the schema: a list of `{key, type, default, label, choices \| min, max, step}`; a `list` setting holds some of its `choices` |
 | `system.info` | Returns `{name, device, network}`: the name the TV shows, the Pi model, and `{kind: "wifi" \| "ethernet", name (SSID or null), address}` or null when offline |
 | `overlay.toast` | `text`; `level`, `icon` (optional, as in `toast`). Shows a toast over whatever is in front, like `ctx.bus.toast()` inside couchd |
 | `overlay.menu` | `open` (bool). Opens or closes the quick menu, as Blue and Back do |
@@ -345,11 +353,13 @@ A value of the wrong type or out of range is refused with an error and nothing c
 | --- | --- | --- | --- |
 | `display.evening` | `sunset`, `always`, `off` | `sunset` | Evening colours. *sunset* follows `evening.dark` |
 | `display.motion` | `auto`, `reduced`, `full` | `auto` | Reduce motion; *auto* follows the system |
+| `display.weather` | bool | `true` | The weather on Home and the idle clock (#82); off, nothing is fetched |
 | `display.dim_after` | 60, 120, 300, 600, 900, 1800, 3600, 0 | 300 | Seconds before the launcher dims to the idle clock; 0 = never |
 | `audio.volume_limit` | 10–100, steps of 5 | 100 | couchd never sets a volume above this |
 | `audio.tv_remote_volume` | bool | true | TV remote's volume keys drive the jack, Bluetooth and USB (see [TV remote volume](#tv-remote-volume)) |
 | `audio.ui_sounds` | `on`, `tv`, `off` | `on` | UI sounds (#49), the launcher's and Plex's own: on any output, only on the TV speakers, or off |
 | `bluetooth.auto_reconnect` | bool | true | Reconnect the last audio device at start and when it comes back |
+| `home.hidden` | list of `youtube`, `ytmusic`, `plex`, `audio`, `bluetooth` | `[]` | The cards left off Home (#89); Settings always stays. Kept in Home's order, each once |
 | `network.wifi` | bool | false | Wi-Fi on. Off unless turned on; kept on if it's the only network and was never set (#31) |
 | `tv.off_when_idle` | bool | false | TV to standby after 2 hours without a key on the launcher |
 | `tv.standby_on_poweroff` | bool | false | TV to standby when the Pi powers off (not on a reboot) |

@@ -1,0 +1,75 @@
+// Settings › Apps on Home (#89): every card Home can show, each with a switch, and Settings,
+// which always stays. Rust (src/screens/home_apps.rs) fills HomeAppsData and moves focus; this
+// only draws it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Line, Screen, Setting } from "../components.slint";
+
+export struct HomeAppRow {
+    name: string,
+    // On Home now (the switch).
+    shown: bool,
+    focused: bool,
+    // Settings: no switch, "Always on Home" instead.
+    fixed: bool,
+    // The divider above (not on the first line, nor next to focus).
+    hairline: bool,
+}
+
+export global HomeAppsData {
+    in property <[HomeAppRow]> rows;
+}
+
+export component HomeAppsScreen inherits Screen {
+    property <length> title-y: Theme.screen-pad-top + Theme.text-sm * 1.35 + 27px;
+
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top;
+        text: "Home › Settings";
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: root.title-y;
+        leading: 1;
+        text: "Apps on Home";
+        font-family: Theme.font-display;
+        font-size: Theme.text-title;
+        font-weight: 600;
+        letter-spacing: -0.025 * Theme.text-title;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: root.title-y + Theme.text-title + 21px;
+        text: "The cards Home shows. OK turns one on or off.";
+        font-size: Theme.text-md;
+        opacity: Theme.a-muted;
+    }
+
+    // The cards, in Home's order. 27px wider than the column each side, for the fills.
+    VerticalLayout {
+        x: Theme.screen-pad-x - 27px;
+        y: root.title-y + Theme.text-title + 21px + Theme.text-md * 1.35 + 54px;
+        width: 1224px;
+        height: self.preferred-height;
+        alignment: start;
+        for row in HomeAppsData.rows: Rectangle {
+            height: line.preferred-height;
+            line := Setting {
+                x: row.focused ? Bump.x : 0;
+                y: row.focused ? Bump.y : 0;
+                animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+                width: parent.width;
+                height: parent.height;
+                label: row.name;
+                value: row.fixed ? "Always on Home" : "";
+                has-switch: !row.fixed;
+                switch-on: row.shown;
+                focused: row.focused;
+                hairline: row.hairline;
+            }
+        }
+    }
+}

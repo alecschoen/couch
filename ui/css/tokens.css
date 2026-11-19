@@ -93,6 +93,8 @@
   --card-h: 198px;
   --card-w: 255px;
   --card-w-focus: 450px;
+  --card-w-tight: 232px; /* Home's row of six cards */
+  --card-w-focus-tight: 400px;
   --row-h: 120px;
   --tab-h: 87px;
   --pill-h: 78px;
