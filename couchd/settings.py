@@ -105,6 +105,8 @@ SCHEMA: dict[str, Setting] = _schema(
         "display.evening", "choice", "sunset", ("sunset", "always", "off"), label="Evening colors"
     ),
     Setting("display.motion", "choice", "auto", ("auto", "reduced", "full"), label="Reduce motion"),
+    # The weather on Home and the idle clock (#82, couchd/weather.py); off: nothing is fetched.
+    Setting("display.weather", "bool", True, label="Weather"),
     # Seconds without a key press on the launcher before it dims to the clock; 0 = never.
     Setting(
         "display.dim_after",

@@ -46,11 +46,13 @@ Home is a row of cards: **YouTube**, **YouTube Music**, **Plex**, **Audio**, **B
 and **Settings**. Move along them and press OK. The screen takes the colour of the card
 you're on.
 
-The top right says where the sound is going. To change it, go to **Audio**, press OK and
-pick one, or just press Red.
+The top right has the weather: the temperature now, the sky, and today's high and low.
+Under it, where the sound is going. To change that, go to **Audio**, press OK and pick one,
+or just press Red.
 
-If nobody touches the remote for 5 minutes, Home dims to a clock. Any button brings Home back
-as you left it; that press does nothing else. Nothing dims while a video plays.
+If nobody touches the remote for 5 minutes, Home dims to a clock, with the weather for the
+next few hours under the date. Any button brings Home back as you left it; that press does
+nothing else. Nothing dims while a video plays.
 
 ## YouTube
 
@@ -89,7 +91,8 @@ To stop using a speaker, choose it under Your devices, hold OK, and pick **Disco
 
 - **Display**: evening colours (softer colours after sunset), how soon Home dims to the
   clock, and whether the TV turns itself off after 2 hours with no buttons pressed (off
-  unless you turn it on; never while something plays). **Apps on Home** picks which cards
+  unless you turn it on; never while something plays). **Weather** turns the weather on Home
+  and the clock off and on. **Apps on Home** picks which cards
   Home shows: switch off the ones you never use. Settings is always there.
 - **Sound**: where the sound goes, a volume limit, whether the TV remote's volume
   buttons work for headphones and Bluetooth, and UI sounds: the quiet clicks when you press

@@ -1,9 +1,10 @@
-// Home: the B3 colour flood. Clock and date top left, the current
+// Home: the B3 colour flood. Clock and date top left, the weather and the current
 // sound output top right, a headline for the current card, and the card row. Rust
 // (src/screens/home.rs) fills HomeData and moves focus; this only draws it.
 
 import { Theme, Ease, Bump } from "../tokens.slint";
 import { Card, Line, Pill, Screen } from "../components.slint";
+import { WeatherIcon } from "../weather.slint";
 
 export struct OutputPill {
     id: string,
@@ -16,6 +17,11 @@ export global HomeData {
     in property <string> time;
     in property <string> date;
     in property <string> sound;
+    // The weather, over the sound: its icon, "12°" and "Cloudy · 15° / 7°" (src/weather.rs).
+    in property <bool> weather-shown;
+    in property <string> weather-icon;
+    in property <string> weather-temp;
+    in property <string> weather-line;
     // The cards' labels, in order: YouTube, YouTube Music, Plex, Audio, Bluetooth, Settings.
     in property <[string]> labels;
     // The row's current card (wide), an index into `labels`.
@@ -57,14 +63,50 @@ export component HomeScreen inherits Screen {
             opacity: Theme.a-muted;
         }
     }
-    Line {
+    // Top right: the weather (when there's some to show), then the sound output under it.
+    VerticalLayout {
         x: parent.width - Theme.screen-pad-x - self.width;
-        y: 84px + Theme.s3;
-        text: HomeData.sound;
-        font-family: Theme.font-text;
-        font-size: Theme.text-sm;
-        color: Theme.ink;
-        opacity: Theme.a-muted;
+        y: HomeData.weather-shown ? 96px : 84px + Theme.s3;
+        width: self.preferred-width;
+        height: self.preferred-height;
+        spacing: 6px;
+        if HomeData.weather-shown: HorizontalLayout {
+            alignment: end;
+            spacing: Theme.s3;
+            WeatherIcon {
+                name: HomeData.weather-icon;
+                width: 72px;
+                height: 72px;
+            }
+            Line {
+                leading: 1;
+                text: HomeData.weather-temp;
+                font-family: Theme.font-display;
+                font-size: 84px;
+                font-weight: 500;
+                letter-spacing: -0.03 * 84px;
+                color: Theme.ink;
+            }
+        }
+        if HomeData.weather-shown && HomeData.weather-line != "": Line {
+            horizontal-alignment: right;
+            text: HomeData.weather-line;
+            font-family: Theme.font-text;
+            font-size: Theme.text-sm;
+            color: Theme.ink;
+            opacity: Theme.a-muted;
+        }
+        VerticalLayout {
+            padding-top: HomeData.weather-shown ? Theme.s3 : 0;
+            Line {
+                horizontal-alignment: right;
+                text: HomeData.sound;
+                font-family: Theme.font-text;
+                font-size: Theme.text-sm;
+                color: Theme.ink;
+                opacity: Theme.a-muted;
+            }
+        }
     }
 
     // Bottom: headline, blurb or output pills, then the cards.

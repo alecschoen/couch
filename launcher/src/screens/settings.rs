@@ -671,6 +671,8 @@ impl Inner {
                     "Turn the TV off when idle",
                     "After 2 hours on Couch with no buttons pressed. Never while something plays.",
                 ),
+                // On Home and the idle clock (#82). No hint: the panel has no room for one.
+                toggle("display.weather", "Weather", ""),
                 // The cards on Home (#89): a screen of its own (screens/home_apps.rs).
                 Item {
                     key: "home-apps",

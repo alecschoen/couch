@@ -70,6 +70,7 @@ fn default_setting(key: &str) -> &'static Value {
         serde_json::json!({
             "display.evening": "sunset",
             "display.motion": "auto",
+            "display.weather": true,
             "display.dim_after": 300,
             "audio.volume_limit": 100,
             "audio.tv_remote_volume": true,

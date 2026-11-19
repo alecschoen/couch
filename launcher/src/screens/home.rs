@@ -1,5 +1,5 @@
-//! Home: the B3 colour flood. Clock and date top left, the current
-//! sound output top right, a headline for the current card, and the card row. The screen
+//! Home: the B3 colour flood. Clock and date top left, the weather (src/weather.rs) and the
+//! current sound output top right, a headline for the current card, and the card row. The screen
 //! floods with the colour of the card in focus. On Audio, the blurb gives way to a pill per
 //! output; picking one moves the sound there (couchd toasts "Sound now on X").
 //!
@@ -194,6 +194,13 @@ impl Home {
         }
         let data = app.ui.global::<HomeData>();
         data.set_sound(format!("Sound: {}", sound_label(&app.state)).into());
+        let weather = crate::weather::now(&app.state);
+        data.set_weather_shown(weather.is_some());
+        if let Some(w) = weather {
+            data.set_weather_icon(w.icon.into());
+            data.set_weather_temp(w.temp.into());
+            data.set_weather_line(w.line.into());
+        }
 
         // The output pills: rebuilt only when the outputs or the current one change.
         let list = state::list_at(&app.state, "audio.outputs");

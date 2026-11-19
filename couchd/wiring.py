@@ -32,6 +32,7 @@ from couchd.tv import TvService
 from couchd.tv_volume import TvVolumeService
 from couchd.uinput import UinputKeyboard
 from couchd.updates import FakeUpdates, SystemdUpdates, UpdatesService, quiet_start
+from couchd.weather import WeatherService, fake_forecast
 from couchd.wifi import WifiService
 
 log = logging.getLogger(__name__)
@@ -103,6 +104,8 @@ def _apps(ctx: Context, *, dev: bool) -> tuple[list[Service], OverlayService]:
         KodiSoundsService(ctx, kodi),  # Plex's clicks follow the UI sounds setting (#49)
         IdleService(ctx, idle_after=_idle_after()),
         EveningService(ctx),
+        # The weather (#82): Open-Meteo on the Pi, a made-up forecast in dev mode.
+        WeatherService(ctx, fetch=fake_forecast() if dev else None),
     ]
     return [*services, SplashService(ctx)], overlay
 
