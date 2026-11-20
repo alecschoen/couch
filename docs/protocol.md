@@ -34,6 +34,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
 | `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
+| `mqtt` | only with MQTT set up ([Home Assistant](home-assistant.md)): `broker` (`host:port`), `connected` (bool), `error` (why the broker said no, e.g. `not authorized`, or null) |
 
 `system` also has `url`, the launcher's own address.
 

@@ -12,6 +12,7 @@ from couchd.bluetooth import BluetoothService
 from couchd.bluez import BluezBluetooth
 from couchd.cec_tv import CecTv
 from couchd.chromium import Chromium
+from couchd.config import MqttConfig
 from couchd.display import FakeDisplay, SystemdDisplay
 from couchd.evening import EveningService
 from couchd.fakes import FakeAudio, FakeBluetooth, FakeKeyboard, FakeTv, FakeWifi
@@ -19,6 +20,7 @@ from couchd.idle import IdleService
 from couchd.kodi import FakeKodi, KodiClient
 from couchd.kodi_rpc import KodiRpc
 from couchd.kodi_sounds import KodiSoundsService
+from couchd.mqtt import MqttService
 from couchd.network import FakeConnectivity, NetConnectivity
 from couchd.networkmanager import NmWifi
 from couchd.overlay import OverlayService
@@ -37,7 +39,15 @@ from couchd.wifi import WifiService
 log = logging.getLogger(__name__)
 
 
-def build_services(ctx: Context, *, dev: bool) -> list[Service]:
+def build_services(ctx: Context, *, dev: bool, mqtt: MqttConfig | None = None) -> list[Service]:
+    services = _services(ctx, dev=dev)
+    if mqtt is not None and mqtt.enabled:
+        # Home Assistant (#97): last, so the TV's state is there to send.
+        services.append(MqttService(ctx, mqtt))
+    return services
+
+
+def _services(ctx: Context, *, dev: bool) -> list[Service]:
     if dev:
         tv = FakeTv(power="standby", wake_time=2.0)
         audio = FakeAudio()

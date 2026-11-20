@@ -74,8 +74,34 @@ def test_unknown_keys_warn_but_load(tmp_path):
         ("[log]\nlevel = 'loud'", "log.level must be one of"),
         ("server = 1", "[server] must be a table"),
         ("[server\nport = 1", "config.toml"),
+        ("[mqtt]\nport = 0", "mqtt.port must be 1-65535"),
+        ("[mqtt]\ntopic = 'couch/#'", "mqtt.topic must be a topic"),
+        ("[mqtt]\ntopic = '/couch'", "mqtt.topic must be a topic"),
+        ("[mqtt]\ndiscovery = ''", "mqtt.discovery must be a topic"),
+        ("[mqtt]\nhost = 'h'\npassword_file = '/x'", "needs mqtt.username"),
     ],
 )
 def test_bad_values_raise(tmp_path, text, message):
     with pytest.raises(ConfigError, match=message.replace("[", r"\[").replace("]", r"\]")):
         load_config(write(tmp_path, text))
+
+
+def test_mqtt_is_off_unless_a_broker_is_set(tmp_path):
+    assert not defaults().mqtt.enabled
+    config = load_config(
+        write(
+            tmp_path,
+            "[mqtt]\nhost = 'homeassistant.local'\nusername = 'couch'\n"
+            "password_file = '/etc/couch/mqtt-password'\n",
+        )
+    )
+    assert config.mqtt.enabled
+    assert config.mqtt.port == 1883
+    assert config.mqtt.topic == "couch"
+    assert config.mqtt.discovery == "homeassistant"
+    assert config.mqtt.password_file == "/etc/couch/mqtt-password"
+
+
+def test_the_example_config_loads():
+    example = Path(__file__).resolve().parent.parent / "system" / "config.example.toml"
+    assert load_config(example).warnings == ()

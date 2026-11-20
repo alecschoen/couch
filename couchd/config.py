@@ -40,10 +40,29 @@ class LogConfig:
 
 
 @dataclass(frozen=True)
+class MqttConfig:
+    """Home Assistant over MQTT (couchd/mqtt.py). No `host`, no MQTT."""
+
+    host: str = ""
+    port: int = 1883
+    username: str = ""
+    # A file holding the password, readable by couchd (the couch user), not the password
+    # itself: config.toml is world-readable.
+    password_file: str = ""
+    topic: str = "couch"
+    discovery: str = "homeassistant"
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.host)
+
+
+@dataclass(frozen=True)
 class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     log: LogConfig = field(default_factory=LogConfig)
+    mqtt: MqttConfig = field(default_factory=MqttConfig)
     # Problems that didn't stop loading, such as unknown keys. Logged once logging is up.
     warnings: tuple[str, ...] = ()
 
@@ -120,3 +139,17 @@ def _validate(config: Config, source: str) -> None:
     if config.log.level not in LOG_LEVELS:
         choices = ", ".join(LOG_LEVELS)
         raise ConfigError(f"{source}: log.level must be one of {choices}, got {config.log.level!r}")
+    mqtt = config.mqtt
+    if not 1 <= mqtt.port <= 65535:
+        raise ConfigError(f"{source}: mqtt.port must be 1-65535, got {mqtt.port}")
+    for key in ("topic", "discovery"):
+        value = getattr(mqtt, key)
+        if not _plain_topic(value):
+            raise ConfigError(f"{source}: mqtt.{key} must be a topic like 'couch', got {value!r}")
+    if mqtt.password_file and not mqtt.username:
+        raise ConfigError(f"{source}: mqtt.password_file needs mqtt.username too")
+
+
+def _plain_topic(value: str) -> bool:
+    """A topic prefix: not empty, no wildcards, no leading or trailing slash."""
+    return bool(value) and not any(c in value for c in "#+\0") and value.strip("/") == value

@@ -44,7 +44,7 @@ class Daemon:
         self.ctx = Context(self.bus, self.state, self.saved, self.commands, self.settings)
         self.services = ServiceRegistry(self.state)
         if services is None:
-            services = build_services(self.ctx, dev=dev)
+            services = build_services(self.ctx, dev=dev, mqtt=config.mqtt)
         for service in services:
             self.services.add(service)
         self.stopping = asyncio.Event()

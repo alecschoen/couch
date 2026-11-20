@@ -106,6 +106,7 @@ PACKAGES=(
     polkitd                              # lets couchd switch to Kodi and back, and reboot
     python3-venv python3-aiohttp python3-dbus-fast python3-hatchling python3-editables
     python3-evdev                        # the remote's virtual keyboard (#8)
+    python3-paho-mqtt                    # Home Assistant over MQTT (#97)
     fonts-noto-core
     rsync
 )
