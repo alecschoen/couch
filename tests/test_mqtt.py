@@ -413,3 +413,31 @@ def test_parse_note_keeps_messages_tidy():
     assert parse_note(json.dumps({"text": "a", "seconds": 0.5}))["ms"] == 2000
     assert parse_note("two\n  lines")["text"] == "two lines"
     assert parse_note(json.dumps({"text": "a", "level": "warning"}))["level"] == "warning"
+
+
+async def test_a_message_wakes_the_idle_clock(mqtt, ctx):
+    woke = []
+
+    async def activity(args):
+        woke.append(True)
+
+    ctx.commands.add("idle.activity", activity)
+    ctx.state.update("tv", {"power": "on"})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Dryer finished")
+    await settle()
+    assert woke == [True]
+    mqtt.fake.message("couch/notify", "Dryer finished")  # dropped: no wake either
+    ctx.state.update("tv", {"power": "standby"})
+    mqtt.fake.message("couch/notify", "Washer finished")  # not shown: no wake
+    await settle()
+    assert woke == [True]
+
+
+async def test_no_idle_service_is_fine(mqtt, ctx):
+    ctx.state.update("tv", {"power": "on"})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Dryer finished")  # idle.activity isn't there
+    await settle()

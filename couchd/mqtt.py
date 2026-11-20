@@ -14,7 +14,8 @@ Topics, under `topic` (default "couch"):
                       (tv.standby). Anything else is ignored.
     couch/notify      a message for the TV, as a toast over whatever is on screen: plain
                       text, or JSON {"text", "detail", "icon", "level", "seconds"}. Not
-                      shown while the TV is in standby. The same text again within
+                      shown while the TV is in standby; it wakes the idle clock, which
+                      would hide it. The same text again within
                       `REPEAT_S` s is dropped, and so is a retained message on (re)connecting:
                       it's old news.
 
@@ -240,6 +241,13 @@ class MqttService(Service):
         self._last_note = (note["text"], now)
         log.info("MQTT: message on the TV", extra={"text": note["text"]})
         self.ctx.bus.publish("toast", {**note, "id": TOAST_ID})
+        self._spawn(self._wake())
+
+    async def _wake(self) -> None:
+        """On the launcher, the idle clock covers toasts: a message counts as activity, so the
+        clock makes way for it (as the sleep timer's warning does)."""
+        with contextlib.suppress(CommandError):
+            await self.ctx.commands.run("idle.activity")
 
     # --- what we tell Home Assistant ----------------------------------------------------------
 
