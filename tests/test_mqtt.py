@@ -413,3 +413,63 @@ def test_parse_note_keeps_messages_tidy():
     assert parse_note(json.dumps({"text": "a", "seconds": 0.5}))["ms"] == 2000
     assert parse_note("two\n  lines")["text"] == "two lines"
     assert parse_note(json.dumps({"text": "a", "level": "warning"}))["level"] == "warning"
+
+
+async def test_the_last_message_stays_as_a_notice_until_a_button(mqtt, ctx):
+    ctx.state.update("tv", {"power": "on"})
+    mqtt._clock = lambda: 1000.0
+    mqtt.fake.connect()
+    await settle()
+    assert ctx.state.get("notice") == {"text": None, "detail": None, "icon": None, "at": None}
+    mqtt.fake.message("couch/notify", json.dumps({"text": "Dryer finished", "detail": "Unload"}))
+    await settle()
+    assert ctx.state.get("notice") == {
+        "text": "Dryer finished",
+        "detail": "Unload",
+        "icon": "info",
+        "at": 1000.0,
+    }
+    mqtt.fake.message("couch/notify", "Washer finished")  # the newest takes its place
+    await settle()
+    assert ctx.state.get("notice")["text"] == "Washer finished"
+    assert ctx.state.get("notice")["detail"] is None
+    ctx.bus.publish("key", {"key": "ok"})
+    await settle()
+    assert ctx.state.get("notice")["text"] is None
+
+
+async def test_the_notice_goes_after_half_an_hour(mqtt, ctx, monkeypatch):
+    monkeypatch.setattr("couchd.mqtt.NOTICE_S", 0.01)
+    ctx.state.update("tv", {"power": "on"})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Dryer finished")
+    await settle()
+    assert ctx.state.get("notice")["text"] == "Dryer finished"
+    await asyncio.sleep(0.05)
+    assert ctx.state.get("notice")["text"] is None
+
+
+async def test_on_the_idle_clock_a_message_is_only_a_notice(mqtt, ctx):
+    seen = toasts(ctx)
+    ctx.state.update("tv", {"power": "on"})
+    ctx.state.update("apps", {"foreground": "launcher"})
+    ctx.state.update("idle", {"idle": True})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Dryer finished")
+    await settle()
+    assert seen() == []  # no toast (and so no sound): the clock shows the notice
+    assert ctx.state.get("notice")["text"] == "Dryer finished"
+    ctx.state.update("idle", {"idle": False})
+    mqtt.fake.message("couch/notify", "Washer finished")
+    await settle()
+    assert [t["text"] for t in seen()] == ["Washer finished"]
+
+
+async def test_no_notice_while_the_tv_is_in_standby(mqtt, ctx):
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Dryer finished")  # the fixture's TV: standby
+    await settle()
+    assert ctx.state.get("notice")["text"] is None

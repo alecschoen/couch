@@ -13,6 +13,10 @@ export global IdleData {
     in property <string> date;
     // "Sound: TV speakers · the TV turns off after an hour"
     in property <string> footer;
+    // The last message from Home Assistant, for 30 min or until a button (couchd/mqtt.py's
+    // `notice`): "Washing machine finished", and when it came, "19:42". Empty: none.
+    in property <string> notice;
+    in property <string> notice-at;
     // The clock's top-left corner: it drifts between a few spots against burn-in.
     in property <length> x;
     in property <length> y;
@@ -57,6 +61,38 @@ component Clock inherits Rectangle {
                     font-size: Theme.text-date-idle;
                     color: root.ink;
                     opacity: 0.7;
+                }
+            }
+
+            // Quiet: a dot, the message and when, a little under the date.
+            if IdleData.notice != "": HorizontalLayout {
+                padding-left: 12px;
+                padding-top: 21px;
+                spacing: 15px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 12px;
+                        height: 12px;
+                        border-radius: 6px;
+                        background: root.ink;
+                        opacity: 0.6;
+                    }
+                }
+
+                Line {
+                    text: IdleData.notice;
+                    font-size: Theme.text-idle-hint * 1.2;
+                    color: root.ink;
+                    opacity: 0.8;
+                }
+
+                Line {
+                    text: IdleData.notice-at;
+                    font-size: Theme.text-idle-hint * 1.2;
+                    color: root.ink;
+                    opacity: 0.45;
                 }
             }
         }

@@ -35,6 +35,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `overlay` | `menu`: the quick menu, or null while it's closed. See [Overlays](#overlays) |
 | `settings` | setting key → value; see [Settings](#settings) |
 | `mqtt` | only with MQTT set up ([Home Assistant](home-assistant.md)): `broker` (`host:port`), `connected` (bool), `error` (why the broker said no, e.g. `not authorized`, or null) |
+| `notice` | only with MQTT set up: the last message from Home Assistant, for 30 min or until a remote button: `text`, `detail`, `icon`, `at` (Unix time); all null when there's none. The idle clock shows it under the date |
 
 `system` also has `url`, the launcher's own address.
 
