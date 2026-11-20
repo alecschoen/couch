@@ -131,8 +131,11 @@ For more than one line of text, publish JSON to `couch/notify` yourself:
 
 - While the TV is in **standby** a message isn't shown (nobody would see it, and it won't
   wait for later). Keep Telegram or your phone for those.
-- On Home, a message **wakes the idle clock**, which would cover it otherwise. Over YouTube it
-  shows in the page, and over Plex as Plex's own notification.
+- On the **idle clock** it comes in quietly, under the date, with no sound and without
+  waking the clock. Over Home it's a toast, over YouTube it shows in the page, and over Plex
+  as Plex's own notification.
+- The last message also stays **on the idle clock** for 30 minutes, or until a button is
+  pressed on the remote, so you see it even if you weren't looking when it came.
 - The **same text twice within 10 s** shows once, so an automation that fires twice doesn't
   stack up.
 - Don't publish with **retain**. A retained message shows once, but couchd skips it when it

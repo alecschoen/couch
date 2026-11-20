@@ -7,6 +7,10 @@
 //! repeats are dropped too, until a fresh press.
 //!
 //! Against burn-in the clock drifts between a few spots every DRIFT_MS.
+//!
+//! Under the date, quietly: the last message from Home Assistant (live state `notice`,
+//! couchd/mqtt.py), until a button is pressed or half an hour has gone. couchd doesn't toast
+//! a message that arrives while the clock is up, so it comes in without a sound.
 
 use std::cell::RefCell;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -19,6 +23,8 @@ use crate::state;
 use crate::{IdleData, MainWindow};
 
 const DRIFT_MS: u64 = 3 * 60_000;
+/// A notice longer than this is cut, so it stays on screen wherever the clock drifts.
+const NOTICE_CHARS: usize = 48;
 /// Where the clock's top-left corner sits, in turn: the artboard's spots ×1.5 for 1080p.
 const SPOTS: [(f32, f32); 5] = [(144.0, 144.0), (780.0, 270.0), (270.0, 450.0), (900.0, 495.0), (495.0, 180.0)];
 
@@ -44,9 +50,15 @@ pub fn state(app: &mut App, _patch: Option<&Value>) {
     } else {
         hide(app);
     }
+    let d = app.ui.global::<IdleData>();
+    let (text, at) = notice(&app.state);
+    if d.get_notice() != text.as_str() || d.get_notice_at() != at.as_str() {
+        d.set_notice(text.into());
+        d.set_notice_at(at.into());
+    }
     if IDLE.with_borrow(|i| i.visible) {
         let footer = footer(&app.state);
-        app.ui.global::<IdleData>().set_footer(footer.into());
+        d.set_footer(footer.into());
     }
 }
 
@@ -130,6 +142,25 @@ fn tick(ui: &MainWindow) {
     }
 }
 
+/// The notice's text, cut to fit, and the time it came: ("Dryer finished", "19:42"), or two
+/// empty strings when there's none.
+fn notice(s: &Value) -> (String, String) {
+    let Some(text) = state::str_at(s, "notice.text").map(str::trim).filter(|t| !t.is_empty()) else {
+        return (String::new(), String::new());
+    };
+    let text = if text.chars().count() > NOTICE_CHARS {
+        let cut: String = text.chars().take(NOTICE_CHARS - 1).collect();
+        format!("{}\u{2026}", cut.trim_end())
+    } else {
+        text.to_string()
+    };
+    let at = state::num_at(s, "notice.at")
+        .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0))
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default();
+    (text, at)
+}
+
 /// "Sound: TV speakers · the TV turns off after an hour"
 fn footer(s: &Value) -> String {
     let current = state::str_at(s, "audio.current");
@@ -185,6 +216,23 @@ mod tests {
         assert_eq!(footer(&s), "the TV turns off after 2 hours");
         let s = json!({"idle": {"tv_off_after": 3600}});
         assert_eq!(footer(&s), "");
+    }
+
+    #[test]
+    fn notice_under_the_clock() {
+        assert_eq!(notice(&json!({})), (String::new(), String::new()));
+        let none = json!({"notice": {"text": null, "detail": null, "icon": null, "at": null}});
+        assert_eq!(notice(&none), (String::new(), String::new()));
+        let at = chrono::Local::now().timestamp();
+        let s = json!({"notice": {"text": "Dryer finished", "at": at as f64}});
+        let (text, when) = notice(&s);
+        assert_eq!(text, "Dryer finished");
+        assert_eq!(when, chrono::Local::now().format("%H:%M").to_string());
+        let long = "x".repeat(60);
+        let (text, when) = notice(&json!({"notice": {"text": long}}));
+        assert_eq!(text.chars().count(), NOTICE_CHARS);
+        assert!(text.ends_with('\u{2026}'));
+        assert_eq!(when, "");
     }
 
     #[test]

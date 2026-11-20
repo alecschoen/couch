@@ -14,10 +14,19 @@ Topics, under `topic` (default "couch"):
                       (tv.standby). Anything else is ignored.
     couch/notify      a message for the TV, as a toast over whatever is on screen: plain
                       text, or JSON {"text", "detail", "icon", "level", "seconds"}. Not
-                      shown while the TV is in standby; it wakes the idle clock, which
-                      would hide it. The same text again within
+                      shown while the TV is in standby. The same text again within
                       `REPEAT_S` s is dropped, and so is a retained message on (re)connecting:
                       it's old news.
+
+The latest message also stays in live state section `notice` for `NOTICE_S` (30 min) or
+until a remote button is pressed, whichever comes first (all null when there's none):
+
+    {"text": "Washing machine finished", "detail": "Time to unload", "icon": "check",
+     "at": 1795200000.0}
+
+The launcher's idle clock shows it, quietly, under the date (launcher/src/idle.rs). A message
+that arrives while the idle clock is up goes only there: no toast, which the clock would
+cover anyway, and no sound.
 
 Home Assistant finds both by itself through MQTT discovery: retained configs at
 `<discovery>/switch/<node>/tv/config` and `<discovery>/notify/<node>/tv/config`, which show up
@@ -41,6 +50,7 @@ import json
 import logging
 import re
 import socket
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -65,6 +75,8 @@ NOTIFY_SECONDS = 8  # how long a message stays, unless it says
 NOTIFY_RANGE = (2, 60)
 REPEAT_S = 10.0  # the same text again this soon is an automation firing twice
 TOAST_ID = "ha-notify"
+NOTICE_S = 30 * 60  # how long the idle clock keeps showing the last message
+NOTICE_KEYS = ("text", "detail", "icon", "at")  # all null: no notice
 # Home Assistant's MQTT switch: ON, OFF, or "None" for unknown.
 VALUE_TEMPLATE = "{% if value == 'on' %}ON{% elif value == 'standby' %}OFF{% else %}None{% endif %}"
 
@@ -112,6 +124,8 @@ class MqttService(Service):
         self.discovery_topic = f"{config.discovery}/switch/{self._node}/tv/config"
         self.notify_discovery_topic = f"{config.discovery}/notify/{self._node}/tv/config"
         self._last_note: tuple[str, float] | None = None
+        self._notice_timer: asyncio.TimerHandle | None = None
+        self._clock: Callable[[], float] = time.time
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -131,10 +145,12 @@ class MqttService(Service):
         client.connect_async(self.config.host, self.config.port, keepalive=KEEPALIVE)
         client.loop_start()
         self._power = self._tv_power()
-        self._watch = asyncio.create_task(self._watch_tv())
+        self._clear_notice()
+        self._watch = asyncio.create_task(self._watch_bus())
         log.info("MQTT started", extra={"broker": self._broker()})
 
     async def stop(self) -> None:
+        self._clear_notice()
         if self._watch is not None:
             self._watch.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -240,14 +256,28 @@ class MqttService(Service):
                 return
         self._last_note = (note["text"], now)
         log.info("MQTT: message on the TV", extra={"text": note["text"]})
-        self.ctx.bus.publish("toast", {**note, "id": TOAST_ID})
-        self._spawn(self._wake())
+        if not self._idle_clock_up():
+            self.ctx.bus.publish("toast", {**note, "id": TOAST_ID})
+        self._set_notice(note)
 
-    async def _wake(self) -> None:
-        """On the launcher, the idle clock covers toasts: a message counts as activity, so the
-        clock makes way for it (as the sleep timer's warning does)."""
-        with contextlib.suppress(CommandError):
-            await self.ctx.commands.run("idle.activity")
+    def _idle_clock_up(self) -> bool:
+        return (
+            self.ctx.state.get("idle").get("idle") is True
+            and (self.ctx.state.get("apps").get("foreground") or "launcher") == "launcher"
+        )
+
+    def _set_notice(self, note: dict[str, Any]) -> None:
+        if self._notice_timer is not None:
+            self._notice_timer.cancel()
+        notice = {k: note.get(k) for k in ("text", "detail", "icon")}
+        self.ctx.state.update("notice", {**notice, "at": self._clock()})
+        self._notice_timer = asyncio.get_running_loop().call_later(NOTICE_S, self._clear_notice)
+
+    def _clear_notice(self) -> None:
+        if self._notice_timer is not None:
+            self._notice_timer.cancel()
+            self._notice_timer = None
+        self.ctx.state.update("notice", dict.fromkeys(NOTICE_KEYS))
 
     # --- what we tell Home Assistant ----------------------------------------------------------
 
@@ -298,13 +328,17 @@ class MqttService(Service):
         power = self._power if self._power in POWER_STATES else "unknown"
         self._client.publish(self.state_topic, power, qos=1, retain=True)
 
-    async def _watch_tv(self) -> None:
-        """Follow `tv.power` off the bus. A subscription that falls behind is dropped by the
-        bus (couchd/bus.py), so take a new one and read the state afresh."""
+    async def _watch_bus(self) -> None:
+        """Follow `tv.power` off the bus, and clear the notice on any remote button. A
+        subscription that falls behind is dropped by the bus (couchd/bus.py), so take a new
+        one and read the state afresh."""
         while True:
             with self.ctx.bus.subscribe() as sub:
                 self._tv_changed(self._tv_power())
                 async for message in sub:
+                    if message.get("type") == "key":
+                        self._clear_notice()
+                        continue
                     if message.get("type") != "state":
                         continue
                     tv = (message.get("data") or {}).get("tv")
