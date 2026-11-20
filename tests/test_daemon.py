@@ -88,3 +88,13 @@ async def test_device_mode_has_the_tv_the_remote_audio_bluetooth_and_apps(tmp_pa
     assert type(audio.backend).__name__ == "PipewireAudio"
     assert type(daemon.services.get("bluetooth").backend).__name__ == "BluezBluetooth"
     assert type(daemon.services.get("wifi").backend).__name__ == "NmWifi"
+
+
+def test_mqtt_runs_only_with_a_broker(tmp_path):
+    from couchd.config import MqttConfig
+
+    config = make_config(tmp_path)
+    assert "mqtt" not in [s.name for s in Daemon(config, dev=True).services]
+    config = replace(config, mqtt=MqttConfig(host="homeassistant.local"))
+    names = [s.name for s in Daemon(config, dev=False).services]
+    assert names[-1] == "mqtt"

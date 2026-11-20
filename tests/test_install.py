@@ -188,6 +188,7 @@ def test_uinput_is_for_group_input_only():
     assert 'MODE="0660"' in rule
     script = INSTALL.read_text()
     assert "python3-evdev" in script
+    assert "python3-paho-mqtt" in script  # Home Assistant (#97)
     assert re.search(r"^COUCH_GROUPS=\(.*\binput\b.*\)$", script, re.M)
 
 

@@ -52,6 +52,14 @@ def check_config(path: Path | None, dev: bool) -> int:
     print(f"server.port = {config.server.port}")
     print(f"paths.state = {config.paths.state}")
     print(f"log.level   = {config.log.level}")
+    mqtt = config.mqtt
+    if mqtt.enabled:
+        login = f"{mqtt.username} (password from {mqtt.password_file or 'nowhere'})"
+        where = f"{mqtt.host}:{mqtt.port}, topic {mqtt.topic}, discovery {mqtt.discovery}"
+        print(f"mqtt        = {where}")
+        print(f"mqtt login  = {login if mqtt.username else 'none'}")
+    else:
+        print("mqtt        = off")
     return 0
 
 

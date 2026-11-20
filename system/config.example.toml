@@ -12,3 +12,16 @@
 [log]
 # One of: debug, info, warning, error
 # level = "info"
+
+[mqtt]
+# Home Assistant over MQTT: the TV as a switch (couchd/mqtt.py). Off while host is empty.
+# The broker is usually Home Assistant's Mosquitto add-on, and the login a Home Assistant
+# user. The password goes in its own file, readable by couch only:
+#   sudo install -m 600 -o couch -g couch /dev/stdin /etc/couch/mqtt-password
+# (type the password, Enter, then Ctrl+D).
+# host = "homeassistant.local"
+# port = 1883
+# username = "couch"
+# password_file = "/etc/couch/mqtt-password"
+# topic = "couch"
+# discovery = "homeassistant"
