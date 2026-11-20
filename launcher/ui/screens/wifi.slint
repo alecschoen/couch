@@ -1,0 +1,321 @@
+// Wi-Fi (Settings › Network › Wi-Fi): the networks around, strongest first, each with its
+// signal bars and a lock if it needs a password; a tip at the bottom; and the Options sheet
+// (Forget). Rust (src/screens/wifi.rs) owns the networks, focus and scrolling and fills
+// WifiData; this only draws it. The password keyboard is ui/keyboard.slint, over it.
+
+import { Theme, Ease, Bump } from "../tokens.slint";
+import { Icon, Line, Pill, Screen } from "../components.slint";
+import { BluetoothLayout } from "bluetooth.slint";
+
+// One column, as wide as the screen's content, its rows the size and spacing Bluetooth's are.
+export global WifiLayout {
+    out property <length> col-x: Theme.screen-pad-x;
+    out property <length> col-w: 1920px - 2 * Theme.screen-pad-x;
+    out property <length> rows-top: BluetoothLayout.rows-top;
+    out property <length> rows-h: BluetoothLayout.rows-h;
+    out property <length> row-h: BluetoothLayout.row-h;
+    out property <length> row-step: BluetoothLayout.row-step;
+}
+
+export struct WifiRow {
+    // The network's name: focus and the scroll follow it.
+    key: string,
+    title: string,
+    sub: string,
+    // 0–4.
+    bars: int,
+    secure: bool,
+    // On the right, before the bars: "" (nothing), "spinner" (working on it) or "check"
+    // (connected).
+    end: string,
+    focused: bool,
+}
+
+export global WifiData {
+    // Top right: "Connected to Living room", "Not connected".
+    in property <string> status;
+    // "Looking for networks", with its pulse, while the radio scans.
+    in property <bool> looking;
+    in property <[WifiRow]> rows;
+    // Said instead of rows ("Wi-Fi is off", "No networks found"); "" for none.
+    in property <string> note;
+    in property <length> scroll;
+
+    // The Options sheet. Its name stays set while it slides away.
+    in property <bool> sheet-open;
+    in property <string> sheet-title;
+}
+
+// A ring with its right quarter open, turning (as Bluetooth's).
+component Spinner inherits Rectangle {
+    in property <color> ink;
+    width: 36px;
+    height: 36px;
+    Path {
+        width: 36px;
+        height: 36px;
+        viewbox-width: 36;
+        viewbox-height: 36;
+        commands: "M 29.3137 29.3137 A 16 16 0 1 1 29.3137 6.6863";
+        stroke: root.ink;
+        stroke-width: 4px;
+        fill: transparent;
+        transform-rotation: Theme.reduced ? 0deg : Math.mod(animation-tick() / 1ms, 800) / 800 * 360deg;
+    }
+}
+
+component Pulse inherits Rectangle {
+    in property <color> ink;
+    in property <float> peak: 1;
+    property <float> t: Math.mod(animation-tick() / 1ms, 1400) / 1400;
+    property <float> u: t < 0.5 ? t * 2 : 2 - t * 2;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: ink;
+    opacity: peak * (Theme.reduced ? 1 : 0.35 + 0.65 * u * u * (3 - 2 * u));
+}
+
+// Signal strength: four bars, rising, the ones it doesn't reach faint.
+component Bars inherits Rectangle {
+    in property <int> bars;
+    in property <color> ink;
+    width: 4 * 8px + 3 * 5px;
+    height: 36px;
+    for i in 4: Rectangle {
+        x: i * (8px + 5px);
+        y: parent.height - self.height;
+        width: 8px;
+        height: 12px + i * 8px;
+        border-radius: 2px;
+        background: i < root.bars ? root.ink : root.ink.with-alpha(0.3);
+    }
+}
+
+component NetworkRow inherits Rectangle {
+    in property <WifiRow> item;
+    in property <length> nudge-x;
+    in property <length> nudge-y;
+    property <color> fg: item.focused ? Theme.bg : Theme.ink;
+    height: WifiLayout.row-h;
+    Rectangle {
+        x: root.nudge-x;
+        y: root.nudge-y;
+        width: parent.width;
+        height: parent.height;
+        animate x, y { duration: Theme.dur-quick / 2; easing: Ease.out; }
+        border-radius: Theme.radius-row;
+        border-width: Theme.border;
+        border-color: root.item.focused ? Theme.ink : Theme.ink.with-alpha(Theme.a-outline);
+        background: root.item.focused ? Theme.ink : Theme.ink.with-alpha(0);
+        animate background, border-color { duration: Theme.dur-quick; }
+
+        HorizontalLayout {
+            padding-left: 36px + Theme.border;
+            padding-right: 36px + Theme.border;
+            spacing: Theme.s5;
+            VerticalLayout {
+                alignment: center;
+                spacing: Theme.s1;
+                Line {
+                    leading: 1.15;
+                    text: root.item.title;
+                    font-family: Theme.font-display;
+                    font-size: Theme.text-row;
+                    font-weight: 600;
+                    color: root.fg;
+                    overflow: elide;
+                    animate color { duration: Theme.dur-quick; }
+                }
+                Line {
+                    text: root.item.sub;
+                    font-size: Theme.text-xs;
+                    color: root.fg;
+                    opacity: 0.8;
+                    animate color { duration: Theme.dur-quick; }
+                }
+            }
+            if root.item.end == "spinner": VerticalLayout {
+                alignment: center;
+                Spinner { ink: root.fg; }
+            }
+            if root.item.end == "check": VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 39px;
+                    height: 39px;
+                    source: @image-url("bt-check.svg");
+                    colorize: root.fg;
+                    image-rendering: smooth;
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: Theme.s4;
+                width: 36px + Theme.s4 + 47px;
+                if root.item.secure: VerticalLayout {
+                    alignment: center;
+                    Icon { name: "lock"; tint: root.fg; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Bars { bars: root.item.bars; ink: root.fg; }
+                }
+            }
+        }
+    }
+}
+
+// The Options sheet, as Bluetooth's: slides up over a scrim.
+component OptionsSheet inherits Rectangle {
+    property <bool> open: WifiData.sheet-open;
+    property <length> sheet-h: 51px + 45px * 1.1 + 33px + Theme.pill-h + 60px;
+
+    Rectangle {
+        background: #050506.with-alpha(0.5);
+        opacity: root.open ? 1 : 0;
+        animate opacity { duration: Theme.dur-sheet; }
+    }
+
+    Rectangle {
+        x: 0;
+        y: root.open ? root.height - root.sheet-h : root.height;
+        animate y { duration: Theme.dur-sheet; easing: Ease.out; }
+        width: root.width;
+        height: root.sheet-h;
+        background: Theme.bg;
+
+        Line {
+            x: 84px;
+            y: 51px;
+            leading: 1.1;
+            text: WifiData.sheet-title;
+            font-family: Theme.font-display;
+            font-size: Theme.text-heading;
+            font-weight: 600;
+        }
+        Line {
+            x: parent.width - 84px - self.width;
+            y: 51px + 11.5px;
+            text: "Back to close";
+            font-size: Theme.text-sm;
+            opacity: Theme.a-muted;
+        }
+        HorizontalLayout {
+            x: 84px;
+            y: 51px + 45px * 1.1 + 33px;
+            height: Theme.pill-h;
+            alignment: start;
+            Rectangle {
+                width: forget.min-width;
+                forget := Pill {
+                    x: Bump.x;
+                    y: Bump.y;
+                    width: parent.width;
+                    label: "Forget";
+                    focused: true;
+                }
+            }
+        }
+    }
+}
+
+export component WifiScreen inherits Screen {
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top;
+        text: "Home › Settings › Wi-Fi";
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: parent.width - Theme.screen-pad-x - self.width;
+        y: Theme.screen-pad-top;
+        text: WifiData.status;
+        font-size: Theme.text-sm;
+        opacity: 0.8;
+    }
+    Line {
+        x: Theme.screen-pad-x;
+        y: Theme.screen-pad-top + 27px * 1.35 + 27px;
+        leading: 1;
+        text: "Wi-Fi";
+        font-family: Theme.font-display;
+        font-size: Theme.text-title;
+        font-weight: 600;
+        letter-spacing: -0.025 * Theme.text-title;
+    }
+
+    // The label, 6px + the list's 18px gap above the rows.
+    HorizontalLayout {
+        x: WifiLayout.col-x;
+        y: WifiLayout.rows-top - 24px - self.height;
+        height: 27px * 1.35;
+        alignment: start;
+        spacing: 15px;
+        Line {
+            text: "Networks";
+            font-size: Theme.text-sm;
+            opacity: 0.8;
+        }
+        if WifiData.looking: HorizontalLayout {
+            spacing: 15px;
+            VerticalLayout {
+                alignment: center;
+                Pulse { ink: Theme.ink; peak: 0.8; }
+            }
+            Line {
+                text: "Looking for networks";
+                font-size: Theme.text-sm;
+                opacity: 0.64;
+            }
+        }
+    }
+
+    Rectangle {
+        x: WifiLayout.col-x;
+        y: WifiLayout.rows-top;
+        width: WifiLayout.col-w;
+        height: WifiLayout.rows-h;
+        clip: true;
+        property <bool> tight: WifiData.rows.length * WifiLayout.row-step - 18px > WifiLayout.rows-h;
+        property <length> row-h: tight ? 120px : WifiLayout.row-h;
+        property <length> row-step: tight ? 138px : WifiLayout.row-step;
+        property <length> shown-scroll: WifiData.scroll;
+        animate shown-scroll { duration: Theme.reduced ? 0ms : 300ms; easing: Ease.in-out; }
+        for r[i] in WifiData.rows: NetworkRow {
+            x: 0;
+            y: i * parent.row-step - parent.shown-scroll;
+            width: parent.width;
+            height: parent.row-h;
+            item: r;
+            nudge-x: r.focused ? Bump.x : 0;
+            nudge-y: r.focused ? Bump.y : 0;
+        }
+        if WifiData.note != "": Line {
+            x: 0;
+            y: (WifiLayout.row-h - self.height) / 2;
+            text: WifiData.note;
+            font-size: Theme.text-base;
+            opacity: 0.8;
+        }
+    }
+
+    HorizontalLayout {
+        x: Theme.screen-pad-x;
+        y: parent.height - Theme.screen-pad-bottom - self.height;
+        height: 27px * 1.35;
+        spacing: 21px;
+        opacity: Theme.a-muted;
+        VerticalLayout {
+            alignment: center;
+            Icon { name: "info"; }
+        }
+        Line {
+            text: "Couch remembers a network once it has joined it, and joins it again by itself.";
+            font-size: Theme.text-sm;
+        }
+    }
+
+    OptionsSheet { }
+}

@@ -33,10 +33,20 @@ polkit.addRule(function (action, subject) {
     return polkit.Result.NOT_HANDLED;
 });
 
-// Settings > Network: Wi-Fi on and off (NetworkManager's WirelessEnabled, #31). Not joining
-// networks or changing connections.
+// Settings > Network: Wi-Fi on and off (NetworkManager's WirelessEnabled, #31), and joining
+// a Wi-Fi network from the TV (#78): look for networks, save a new one for the whole system
+// (so it's back after a reboot), connect to it, and forget one. polkit can't tell one
+// connection from another (Ethernet's or Wi-Fi's), so couchd itself only ever adds, activates
+// or deletes 802-11-wireless profiles (couchd/networkmanager.py). Not sharing a connection
+// (hotspots), sleeping, or changing NetworkManager's own settings.
 polkit.addRule(function (action, subject) {
-    if (subject.user === "couch" && action.id === "org.freedesktop.NetworkManager.enable-disable-wifi") {
+    var wifi = [
+        "org.freedesktop.NetworkManager.enable-disable-wifi",
+        "org.freedesktop.NetworkManager.wifi.scan",
+        "org.freedesktop.NetworkManager.network-control",
+        "org.freedesktop.NetworkManager.settings.modify.system",
+    ];
+    if (subject.user === "couch" && wifi.indexOf(action.id) >= 0) {
         return polkit.Result.YES;
     }
     return polkit.Result.NOT_HANDLED;

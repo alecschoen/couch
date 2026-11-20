@@ -28,7 +28,7 @@ already there. If the socket drops, reconnect; the next snapshot replaces everyt
 | `tv` | `power`: `on`, `standby` or `unknown`; `active`: the TV is on and showing Couch (false after the user picks another input); `standby_on_poweroff` (the setting); `system_audio`: the TV's speakers are muted and its volume buttons come to couchd (see [TV remote volume](#tv-remote-volume)) |
 | `audio` | `outputs` (list of `{id, name, kind, available}`; kind is `tv`, `jack`, `bluetooth` or `usb`), `current` (output id, or null while there's no output), `volume` (0–100, of the current output), `muted` |
 | `bluetooth` | `scanning`, `devices` (list of `{address, name, audio, paired, connected}`, paired first; while scanning, also named devices nearby), `auto_reconnect` (bool) |
-| `wifi` | `available` (there's a Wi-Fi radio and NetworkManager is running), `enabled` (the radio is on), `connection`: `off`, `disconnected`, `connecting` or `connected`; `ssid` (while connecting or connected) and `signal` (0–100, while connected), else null; `primary` (Couch's traffic goes over Wi-Fi). Switched with the `network.wifi` setting |
+| `wifi` | `available` (there's a Wi-Fi radio and NetworkManager is running), `enabled` (the radio is on), `connection`: `off`, `disconnected`, `connecting` or `connected`; `ssid` (while connecting or connected) and `signal` (0–100, while connected), else null; `primary` (Couch's traffic goes over Wi-Fi); `scanning` (a `wifi.scan` is going on); `networks`: what the radio sees, strongest first, a list of `{ssid, signal (0–100), secure (needs a password), known (saved), active (connected to it now)}`, one per name (its strongest access point), empty while the radio is off. Hidden networks aren't listed, nor enterprise (802.1X) and WEP ones, which need more than a password, unless one is saved already. Switched with the `network.wifi` setting |
 | `apps` | see below |
 | `idle` | `idle` (bool), `after` (seconds without a key press, on the launcher, before `idle` turns true; 0 = never), `tv_off_after` (seconds before the TV is turned off; 0 while `tv.off_when_idle` is off). See below |
 | `evening` | `dark` (bool: the sun is down), `sunrise`, `sunset` (today, local `HH:MM`, or null in a polar day or night), `place` (the timezone the location came from, or null: then `dark` is 18:00–07:00). See below |
@@ -167,7 +167,7 @@ Some keys are couchd's, wherever you are, and are never typed into apps: `home` 
 to the launcher, `red` moves the sound to the next available output, `blue` opens the
 quick menu (see [Overlays](#overlays)), and `green` and `yellow` are kept for later. Screens shouldn't give
 `red` or `blue` another meaning, except while they've claimed the raw keys: then couchd's
-colour keys stand down (`remote.raw_keys`, for Settings' remote test). Their `key` messages
+colour keys stand down (`remote.raw_keys`, for Settings' remote test and the on-screen keyboard). Their `key` messages
 say `raw: true`, Red doesn't move the sound and Blue doesn't open the quick menu, so the
 screen gets them like any other key; `home` still goes home. The claim is the launcher's
 only, and lapses 15 s after it was made or after the last key. A keyboard (in dev mode, or plugged into the Pi) is turned
@@ -242,6 +242,9 @@ The text `ping` gets `pong`.
 | `bluetooth.pair` | `address`. Pairs and trusts; an audio device is then connected too, so one press does it |
 | `bluetooth.connect`, `.disconnect`, `.forget` | `address` |
 | `bluetooth.set_auto_reconnect` | `on` (bool). Saved; on by default |
+| `wifi.scan` | Asks the radio to look for networks; `wifi.scanning` is true until it's done (at most 15 s). Fails while Wi-Fi is off |
+| `wifi.connect` | `ssid`; `password` (optional). Joins that network and answers once connected (up to a minute), or fails with what went wrong for the user to read: `Wrong password`, `Can't find X. Is it in range?`, `X didn't answer. Is it in range?`, `X needs a password`, `Wi-Fi passwords are 8 to 63 characters`, `Wi-Fi is off`, … A saved network is joined with what's saved; a new one (or a saved one with a `password`) is saved for the whole system, so it's joined again after a reboot. A new profile that fails isn't kept, and a new password replaces the old one only once it works. One join at a time; it runs to the end even if the WebSocket closes. The password is never logged or put in state |
+| `wifi.forget` | `ssid`. Deletes what's saved for that network (Wi-Fi profiles only), and leaves it if it's connected |
 | `apps.launch` | `app` (an id from `apps.list`). Starts it, or brings it to the front |
 | `apps.close` | `app`. Not the launcher |
 | `apps.home` | Back to the launcher, from anywhere. The `home` key does the same |

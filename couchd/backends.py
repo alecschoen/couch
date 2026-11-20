@@ -227,9 +227,20 @@ class WifiStatus:
     primary: bool = False  # Couch's network traffic goes over Wi-Fi (the default route)
 
 
+@dataclass(frozen=True)
+class Network:
+    """A Wi-Fi network nearby: one per SSID, from its strongest access point."""
+
+    ssid: str
+    signal: int  # 0-100
+    secure: bool  # wants a password (WPA, WPA2 or WPA3 personal)
+    known: bool  # NetworkManager has it saved: OK joins it without a password
+    active: bool = False  # Couch is connected to it
+
+
 class WifiBackend(Backend):
-    """The Wi-Fi radio. Joining networks is NetworkManager's: a network it already knows
-    reconnects by itself once the radio is on."""
+    """The Wi-Fi radio, and the networks it can see. A network NetworkManager already knows
+    reconnects by itself once the radio is on; `connect` joins one from the TV."""
 
     @abstractmethod
     def status(self) -> WifiStatus: ...
@@ -237,3 +248,24 @@ class WifiBackend(Backend):
     @abstractmethod
     async def set_enabled(self, on: bool) -> None:
         """Turn the radio on or off. Raises BackendError if that's refused."""
+
+    @abstractmethod
+    def networks(self) -> list[Network]:
+        """What the radio sees now, strongest first. Empty while it's off."""
+
+    @abstractmethod
+    def scanning(self) -> bool: ...
+
+    @abstractmethod
+    async def scan(self) -> None:
+        """Look again for networks nearby. Returns once asked; `networks` fills in after."""
+
+    @abstractmethod
+    async def connect(self, ssid: str, password: str | None = None) -> None:
+        """Join a network and return once connected. A known network uses what's saved,
+        unless a password is given: then it replaces what was saved, once it works. Raises
+        BackendError saying what went wrong ("Wrong password"). Never says the password."""
+
+    @abstractmethod
+    async def forget(self, ssid: str) -> None:
+        """Delete what's saved for this network (and so leave it, if Couch is on it)."""

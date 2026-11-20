@@ -427,6 +427,7 @@ impl Inner {
                     self.step(item, 1, app);
                 }
             }
+            Kind::Link if item.key == "wifi.network" => app.go("wifi", json!({})),
             Kind::Link => self.open_outputs(app),
             Kind::Remote => {
                 if self.testing.is_none() {
@@ -708,6 +709,16 @@ impl Inner {
                     rows.push(readout("Wi-Fi", "Not available".into(), String::new()));
                 } else {
                     rows.push(toggle("network.wifi", "Wi-Fi", &text::wifi_hint(s, wifi_on)));
+                }
+                // Joining a network (#78), once the radio is on.
+                if wifi_on && state::bool_at(s, "wifi.enabled") == Some(true) {
+                    rows.push(Item {
+                        key: "wifi.network",
+                        kind: Kind::Link,
+                        label: "Wi-Fi network".into(),
+                        value: format!("{} ›", text::wifi_network(s)),
+                        ..Item::default()
+                    });
                 }
                 rows
             }

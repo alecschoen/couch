@@ -1,4 +1,4 @@
-"""WifiService: the `network.wifi` setting drives the radio (#31)."""
+"""WifiService: the `network.wifi` setting drives the radio (#31); joining networks (#78)."""
 
 import asyncio
 
@@ -7,8 +7,8 @@ from fake_nm import FakeNm
 
 from couchd.bluez import BluezError
 from couchd.bus import EventBus
-from couchd.commands import Commands
-from couchd.fakes import FakeWifi
+from couchd.commands import CommandError, Commands
+from couchd.fakes import NETWORKS, OUT_OF_REACH, WIFI_PASSWORD, FakeWifi
 from couchd.networkmanager import NM, NM_PATH, NmWifi
 from couchd.services import Context
 from couchd.settings import Settings
@@ -174,6 +174,146 @@ async def test_dev_fake_joins_after_a_moment(ctx):
             break
     wifi = ctx.state.get("wifi")
     assert (wifi["connection"], wifi["ssid"]) == ("connected", FakeWifi.NETWORK)
+    await service.stop()
+
+
+# --- joining networks (#78) ------------------------------------------------------------------
+
+
+async def turned_on(ctx, nm):
+    ctx.settings.set(SETTING, True)
+    service = WifiService(ctx, NmWifi(nm, scan_timeout=0.05, connect_timeout=0.5))
+    await service.start()
+    return service
+
+
+async def test_commands_come_and_go_with_the_service(ctx):
+    service = await started(ctx, FakeNm())
+    assert {"wifi.scan", "wifi.connect", "wifi.forget"} <= set(ctx.commands.names())
+    await service.stop()
+    assert not [n for n in ctx.commands.names() if n.startswith("wifi.")]
+
+
+async def test_state_lists_networks_and_scanning(ctx):
+    nm = FakeNm()
+    service = await turned_on(ctx, nm)
+    nm.add_ap("Upstairs", 60)
+    nm.add_profile("Upstairs")
+    await settle()
+    wifi = ctx.state.get("wifi")
+    assert wifi["scanning"] is False
+    assert wifi["networks"] == [
+        {"ssid": "Upstairs", "signal": 60, "secure": True, "known": True, "active": False}
+    ]
+    await ctx.commands.run("wifi.scan")
+    assert ctx.state.get("wifi")["scanning"] is True
+    nm.finish_scan()
+    await settle()
+    assert ctx.state.get("wifi")["scanning"] is False
+    await service.stop()
+
+
+async def test_connect_answers_once_connected(ctx):
+    nm = FakeNm()
+    service = await turned_on(ctx, nm)
+    nm.add_ap("Upstairs", 60)
+    nm.passwords["Upstairs"] = "password1"
+    await settle()
+    await ctx.commands.run("wifi.connect", {"ssid": "Upstairs", "password": "password1"})
+    wifi = ctx.state.get("wifi")
+    assert (wifi["connection"], wifi["ssid"]) == ("connected", "Upstairs")
+    assert wifi["networks"][0]["active"] is True
+    await ctx.commands.run("wifi.forget", {"ssid": "Upstairs"})
+    await settle()
+    assert ctx.state.get("wifi")["networks"][0]["known"] is False
+    await service.stop()
+
+
+async def test_a_failed_join_is_the_commands_error(ctx, toasts):
+    nm = FakeNm()
+    service = await turned_on(ctx, nm)
+    nm.add_ap("Upstairs", 60)
+    nm.passwords["Upstairs"] = "password1"
+    await settle()
+    with pytest.raises(CommandError, match=r"^Wrong password$"):
+        await ctx.commands.run("wifi.connect", {"ssid": "Upstairs", "password": "secret-guess"})
+    assert toasts() == []  # the launcher says it, next to the network
+    assert "secret-guess" not in repr(ctx.state.get("wifi"))
+    await service.stop()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {},
+        {"ssid": ""},
+        {"ssid": 5},
+        {"ssid": "x" * 33},
+        {"ssid": "Upstairs", "password": 12345678},
+    ],
+)
+async def test_connect_checks_its_args(ctx, args):
+    service = await turned_on(ctx, FakeNm())
+    with pytest.raises(CommandError, match=r"'ssid'|'password'"):
+        await ctx.commands.run("wifi.connect", args)
+    if "password" not in args:
+        with pytest.raises(CommandError, match="'ssid'"):
+            await ctx.commands.run("wifi.forget", args)
+    await service.stop()
+
+
+async def test_a_join_outlives_whoever_asked(ctx):
+    nm = FakeNm()
+    service = await turned_on(ctx, nm)
+    nm.add_ap("Upstairs", 60)
+    nm.hang = True
+    await settle()
+    asking = asyncio.create_task(
+        ctx.commands.run("wifi.connect", {"ssid": "Upstairs", "password": "password1"})
+    )
+    await settle()
+    assert nm.wifi_profiles()
+    asking.cancel()  # the launcher's WebSocket closed
+    with pytest.raises(asyncio.CancelledError):
+        await asking
+    assert nm.wifi_profiles()  # the join is still going
+    await asyncio.sleep(0.6)  # ... until it gives up, and cleans up
+    assert nm.wifi_profiles() == {}
+    await service.stop()
+
+
+async def test_one_join_at_a_time(ctx):
+    nm = FakeNm()
+    service = await turned_on(ctx, nm)
+    nm.add_ap("Upstairs", 60, "open")
+    nm.add_ap("Café", 50, "open")
+    await settle()
+    first = ctx.commands.run("wifi.connect", {"ssid": "Upstairs"})
+    second = ctx.commands.run("wifi.connect", {"ssid": "Café"})
+    await asyncio.gather(first, second)
+    added = [b[0]["connection"]["id"] for _, m, b in nm.calls if m == "AddAndActivateConnection"]
+    assert added == ["Upstairs", "Café"]
+    assert ctx.state.get("wifi")["ssid"] == "Café"
+    await service.stop()
+
+
+async def test_dev_fake_joins_forgets_and_says_wrong_password(ctx):
+    ctx.settings.set(SETTING, True)
+    service = WifiService(ctx, FakeWifi(enabled=True, speed=0.001))
+    await service.start()
+    names = [n["ssid"] for n in ctx.state.get("wifi")["networks"]]
+    assert names[0] == FakeWifi.NETWORK and len(names) == len(NETWORKS)
+    with pytest.raises(CommandError, match="Wrong password"):
+        await ctx.commands.run("wifi.connect", {"ssid": "Upstairs", "password": "not it at all"})
+    await ctx.commands.run("wifi.connect", {"ssid": "Upstairs", "password": WIFI_PASSWORD})
+    wifi = ctx.state.get("wifi")
+    assert (wifi["connection"], wifi["ssid"]) == ("connected", "Upstairs")
+    with pytest.raises(CommandError, match="didn't answer"):
+        await ctx.commands.run("wifi.connect", {"ssid": OUT_OF_REACH, "password": WIFI_PASSWORD})
+    await ctx.commands.run("wifi.forget", {"ssid": "Upstairs"})
+    assert ctx.state.get("wifi")["connection"] == "disconnected"
+    await ctx.commands.run("wifi.scan")
+    assert ctx.state.get("wifi")["scanning"] is True
     await service.stop()
 
 
