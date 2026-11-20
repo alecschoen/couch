@@ -133,8 +133,8 @@ For more than one line of text, publish JSON to `couch/notify` yourself:
   wait for later). Keep Telegram or your phone for those.
 - The **same text twice within 10 s** shows once, so an automation that fires twice doesn't
   stack up.
-- Don't publish with **retain**: couchd drops retained messages, or every reconnect would
-  bring the last one back.
+- Don't publish with **retain**. A retained message shows once, but couchd skips it when it
+  reconnects, or every reconnect would bring the last one back.
 
 ## The topics
 

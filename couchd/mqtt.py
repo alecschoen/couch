@@ -14,8 +14,9 @@ Topics, under `topic` (default "couch"):
                       (tv.standby). Anything else is ignored.
     couch/notify      a message for the TV, as a toast over whatever is on screen: plain
                       text, or JSON {"text", "detail", "icon", "level", "seconds"}. Not
-                      shown while the TV is in standby; retained messages and the same
-                      text again within `REPEAT_S` s are dropped.
+                      shown while the TV is in standby. The same text again within
+                      `REPEAT_S` s is dropped, and so is a retained message on (re)connecting:
+                      it's old news.
 
 Home Assistant finds both by itself through MQTT discovery: retained configs at
 `<discovery>/switch/<node>/tv/config` and `<discovery>/notify/<node>/tv/config`, which show up
