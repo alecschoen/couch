@@ -8,7 +8,7 @@ import pytest
 from couchd.bus import EventBus
 from couchd.commands import Commands
 from couchd.config import MqttConfig
-from couchd.mqtt import VALUE_TEMPLATE, MqttService, node_id
+from couchd.mqtt import VALUE_TEMPLATE, MqttService, node_id, parse_note
 from couchd.services import Context
 from couchd.state import LiveState, SavedState
 
@@ -73,8 +73,8 @@ class FakeClient:
     def drop(self):
         self.on_disconnect(self, None, None, Reason("Unspecified error", True), None)
 
-    def message(self, topic, payload):
-        msg = type("Msg", (), {"topic": topic, "payload": payload.encode()})()
+    def message(self, topic, payload, retain=False):
+        msg = type("Msg", (), {"topic": topic, "payload": payload.encode(), "retain": retain})()
         self.on_message(self, None, msg)
 
     def last(self, topic):
@@ -138,7 +138,7 @@ async def test_on_connect_it_announces_the_switch_and_the_tv_state(mqtt, ctx):
     client.connect()
     await settle()
     assert ctx.state.get("mqtt")["connected"] is True
-    assert set(client.subscribed) == {"couch/tv/set", "homeassistant/status"}
+    assert set(client.subscribed) == {"couch/tv/set", "couch/notify", "homeassistant/status"}
     assert ("couch/status", "online", True) in client.published
     config = json.loads(client.last("homeassistant/switch/couch/tv/config"))
     assert config["state_topic"] == "couch/tv/state"
@@ -210,7 +210,7 @@ async def test_home_assistant_coming_back_gets_the_config_again(mqtt):
     client.message("homeassistant/status", "online")
     await settle()
     after = len([t for t, _, _ in client.published if t.endswith("/config")])
-    assert after == before + 1
+    assert after == before + 2  # the switch and the notifier
 
 
 async def test_a_refused_login_is_said_once_and_retried_by_paho(mqtt, ctx, caplog):
@@ -284,7 +284,7 @@ async def test_topics_follow_the_config(ctx):
     await service.start()
     fake.connect()
     await settle()
-    assert set(fake.subscribed) == {"home/tv-room/tv/set", "ha/status"}
+    assert set(fake.subscribed) == {"home/tv-room/tv/set", "home/tv-room/notify", "ha/status"}
     assert json.loads(fake.last("ha/switch/living_room/tv/config"))["unique_id"] == (
         "couch_living_room_tv"
     )
@@ -310,3 +310,106 @@ def test_the_real_client_is_paho():
 
     client = make_client("couch-test")
     assert client._client_id == b"couch-test"
+
+
+# --- messages on the TV (#98) -----------------------------------------------------------------
+
+
+def toasts(ctx):
+    sub = ctx.bus.subscribe()
+    seen = []
+
+    def drain():
+        while not sub._queue.empty():
+            message = sub._queue.get_nowait()
+            if message["type"] == "toast":
+                seen.append(message["data"])
+        return seen
+
+    return drain
+
+
+async def test_the_notifier_is_announced_too(mqtt):
+    client = mqtt.fake
+    client.connect()
+    await settle()
+    config = json.loads(client.last("homeassistant/notify/couch/tv/config"))
+    assert config["command_topic"] == "couch/notify"
+    assert config["unique_id"] == "couch_couch_notify"
+    assert config["availability_topic"] == "couch/status"
+    switch = json.loads(client.last("homeassistant/switch/couch/tv/config"))
+    assert config["device"] == switch["device"]  # one Couch device with both
+
+
+async def test_a_message_shows_on_the_tv(mqtt, ctx):
+    seen = toasts(ctx)
+    ctx.state.update("tv", {"power": "on"})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Washing machine finished")
+    mqtt.fake.message(
+        "couch/notify",
+        json.dumps(
+            {"text": "Dryer finished", "detail": "Time to unload", "icon": "check", "seconds": 20}
+        ),
+    )
+    await settle()
+    assert seen() == [
+        {
+            "text": "Washing machine finished",
+            "level": "info",
+            "icon": "info",
+            "ms": 8000,
+            "id": "ha-notify",
+        },
+        {
+            "text": "Dryer finished",
+            "level": "info",
+            "icon": "check",
+            "ms": 20000,
+            "detail": "Time to unload",
+            "id": "ha-notify",
+        },
+    ]
+
+
+async def test_no_message_while_the_tv_is_in_standby(mqtt, ctx):
+    seen = toasts(ctx)
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Washing machine finished")  # the fixture's TV: standby
+    await settle()
+    assert seen() == []
+    ctx.state.update("tv", {"power": "unknown"})  # can't tell: show it
+    mqtt.fake.message("couch/notify", "Washing machine finished")
+    await settle()
+    assert [t["text"] for t in seen()] == ["Washing machine finished"]
+
+
+async def test_retained_and_repeated_messages_are_dropped(mqtt, ctx):
+    seen = toasts(ctx)
+    ctx.state.update("tv", {"power": "on"})
+    mqtt.fake.connect()
+    await settle()
+    mqtt.fake.message("couch/notify", "Old news", retain=True)
+    mqtt.fake.message("couch/notify", "Dryer finished")
+    mqtt.fake.message("couch/notify", "Dryer finished")  # the automation fired twice
+    mqtt.fake.message("couch/notify", "Washer finished")
+    mqtt.fake.message("couch/notify", "   ")  # nothing to say
+    await settle()
+    assert [t["text"] for t in seen()] == ["Dryer finished", "Washer finished"]
+
+
+def test_parse_note_keeps_messages_tidy():
+    assert parse_note("") is None
+    assert parse_note('{"detail": "no text"}') is None
+    assert parse_note("{not json")["text"] == "{not json"  # just text, then
+    note = parse_note(
+        json.dumps({"text": "x" * 300, "icon": "rocket", "level": "loud", "seconds": 999})
+    )
+    assert len(note["text"]) == 120 and note["text"].endswith("…")
+    assert (note["icon"], note["level"], note["ms"]) == ("info", "info", 60000)
+    assert parse_note(json.dumps({"text": "a", "seconds": True}))["ms"] == 8000
+    assert parse_note(json.dumps({"text": "a", "seconds": 0.5}))["ms"] == 2000
+    assert parse_note("two\n  lines")["text"] == "two lines"
+    assert parse_note(json.dumps({"text": "a", "level": "warning"}))["level"] == "warning"

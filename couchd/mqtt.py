@@ -1,4 +1,4 @@
-"""Home Assistant over MQTT (#97): the TV as a switch.
+"""Home Assistant over MQTT (#97): the TV as a switch, and messages on the TV (#98).
 
 couchd's own API answers on localhost only and has no login (couchd/api.py), so Home
 Assistant doesn't talk to it. Both talk to an MQTT broker instead, usually the Mosquitto
@@ -12,9 +12,14 @@ Topics, under `topic` (default "couch"):
     couch/tv/state    "on" / "standby" / "unknown", retained: `tv.power` (couchd/tv.py).
     couch/tv/set      "ON" turns the TV on (tv.power_on), "OFF" puts it in standby
                       (tv.standby). Anything else is ignored.
+    couch/notify      a message for the TV, as a toast over whatever is on screen: plain
+                      text, or JSON {"text", "detail", "icon", "level", "seconds"}. Not
+                      shown while the TV is in standby; retained messages and the same
+                      text again within `REPEAT_S` s are dropped.
 
-Home Assistant finds the switch by itself through MQTT discovery: a retained config at
-`<discovery>/switch/<node>/tv/config`, which shows up as "Couch TV" under a "Couch" device.
+Home Assistant finds both by itself through MQTT discovery: retained configs at
+`<discovery>/switch/<node>/tv/config` and `<discovery>/notify/<node>/tv/config`, which show up
+as a "TV" switch and a "TV" notifier under a "Couch" device.
 `<node>` is the Pi's hostname, so two Couches don't collide (they'd need different `topic`s
 too). The config is sent again whenever Home Assistant says it's back (`<discovery>/status`
 "online"), as the discovery docs ask. "unknown" (no answer from the TV) is unknown in Home
@@ -39,6 +44,7 @@ from pathlib import Path
 from typing import Any
 
 from couchd import __version__
+from couchd.bus import TOAST_ICONS, TOAST_LEVELS
 from couchd.commands import CommandError
 from couchd.config import MqttConfig
 from couchd.services import Context, Service
@@ -51,6 +57,12 @@ RECONNECT_MAX = 60
 STOP_WAIT = 1.0  # how long stop() waits for "offline" to reach the broker
 
 POWER_STATES = ("on", "standby")
+NOTIFY_TEXT = 120  # characters: one line on the TV
+NOTIFY_DETAIL = 200
+NOTIFY_SECONDS = 8  # how long a message stays, unless it says
+NOTIFY_RANGE = (2, 60)
+REPEAT_S = 10.0  # the same text again this soon is an automation firing twice
+TOAST_ID = "ha-notify"
 # Home Assistant's MQTT switch: ON, OFF, or "None" for unknown.
 VALUE_TEMPLATE = "{% if value == 'on' %}ON{% elif value == 'standby' %}OFF{% else %}None{% endif %}"
 
@@ -93,8 +105,11 @@ class MqttService(Service):
         self.status_topic = f"{t}/status"
         self.state_topic = f"{t}/tv/state"
         self.set_topic = f"{t}/tv/set"
+        self.notify_topic = f"{t}/notify"
         self.ha_status_topic = f"{config.discovery}/status"
         self.discovery_topic = f"{config.discovery}/switch/{self._node}/tv/config"
+        self.notify_discovery_topic = f"{config.discovery}/notify/{self._node}/tv/config"
+        self._last_note: tuple[str, float] | None = None
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -146,7 +161,8 @@ class MqttService(Service):
         self._call(self._disconnected_cb, str(reason_code))
 
     def _on_message(self, client, userdata, message) -> None:
-        self._call(self._message_cb, message.topic, bytes(message.payload))
+        retained = bool(getattr(message, "retain", False))
+        self._call(self._message_cb, message.topic, bytes(message.payload), retained)
 
     def _call(self, fn: Callable[..., None], *args: Any) -> None:
         loop = self._loop
@@ -169,7 +185,7 @@ class MqttService(Service):
         log.info("MQTT connected", extra={"broker": self._broker()})
         self._connected = True
         self._set_state(connected=True, error=None)
-        client.subscribe([(self.set_topic, 1), (self.ha_status_topic, 1)])
+        client.subscribe([(self.set_topic, 1), (self.notify_topic, 1), (self.ha_status_topic, 1)])
         client.publish(self.status_topic, "online", qos=1, retain=True)
         self._announce()
 
@@ -181,9 +197,15 @@ class MqttService(Service):
         self._connected = False
         self._set_state(connected=False)
 
-    def _message_cb(self, topic: str, payload: bytes) -> None:
+    def _message_cb(self, topic: str, payload: bytes, retained: bool = False) -> None:
         text = payload.decode("utf-8", "replace").strip()
-        if topic == self.set_topic:
+        if topic == self.notify_topic:
+            if retained:
+                # Old news: a retained message would pop up again on every reconnect.
+                log.info("MQTT: skipped a retained message for the TV")
+                return
+            self._notify(text)
+        elif topic == self.set_topic:
             command = {"ON": "tv.power_on", "OFF": "tv.standby"}.get(text.upper())
             if command is None:
                 log.warning("MQTT: unknown TV command", extra={"payload": text[:40]})
@@ -200,23 +222,37 @@ class MqttService(Service):
         except CommandError as e:
             log.warning("MQTT: TV command failed", extra={"command": command, "error": str(e)})
 
+    def _notify(self, payload: str) -> None:
+        note = parse_note(payload)
+        if note is None:
+            log.warning("MQTT: a message for the TV with no text", extra={"payload": payload[:40]})
+            return
+        if self._tv_power() == "standby":
+            log.info("MQTT: TV in standby, message not shown", extra={"text": note["text"]})
+            return
+        now = asyncio.get_running_loop().time()
+        if self._last_note is not None:
+            last, at = self._last_note
+            if last == note["text"] and now - at < REPEAT_S:
+                log.info("MQTT: same message again, not shown", extra={"text": note["text"]})
+                return
+        self._last_note = (note["text"], now)
+        log.info("MQTT: message on the TV", extra={"text": note["text"]})
+        self.ctx.bus.publish("toast", {**note, "id": TOAST_ID})
+
     # --- what we tell Home Assistant ----------------------------------------------------------
 
     def _announce(self) -> None:
-        """The discovery config, then the TV's state, both retained."""
+        """The discovery configs, then the TV's state, all retained."""
         if self._client is None or not self._connected:
             return
-        self._client.publish(self.discovery_topic, json.dumps(self.discovery()), qos=1, retain=True)
+        for topic, config in self.discovery().items():
+            self._client.publish(topic, json.dumps(config), qos=1, retain=True)
         self._publish_power()
 
-    def discovery(self) -> dict[str, Any]:
-        return {
-            "name": "TV",
-            "unique_id": f"couch_{self._node}_tv",
-            "icon": "mdi:television",
-            "state_topic": self.state_topic,
-            "command_topic": self.set_topic,
-            "value_template": VALUE_TEMPLATE,
+    def discovery(self) -> dict[str, dict[str, Any]]:
+        """Discovery topic → config: the TV switch and the TV notifier, on one device."""
+        common = {
             "availability_topic": self.status_topic,
             "qos": 1,
             "device": {
@@ -227,6 +263,24 @@ class MqttService(Service):
                 "sw_version": __version__,
             },
             "origin": {"name": "couchd", "sw_version": __version__},
+        }
+        return {
+            self.discovery_topic: {
+                "name": "TV",
+                "unique_id": f"couch_{self._node}_tv",
+                "icon": "mdi:television",
+                "state_topic": self.state_topic,
+                "command_topic": self.set_topic,
+                "value_template": VALUE_TEMPLATE,
+                **common,
+            },
+            self.notify_discovery_topic: {
+                "name": "TV",
+                "unique_id": f"couch_{self._node}_notify",
+                "icon": "mdi:message-badge",
+                "command_topic": self.notify_topic,
+                **common,
+            },
         }
 
     def _publish_power(self) -> None:
@@ -278,3 +332,48 @@ class MqttService(Service):
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+
+def parse_note(payload: str) -> dict[str, Any] | None:
+    """A message for the TV, as a toast: plain text, or JSON with `text` and maybe `detail`,
+    `icon`, `level` and `seconds`. Unknown icons and levels fall back to info; text is cut to
+    fit the screen. None when there's nothing to say."""
+    fields: dict[str, Any] = {}
+    if payload.startswith("{"):
+        try:
+            loaded = json.loads(payload)
+        except ValueError:
+            loaded = None
+        if isinstance(loaded, dict):
+            fields = loaded
+    if not fields:
+        fields = {"text": payload}
+    text = _line(fields.get("text"), NOTIFY_TEXT)
+    if not text:
+        return None
+    icon = fields.get("icon")
+    level = fields.get("level")
+    note: dict[str, Any] = {
+        "text": text,
+        "level": level if level in TOAST_LEVELS else "info",
+        "icon": icon if icon in TOAST_ICONS else "info",
+        "ms": _seconds(fields.get("seconds")) * 1000,
+    }
+    detail = _line(fields.get("detail"), NOTIFY_DETAIL)
+    if detail:
+        note["detail"] = detail
+    return note
+
+
+def _line(value: Any, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _seconds(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return NOTIFY_SECONDS
+    low, high = NOTIFY_RANGE
+    return int(min(max(value, low), high))
