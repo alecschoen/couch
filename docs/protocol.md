@@ -130,6 +130,11 @@ service, does the work and couchd reads its status file:
 `speaker` for "Sound now on X", and `check` otherwise. couchd shows it over the app in front
 too (see [Overlays](#overlays)); the launcher shows it itself.
 
+Messages from Home Assistant (`couch/notify` over MQTT, [Home Assistant](home-assistant.md))
+are toasts too, with `"id": "ha-notify"` and their own `ms` (8 s unless the message says) and
+maybe a `detail` line. Both need the sleep timer's toasts (#92); until then they show for
+2.4 s, without the detail.
+
 **`volume_panel`**: show the volume panel, for 2.4 s after the last one. couchd sends it for
 each `volume_changed` while the quick menu is closed (see [Overlays](#overlays)).
 
