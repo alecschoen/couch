@@ -27,6 +27,7 @@ class Tab:
     paused: int = 0
     loaded: bool = True  # False: document.readyState stays "loading"
     user_agent: str = ""
+    viewport: tuple[int, int, float] | None = None  # Emulation.setDeviceMetricsOverride
     scripts: list[str] = field(default_factory=list)
     bindings: set[str] = field(default_factory=set)
     domains: set[str] = field(default_factory=set)  # enabled on the setup session
@@ -161,6 +162,10 @@ class FakeChromium:
                 return {}
             case "Emulation.setUserAgentOverride" if on:
                 on.user_agent = params["userAgent"]
+                return {}
+            case "Emulation.setDeviceMetricsOverride" if on:
+                p = params
+                on.viewport = (p["width"], p["height"], p["deviceScaleFactor"])
                 return {}
             case "Page.addScriptToEvaluateOnNewDocument" if on and "Page" in on.domains:
                 on.scripts.append(params["source"])

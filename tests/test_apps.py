@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from couchd import apps as apps_module
-from couchd import youtube
+from couchd import youtube, ytmusic
 from couchd.apps import AppService, CrashLimiter
 from couchd.bus import EventBus
 from couchd.chromium import Chromium
@@ -96,7 +96,7 @@ async def test_starts_without_chromium(ctx, apps, display):
     s = state(ctx)
     assert s["foreground"] == "launcher"
     assert s["running"] == ["launcher"]
-    assert [a["id"] for a in s["list"]] == ["launcher", "youtube", "plex"]
+    assert [a["id"] for a in s["list"]] == ["launcher", "youtube", "ytmusic", "plex"]
     assert s["error"] is None and s["opening"] is None
     await asyncio.sleep(0.05)
     assert display.chromium_starts == 0
@@ -293,6 +293,17 @@ async def test_youtube_gets_a_tv_user_agent_and_its_script(ctx, apps, browser):
     assert tab.user_agent == youtube.USER_AGENT and "Tizen" in tab.user_agent
     assert tab.scripts == [youtube.SCRIPT]
     assert "isTypeSupported" in youtube.SCRIPT and "window.close" in youtube.SCRIPT
+
+
+async def test_youtube_music_is_laid_out_small_and_drawn_big(ctx, apps, browser):
+    await run(ctx, "apps.launch", app="ytmusic")
+    tab = browser.tab_for(ytmusic.MATCH)
+    assert tab.url == ytmusic.URL
+    assert tab.user_agent == ""  # the desktop site, as Chromium itself
+    assert tab.viewport == (1280, 720, 1.5)
+    assert tab.scripts == [ytmusic.SCRIPT]
+    assert "MediaPlayPause" in ytmusic.SCRIPT and "couch-focus" in ytmusic.SCRIPT
+    assert state(ctx)["foreground"] == "ytmusic"
 
 
 async def test_youtube_asking_to_leave_goes_home(ctx, apps, browser, display):

@@ -70,6 +70,9 @@ class PageSetup:
 
     user_agent: str = ""
     script: str = ""  # runs in every document of the tab, before the page's own scripts
+    # (width, height, scale): the page lays out at width x height CSS pixels and is drawn
+    # `scale` times bigger, so a page made for a small screen fills the TV, sharp.
+    viewport: tuple[int, int, float] | None = None
 
 
 class Chromium:
@@ -191,6 +194,11 @@ class Chromium:
             if setup.user_agent:
                 params = {"userAgent": setup.user_agent}
                 await self.call("Emulation.setUserAgentOverride", params, session=session)
+            if setup.viewport:
+                width, height, scale = setup.viewport
+                params = {"width": width, "height": height, "deviceScaleFactor": scale,
+                          "mobile": False}  # fmt: skip
+                await self.call("Emulation.setDeviceMetricsOverride", params, session=session)
             if setup.script:
                 params = {"source": setup.script}
                 await self.call("Page.addScriptToEvaluateOnNewDocument", params, session=session)

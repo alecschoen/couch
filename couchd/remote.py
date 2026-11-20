@@ -80,6 +80,7 @@ KEYMAPS: dict[str, dict[str, int]] = {
 # in its tab is about:blank. Its Back from Home goes to the launcher (couchd/youtube.js).
 APP_KEYMAPS: dict[str, dict[str, int]] = {
     "youtube": {"back": uinput.KEY_ESC},
+    "ytmusic": {"back": uinput.KEY_ESC},  # handled by couchd/ytmusic.js
 }
 
 

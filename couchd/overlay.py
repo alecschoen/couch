@@ -63,7 +63,7 @@ KODI_IMAGES = {"info": "info", "warning": "warning", "error": "error"}
 
 ITEMS = ("home", "sound", "volume", "bluetooth")
 MINUS = "\u2212"  # the Volume card's "<minus> 60 +", as in the design
-PALETTES = {"youtube": "yt", "plex": "plex"}  # app id -> ui/css/tokens.css palette
+PALETTES = {"youtube": "yt", "ytmusic": "yt", "plex": "plex"}  # app id -> ui/css/tokens.css palette
 EVENING_STARTS, EVENING_ENDS = 18, 7  # without couchd/evening.py's `dark`, as it does
 
 
